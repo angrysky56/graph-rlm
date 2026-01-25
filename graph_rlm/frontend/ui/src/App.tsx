@@ -40,8 +40,9 @@ function App() {
     } catch (e) { console.error("Failed to load config", e); }
   };
 
-  const loadGraph = async () => {
-    const data = await api.getGraphState();
+  const loadGraph = async (sid?: string) => {
+    const targetSession = sid || sessionId;
+    const data = await api.getGraphState(targetSession);
     if (data && data.nodes) setGraphData(data);
   };
 
@@ -59,6 +60,12 @@ function App() {
     setSessionId(newId);
     setReplEntries([]);
     setGraphData({ nodes: [], links: [] });
+  };
+
+  const handleSessionSelect = (sid: string) => {
+    setSessionId(sid);
+    setReplEntries([]); // Clear logs (Future: load logs from DB?)
+    loadGraph(sid);
   };
 
   const handleStop = () => {
@@ -264,6 +271,7 @@ function App() {
       onSelectModel={handleModelSelect}
       onRefreshConfig={refreshConfig}
       onInjectContent={(text) => setChatInput(prev => prev + text)}
+      onSelectSession={handleSessionSelect}
     >
       <div className="flex h-full relative flex-col">
         {/* REPL Area - Takes full height minus input */}

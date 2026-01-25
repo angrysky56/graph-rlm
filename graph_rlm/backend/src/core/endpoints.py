@@ -144,12 +144,28 @@ async def get_history(session_id: str):
     return messages
 
 @router.get("/chat/graph")
-async def get_graph():
+async def get_graph(session_id: Optional[str] = None):
     """
     Get entire graph state for visualization.
+    Optionally filter by session_id.
     """
     try:
-        raw_data = db.get_graph_state()
+        # If session_id is provided, filter nodes
+        if session_id:
+            # We want all nodes in this session + their rels
+            # Note: We assume edges don't cross sessions generally?
+            # Or if they do, we want that context?
+            # Safe bet: MATCH (n:Thought) WHERE n.session_id = $sid
+            cypher = """
+            MATCH (n:Thought)
+            WHERE n.session_id = $sid
+            OPTIONAL MATCH (n)-[r]->(m)
+            RETURN n, r, m
+            """
+            raw_data = db.query(cypher, {"sid": session_id})
+        else:
+            raw_data = db.get_graph_state()
+
         nodes = {}
         links = []
 
@@ -158,9 +174,22 @@ async def get_graph():
             # FalkorDB python client returns Nodes/Relationships as objects or dicts depending on version
             # We assume dict-like or object with properties
 
-            source = row[0]
-            rel = row[1]
-            target = row[2]
+            # Safe extraction
+            if isinstance(row, (list, tuple)):
+                source = row[0]
+                rel = row[1] if len(row) > 1 else None
+                target = row[2] if len(row) > 2 else None
+            elif isinstance(row, dict):
+                # FalkorDB wrapper might return keys 'n', 'r', 'm' based on query
+                # Query was `RETURN n, r, m`
+                source = row.get('n') or row.get('source')
+                rel = row.get('r') or row.get('rel')
+                target = row.get('m') or row.get('target')
+            else:
+                 # Fallback
+                 source = row
+                 rel = None
+                 target = None
 
             # Helper to extract props
             def get_props(entity):

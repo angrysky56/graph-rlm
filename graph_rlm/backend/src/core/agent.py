@@ -195,7 +195,7 @@ class Agent:
             prompt_vec = None
 
         # 1. Graph Node
-        self.db.create_thought_node(thought_id, prompt, parent_id, prompt_vec)
+        self.db.create_thought_node(thought_id, prompt, parent_id, prompt_vec, session_id=session_id)
 
         self.emit_event("graph_update", data={
             "action": "add_node",

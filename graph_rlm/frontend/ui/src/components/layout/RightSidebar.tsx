@@ -60,7 +60,16 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
 
                 {graphExpanded && (
                     <div className="flex-1 relative overflow-hidden bg-slate-900/10">
-                        <GraphCanvas data={graphData} />
+                        <GraphCanvas
+                            data={graphData}
+                            onNodeClick={(node) => {
+                                // For now, just inject node info into chat or console
+                                // Ideally, we open a detail view.
+                                // Let's log to console for M1
+                                console.log("Node Clicked:", node);
+                                if (onInjectContent) onInjectContent(`@[GraphNode:${node.id}] `);
+                            }}
+                        />
                     </div>
                 )}
             </div>

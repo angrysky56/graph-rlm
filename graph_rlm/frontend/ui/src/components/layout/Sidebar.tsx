@@ -8,6 +8,7 @@ interface SidebarProps {
     currentModel: string;
     onSelectModel: (model: Model) => void;
     onOpenSettings: () => void;
+    onSelectSession?: (id: string) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -15,6 +16,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentModel,
     onSelectModel,
     onOpenSettings,
+    onSelectSession
 }) => {
     const [models, setModels] = useState<Model[]>([]);
     const [sessions, setSessions] = useState<any[]>([]);
@@ -74,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <div className="p-4 text-center text-xs text-slate-600 italic">No history found.</div>
                     )}
                     {sessions.map(s => (
-                        <div key={s.id} className="p-3 bg-slate-900/40 border-transparent border hover:border-slate-800 rounded cursor-pointer transition-colors group">
+                        <div key={s.id} onClick={() => onSelectSession && onSelectSession(s.id)} className="p-3 bg-slate-900/40 border-transparent border hover:border-slate-800 rounded cursor-pointer transition-colors group">
                             <div className="text-xs text-slate-300 font-medium truncate">{s.title || "Untitled Session"}</div>
                             <div className="text-[10px] text-slate-600 mt-1 flex justify-between">
                                 <span>{new Date(s.created_at || Date.now()).toLocaleTimeString()}</span>

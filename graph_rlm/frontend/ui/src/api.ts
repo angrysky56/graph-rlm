@@ -93,9 +93,9 @@ export const api = {
         return res.data;
     },
 
-    getGraphState: async () => {
+    getGraphState: async (sessionId?: string) => {
         try {
-            const res = await apiClient.get('/chat/graph');
+            const res = await apiClient.get('/chat/graph', { params: { session_id: sessionId } });
             return res.data;
         } catch (e) {
             console.error("Failed to fetch graph state", e);

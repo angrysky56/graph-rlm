@@ -22,9 +22,10 @@ interface GraphCanvasProps {
         nodes: GraphNode[];
         links: GraphLink[];
     };
+    onNodeClick?: (node: GraphNode) => void;
 }
 
-export const GraphCanvas: React.FC<GraphCanvasProps> = ({ data }) => {
+export const GraphCanvas: React.FC<GraphCanvasProps> = ({ data, onNodeClick }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const dimensions = useResizeObserver(containerRef as React.RefObject<HTMLElement>);
     const graphRef = useRef<any>();
@@ -32,7 +33,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ data }) => {
     // Auto-zoom when data changes significantly (optional, but nice)
     useEffect(() => {
         if (graphRef.current) {
-            // graphRef.current.zoomToFit(400); // 400ms transition
+            // Gentle fit
+            // graphRef.current.zoomToFit(400);
         }
     }, [data.nodes.length]);
 
@@ -53,10 +55,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({ data }) => {
                     }
                 }}
                 nodeLabel="label"
+                linkLabel={(link: any) => 'Decomposes Into'}
                 linkColor={() => '#475569'}
                 backgroundColor="transparent"
                 d3VelocityDecay={0.3}
                 nodeRelSize={6}
+                // Interaction
+                onNodeClick={(node) => onNodeClick && onNodeClick(node as GraphNode)}
+                // Directional Arrows
+                linkDirectionalArrowLength={3.5}
+                linkDirectionalArrowRelPos={1}
             />
 
             {/* Overlay Status */}
