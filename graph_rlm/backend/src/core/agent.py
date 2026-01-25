@@ -35,9 +35,10 @@ class RLMInterface:
     The object exposed to the REPL as 'rlm'.
     Allows recursive queries and memory recall.
     """
-    def __init__(self, agent: 'Agent', session_id: str):
+    def __init__(self, agent: 'Agent', session_id: str, root_session_id: str):
         self.agent = agent
         self.session_id = session_id
+        self.root_session_id = root_session_id
 
     def query(self, prompt: str, context: Optional[str] = None):
         """
@@ -56,7 +57,12 @@ class RLMInterface:
         if context:
             full_prompt = f"Context:\n{context}\n\nTask: {prompt}"
 
-        return self.agent.query_sync(full_prompt, parent_id=self.agent.current_thought_id, session_id=new_session_id)
+        return self.agent.query_sync(
+            full_prompt,
+            parent_id=self.agent.current_thought_id,
+            session_id=new_session_id,
+            root_session_id=self.root_session_id
+        )
 
     def recall(self, query: str, limit: int = 3):
         """
@@ -239,11 +245,14 @@ class Agent:
                     break
                 await asyncio.sleep(0.01)
 
-    def query_sync(self, prompt: str, parent_id: Optional[str] = None, session_id: str = "default", depth: int = 0) -> str:
+    def query_sync(self, prompt: str, parent_id: Optional[str] = None, session_id: str = "default", depth: int = 0, root_session_id: Optional[str] = None) -> str:
         """
         Synchronous Recursive Logic with Self-Healing Loop.
         Executed in a worker thread.
         """
+        # If root_session_id is missing, default to session_id (implies we are the root)
+        final_root_id = root_session_id if root_session_id else session_id
+
         # if depth > 10:
         #      return "Error: Maximum recursion depth (10) reached."
         if depth > 100:
@@ -251,7 +260,7 @@ class Agent:
              logger.warning("Recursive Depth > 100. Continuing but be careful.")
 
         thought_id = str(uuid.uuid4())
-        logger.info(f"Thought {thought_id} (Session {session_id}, Depth {depth}): Processing.")
+        logger.info(f"Thought {thought_id} (Session {session_id}, Root {final_root_id}, Depth {depth}): Processing.")
 
         # 0. Embedding
         try:
@@ -260,7 +269,7 @@ class Agent:
             prompt_vec = None
 
         # 1. Graph Node
-        self.db.create_thought_node(thought_id, prompt, parent_id, prompt_vec, session_id=session_id)
+        self.db.create_thought_node(thought_id, prompt, parent_id, prompt_vec, session_id=session_id, root_session_id=final_root_id)
 
         self.emit_event("graph_update", data={
             "action": "add_node",
@@ -377,7 +386,7 @@ class Agent:
             if code_block_found:
                 code = self._extract_code(response_text)
                 self.emit_event("thinking", content="\nExecuting Code...")
-                executed_result = self._execute_code(code, thought_id, session_id)
+                executed_result = self._execute_code(code, thought_id, session_id, root_session_id=final_root_id)
                 self.emit_event("code_output", content=executed_result, code=code)
 
                 # Append result to context for next step
@@ -452,7 +461,7 @@ class Agent:
 
         return ""
 
-    def _execute_code(self, code: str, thought_id: str, session_id: str) -> str:
+    def _execute_code(self, code: str, thought_id: str, session_id: str, root_session_id: Optional[str] = None) -> str:
         # 1. Get or Create REPL for this session
         if session_id in self.active_repls:
             repl_id = self.active_repls[session_id]
@@ -478,7 +487,11 @@ class Agent:
             # Re-inject RLM interface (it needs current thought_id binding)
             # Ideally RLMInterface is persistent but points to dynamic 'agent.current_thought'
             # Here we just overwrite 'rlm' in namespace to be safe or update it
-            rlm_interface = RLMInterface(self, session_id)
+
+            # Ensure we have a root_session_id
+            final_root = root_session_id if root_session_id else session_id
+
+            rlm_interface = RLMInterface(self, session_id, final_root)
 
             if hasattr(repl, 'namespace') and repl.namespace is not None:
                 repl.namespace['rlm'] = rlm_interface

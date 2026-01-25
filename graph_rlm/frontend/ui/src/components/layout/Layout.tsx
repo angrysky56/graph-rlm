@@ -14,6 +14,7 @@ interface LayoutProps {
     onRefreshConfig?: () => void;
     onInjectContent?: (text: string) => void;
     onSelectSession?: (id: string) => void;
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; };
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -25,7 +26,8 @@ export const Layout: React.FC<LayoutProps> = ({
 
     onRefreshConfig,
     onInjectContent,
-    onSelectSession
+    onSelectSession,
+    usage
 }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -39,6 +41,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     onSelectModel={onSelectModel}
                     onOpenSettings={() => setIsSettingsOpen(true)}
                     onSelectSession={onSelectSession}
+                    usage={usage}
                 />
             </div>
 

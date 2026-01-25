@@ -156,9 +156,10 @@ async def get_graph(session_id: Optional[str] = None):
             # Note: We assume edges don't cross sessions generally?
             # Or if they do, we want that context?
             # Safe bet: MATCH (n:Thought) WHERE n.session_id = $sid
+            # We query on root_session_id OR session_id to catch everything relevant
             cypher = """
             MATCH (n:Thought)
-            WHERE n.session_id = $sid
+            WHERE n.root_session_id = $sid OR n.session_id = $sid
             OPTIONAL MATCH (n)-[r]->(m)
             RETURN n, r, m
             """

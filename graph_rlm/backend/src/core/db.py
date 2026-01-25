@@ -11,17 +11,20 @@ class GraphClient:
     def query(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         return self.graph.query(query, params if params else {})
 
-    def create_thought_node(self, thought_id: str, prompt: str, parent_id: Optional[str] = None, prompt_embedding: Optional[List[float]] = None, session_id: str = "default"):
+    def create_thought_node(self, thought_id: str, prompt: str, parent_id: Optional[str] = None, prompt_embedding: Optional[List[float]] = None, session_id: str = "default", root_session_id: Optional[str] = None):
         """
         Creates a 'Thought' node in the graph.
         If parent_id is provided, creates a DECOMPOSES_INTO edge from parent to child.
         """
-        params: Dict[str, Any] = {"tid": thought_id, "prompt": prompt, "sid": session_id}
+        # If root_session_id is not provided, default to the session_id (implies this IS the root)
+        final_root = root_session_id if root_session_id else session_id
+
+        params: Dict[str, Any] = {"tid": thought_id, "prompt": prompt, "sid": session_id, "rsid": final_root}
 
         # Create the node
         cypher = """
         MERGE (t:Thought {id: $tid})
-        SET t.prompt = $prompt, t.status = 'pending', t.created_at = timestamp(), t.session_id = $sid
+        SET t.prompt = $prompt, t.status = 'pending', t.created_at = timestamp(), t.session_id = $sid, t.root_session_id = $rsid
         """
         if prompt_embedding:
             params["vec"] = prompt_embedding

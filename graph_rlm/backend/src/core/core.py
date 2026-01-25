@@ -121,4 +121,15 @@ class PythonREPL:
         # This is crucial for recursive functions to work properly
         self.namespace: Dict[str, Any] = {'__builtins__': __builtins__}
 
+        # Inject standard libraries for convenience
+        try:
+            import os, sys, json, time, math, re, random
+            self.namespace.update({
+                'os': os, 'sys': sys, 'json': json,
+                'time': time, 'math': math, 're': re,
+                'random': random
+            })
+        except ImportError:
+            pass
+
     execute = execute

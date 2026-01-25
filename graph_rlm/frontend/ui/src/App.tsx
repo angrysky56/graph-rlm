@@ -37,13 +37,23 @@ function App() {
       else if (provider === 'openai') active = cfg.OPENAI_MODEL;
 
       if (active) setCurrentModel(active);
-    } catch (e) { console.error("Failed to load config", e); }
+      return true;
+    } catch (e) {
+      console.error("Failed to load config (Backend likely starting...)", e);
+      return false;
+    }
   };
 
   const loadGraph = async (sid?: string) => {
-    const targetSession = sid || sessionId;
-    const data = await api.getGraphState(targetSession);
-    if (data && data.nodes) setGraphData(data);
+    try {
+      const targetSession = sid || sessionId;
+      const data = await api.getGraphState(targetSession);
+      if (data && data.nodes) {
+        setGraphData(data);
+        return true;
+      }
+    } catch (e) { return false; }
+    return false;
   };
 
   useEffect(() => {
@@ -51,8 +61,34 @@ function App() {
   }, [sessionId]);
 
   useEffect(() => {
-    refreshConfig();
-    loadGraph();
+    // Retry loop for initial connection (Backend takes time to spin up MCP)
+    let retries = 0;
+    let mounted = true;
+
+    const attempt = async () => {
+      if (!mounted) return;
+
+      // We check for success boolean now
+      const configOk = await refreshConfig();
+      const graphOk = await loadGraph();
+
+      // If config loaded (model selected), we consider backend ready.
+      // Graph might be empty for new session, so configOk is the main signal.
+      if (configOk) {
+        return;
+      }
+
+      if (retries < 30) {
+        retries++;
+        // Backoff: 2s, 3s, ... max 10s
+        const delay = Math.min(2000 * Math.pow(1.1, retries), 10000);
+        setTimeout(attempt, delay);
+      }
+    };
+
+    attempt();
+
+    return () => { mounted = false; };
   }, []);
 
   const handleNewChat = () => {
@@ -60,6 +96,8 @@ function App() {
     setSessionId(newId);
     setReplEntries([]);
     setGraphData({ nodes: [], links: [] });
+    // Reset usage stats
+    setUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
   };
 
   const handleSessionSelect = (sid: string) => {
@@ -80,25 +118,23 @@ function App() {
   // ... imports
 
   // Mapping Stream Events to REPL Entries
+  const [usage, setUsage] = useState({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+
+  // ... (keep handleNewChat as single source of truth at top level)
+
   const handleExecute = (query: string) => {
     setIsProcessing(true);
-    // User Input -> REPL
     setReplEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now() }]);
 
     const payload = {
       model: currentModel,
-      messages: [{ role: 'user', content: query }], // Backend currently only uses last message, dependent on Agent state?
+      messages: [{ role: 'user', content: query }],
       stream: true,
       session_id: sessionId
     };
 
     const ctrl = api.streamChat(payload, (event) => {
       if (event.type === 'token') {
-        // Accumulate tokens into a single "output" entry if possible, or stream characters.
-        // For a simplified REPL, we might append to the last entry if it's an 'output' type active stream.
-        // But React state updates are async. Better to buffer or use a specialized hook.
-        // For now, let's treat chunks as updates to the LAST entry if it is of type 'output' and 'streaming'.
-
         setReplEntries(prev => {
           const last = prev[prev.length - 1];
           if (last && last.type === 'output' && last.isStreaming) {
@@ -110,8 +146,15 @@ function App() {
             return [...prev, { type: 'output', content: event.content, timestamp: Date.now(), isStreaming: true }];
           }
         });
-
+      } else if (event.type === 'usage') {
+        // Accumulate usage
+        setUsage(prev => ({
+          prompt_tokens: prev.prompt_tokens + (event.prompt_tokens || 0),
+          completion_tokens: prev.completion_tokens + (event.completion_tokens || 0),
+          total_tokens: prev.total_tokens + (event.total_tokens || 0)
+        }));
       } else if (event.type === 'thinking') {
+        // ...
         // 'Thinking' events (gray text)
         setReplEntries(prev => [...prev, { type: 'info', content: event.content, timestamp: Date.now() }]);
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ModelSelector } from '../chat/ModelSelector';
+import { ModelStatus } from './ModelStatus';
 import { Settings, Plus, History as HistoryIcon } from 'lucide-react';
 import { type Model, api } from '../../api';
 
@@ -9,6 +9,11 @@ interface SidebarProps {
     onSelectModel: (model: Model) => void;
     onOpenSettings: () => void;
     onSelectSession?: (id: string) => void;
+    usage?: {
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+    };
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -16,41 +21,51 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentModel,
     onSelectModel,
     onOpenSettings,
-    onSelectSession
+    onSelectSession,
+    usage
 }) => {
     const [models, setModels] = useState<Model[]>([]);
     const [sessions, setSessions] = useState<any[]>([]);
 
     useEffect(() => {
         let isStopped = false;
+
         const fetchModels = async () => {
             let retries = 0;
-            const max = 20;
+            const max = 30; // Increased retries
             while (retries < max && !isStopped) {
                 try {
                     const data = await api.listModels();
+                    // Keep retrying if empty list (assuming backend has at least 1 model)
                     if (data && data.length > 0) {
                         setModels(data);
                         break;
                     }
                 } catch (e) { }
                 retries++;
-                await new Promise(r => setTimeout(r, 1000 * Math.min(retries, 5)));
+                // Exponential backoff
+                await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(1.2, retries), 5000)));
             }
         };
 
         const fetchSessions = async () => {
             let retries = 0;
-            const max = 20;
+            const max = 30;
             while (retries < max && !isStopped) {
                 try {
                     const data = await api.getSessions();
-                    // Sessions can be empty legitimately, so we check if the request just worked (didn't throw)
-                    setSessions(data || []);
-                    break;
+                    // Sessions CAN be empty, but if we error we retry.
+                    // If we get specific error or empty on first try, maybe wait?
+                    // Actually, getting sessions is less critical than models.
+                    // But let's assume if it works, it works.
+                    if (Array.isArray(data)) {
+                        setSessions(data);
+                        // If we got a valid array, even empty, we stop.
+                        break;
+                    }
                 } catch (e) { }
                 retries++;
-                await new Promise(r => setTimeout(r, 1000 * Math.min(retries, 5)));
+                await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(1.2, retries), 5000)));
             }
         };
 
@@ -75,7 +90,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 />
             </div>
 
-            {/* Model Selector Section */}
+            {/* Model Status Section */}
             <div className="p-4 border-b border-slate-800 space-y-3 shrink-0">
                 <div className="flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-widest font-bold">
                     <div className="flex items-center gap-2">
@@ -87,13 +102,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         )}
                     </div>
                 </div>
-                <ModelSelector
-                    models={models}
-                    currentModel={currentModel}
-                    onSelect={(id) => {
-                        const m = models.find(x => x.id === id);
-                        if (m) onSelectModel(m);
-                    }}
+
+                <ModelStatus
+                    model={models.find(m => m.id === currentModel) || { id: currentModel, name: currentModel, context_length: 0, supports_tools: false, pricing: { prompt: '', completion: '' } }}
+                    usage={usage}
                 />
             </div>
 

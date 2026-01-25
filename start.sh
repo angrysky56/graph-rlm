@@ -19,10 +19,8 @@ cleanup() {
 
     if [ ! -z "$REDIS_PID" ]; then
         if [ "$REDIS_PID" == "DOCKER_CONTAINER" ]; then
-             # Don't stop the container on exit, just leave it running to speed up next start
-             # echo "[-] Stopping Docker Container..."
-             # docker stop graph-rlm-db >/dev/null
-             echo "[-] Leaving Database container running."
+             echo "[-] Stopping Docker Container..."
+             docker stop graph-rlm-db >/dev/null
         else
              echo "[-] Stopping Redis/FalkorDB (PID: $REDIS_PID)..."
              kill $REDIS_PID 2>/dev/null
