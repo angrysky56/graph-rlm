@@ -488,7 +488,7 @@ def discover_tools(config_path: str | Path) -> dict[str, list[str]]:
 def filter_tools_from_results(
     results: dict[str, dict[str, Any]],
     query: str,
-    max_results: int = 10,
+    max_results: int = 50,
     min_score: int = 2,
 ) -> list[dict[str, Any]]:
     """
@@ -498,7 +498,7 @@ def filter_tools_from_results(
     Args:
         results: Server discovery results
         query: Search query string
-        max_results: Maximum number of results to return (default 10)
+        max_results: Maximum number of results to return (default 50)
         min_score: Minimum score threshold (default 2)
 
     Returns:
@@ -533,10 +533,9 @@ def filter_tools_from_results(
                     score += 1
 
             if score >= min_score:
-                # Truncate description to prevent wall of text
                 desc = tool_def.get("description") or ""
-                if len(desc) > 500:
-                    desc = desc[:497] + "..."
+                if len(desc) > 2000:
+                    desc = desc[:1997] + "..."
 
                 matches.append(
                     {

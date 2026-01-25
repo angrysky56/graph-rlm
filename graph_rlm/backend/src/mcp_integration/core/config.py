@@ -35,7 +35,7 @@ class ServerConfig(BaseModel):
     command: str | None = Field(
         default=None, description="Command to execute (stdio only)"
     )
-    args: list[str] = Field(
+    args: list[str] | None = Field(
         default_factory=list, description="Arguments for command (stdio)"
     )
     env: dict[str, str] | None = Field(
@@ -132,7 +132,7 @@ class McpConfig(BaseModel):
         sandbox: Optional sandbox configuration for secure execution
     """
 
-    mcp_servers: dict[str, ServerConfig] = Field(  # noqa: N815
+    mcp_servers: dict[str, ServerConfig] = Field(
         ..., alias="mcpServers", description="Mapping of server names to configurations"
     )
     sandbox: SandboxConfig = Field(

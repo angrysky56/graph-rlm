@@ -247,15 +247,15 @@ async def get_graph(session_id: Optional[str] = None):
         return {"nodes": [], "links": []}
 
 @router.post("/chat/completions")
-async def chat_completions(req: ChatCompletionRequest):
+async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
     """
     The main chat endpoint.
     Triggers Agent.query().
     """
-    if not req.messages:
+    if not chat_req.messages:
         raise HTTPException(status_code=400, detail="No messages provided")
 
-    last_msg = req.messages[-1]
+    last_msg = chat_req.messages[-1]
     prompt = last_msg.content
 
     import logging
@@ -271,6 +271,11 @@ async def chat_completions(req: ChatCompletionRequest):
         try:
             logger.info("DEBUG: Calling agent.stream_query")
             async for event in agent.stream_query(prompt, parent_id=None):
+                if await req.is_disconnected():
+                    logger.info("Client disconnected. Stopping agent.")
+                    agent.stop_generation()
+                    break
+
                 logger.info(f"DEBUG: Yielding event {event.get('type')}")
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:

@@ -39,13 +39,24 @@ class RLMInterface:
         self.agent = agent
         self.session_id = session_id
 
-    def query(self, prompt: str):
+    def query(self, prompt: str, context: Optional[str] = None):
         """
-        The primitive function exposed to the LLM.
+        Recursive Primitive: Spawns a new Atomic Thought Node.
+        Args:
+            prompt: The sub-problem to solve.
+            context: Optional data/code snippet to pass to the child's environment.
         """
-        # This call happens inside the REPL, which is synchronous.
-        # It calls back into the Agent to perform a sub-task.
-        return self.agent.query_sync(prompt, parent_id=self.agent.current_thought_id, session_id=self.session_id)
+        # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
+        # This prevents context pollution and ensures structural recursion.
+        new_session_id = str(uuid.uuid4())
+
+        # If context is provided, we might want to inject it or prepend to prompt.
+        # For now, simplest RLM pattern: Prepend context to prompt so it's "in the environment".
+        full_prompt = prompt
+        if context:
+            full_prompt = f"Context:\n{context}\n\nTask: {prompt}"
+
+        return self.agent.query_sync(full_prompt, parent_id=self.agent.current_thought_id, session_id=new_session_id)
 
     def recall(self, query: str, limit: int = 3):
         """
@@ -99,6 +110,7 @@ class Agent:
         self.repl_manager = REPLManager()
         self.active_repls: Dict[str, str] = {} # session_id -> repl_id
         self.current_thought_id: Optional[str] = None
+        self._stop_requested = False
 
         # Ensure 'skills' is in path for imports
         # Ensure 'skills_dir' is in path for imports
@@ -114,16 +126,68 @@ class Agent:
             sys.path.append(str(skills_path.resolve()))
 
         # Inject Agent Venv site-packages
-        agent_venv_path = backend_path / "agent_venv"
-        if agent_venv_path.exists():
+        self.agent_venv_path = backend_path / "agent_venv"
+        self.skills_venv_path = backend_path / "skills_venv"
+        if self.agent_venv_path.exists():
             # Find site-packages (e.g., lib/python3.x/site-packages)
             # This is a robust way to find it across python versions
-            for site_packages in agent_venv_path.glob("lib/python*/site-packages"):
+            for site_packages in self.agent_venv_path.glob("lib/python*/site-packages"):
                 if str(site_packages.resolve()) not in sys.path:
                     logger.info(f"Injecting Agent Venv: {site_packages}")
                     sys.path.append(str(site_packages.resolve()))
 
         logger.info("Agent initialized with Persistent REPL support")
+
+    def _install_to_venv(self, venv_path: Path, package_name: str) -> str:
+        """Internal helper to install a package into a specific venv."""
+        import subprocess
+        import shutil
+        import os
+
+        logger.info(f"Agent requesting installation of package: {package_name} into {venv_path.name}")
+
+        python_exe = venv_path / "bin" / "python"
+        if not python_exe.exists():
+            return f"Error: Venv not found at {python_exe}. Ensure it is created."
+
+        try:
+            cmd = [str(python_exe), "-m", "pip", "install", package_name]
+            if shutil.which("uv"):
+                cmd = ["uv", "pip", "install", "--python", str(python_exe), package_name]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                logger.info(f"Successfully installed {package_name} into {venv_path.name}")
+                return f"Successfully installed {package_name} into {venv_path.name}\n{result.stdout}"
+            else:
+                logger.error(f"Failed to install {package_name} into {venv_path.name}: {result.stderr}")
+                return f"Failed to install {package_name} into {venv_path.name}\nError: {result.stderr}"
+        except Exception as e:
+            logger.error(f"Installation error in {venv_path.name}: {e}")
+            return f"Installation error in {venv_path.name}: {e}"
+
+    def install_package(self, package_name: str) -> str:
+        """Installs a package into the agent_venv (REPL environment)."""
+        return self._install_to_venv(self.agent_venv_path, package_name)
+
+    def install_skill_package(self, package_name: str) -> str:
+        """Installs a package into the skills_venv (Background skills)."""
+        return self._install_to_venv(self.skills_venv_path, package_name)
+
+    def read_skill(self, name: str) -> str:
+        """Reads the source code of a compiled skill."""
+        if not MCP_AVAILABLE:
+            return "Error: MCP/Skills system not available."
+        try:
+            from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+            mgr = get_skills_manager()
+            skill = mgr.get_skill(name)
+            if not skill:
+                return f"Error: Skill '{name}' not found."
+            return skill["code"]
+        except Exception as e:
+            return f"Error reading skill: {e}"
 
     def emit_event(self, event_type: str, data: Any = None, content: Optional[str] = None, code: Optional[str] = None):
         """
@@ -143,6 +207,7 @@ class Agent:
         launches the sync execution in a thread and yields events from a queue.
         """
         q = queue.Queue()
+        self._stop_requested = False
 
         def run_logic():
             # Set the context var for this thread
@@ -216,36 +281,85 @@ class Agent:
 
         # 2. System Prompt
         tool_list_str = ""
+        skills_list_str = ""
         try:
             import graph_rlm.backend.mcp_tools as mcp_pkg
-            tool_list_str = "Available Tools: " + ", ".join([t for t in dir(mcp_pkg) if t.endswith('_mcp_server')])
-        except:
-            pass
+            # List all modules in mcp_tools package that are not internal/utility
+            ignored = {'list_servers', 'call_tool', 'run_skill'}
+            tools = [t for t in dir(mcp_pkg) if not t.startswith('_') and t not in ignored]
+            tool_list_str = "Available MCP Multi-Servers: " + ", ".join(tools)
+
+            # Fetch Skills
+            if MCP_AVAILABLE:
+                from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+                mgr = get_skills_manager()
+                skills = mgr.list_skills()
+                skills_list_str = "Available Compiled Skills: " + ", ".join(skills.keys())
+        except Exception as e:
+            tool_list_str = f"Tools Error: {e}"
 
         system_prompt = (
             "You are a Self-Healing Recursive Language Model (RLM). "
-            "You operate in a persistent Python REPL.\n"
-            "## Core Loop\n"
-            "1. **Think**: Plan your step.\n"
-            "2. **Act**: Execute code with ```python ... ```.\n"
-            "3. **Observe**: Check output. If error, **Reflect** and retry.\n"
-            "4. **Recurse**: Use `rlm.query(sub_problem)`.\n"
+            "You operate in a persistent Python REPL, but you should treat each large step as a new node.\n"
+            "## Recursive Philosophy (CRITICAL)\n"
+            "You are not a chatbot; you are a Graph of Thoughts. Do not solve complex problems in one linear loop.\n"
+            "1. **Decompose**: Break the problem into sub-units.\n"
+            "2. **Recurse**: Call `rlm.query(sub_prompt)` immediately. This spawns a **fresh, atomic REPL** for that thought.\n"
+            "3. **Synthesize**: Use the return value of `rlm.query` to build your answer.\n"
+            "4. **Atomic**: Do not pollute your current REPL with unrelated tasks. Spawn a child.\n"
             "\n"
-            "## Tools\n"
-            "Access tools via `mcp_tools.<tool_name>`. \n"
+            "## Core Loop\n"
+            "1. **Think**: Plan your next action. Is this task complex? If yes, `rlm.query()`.\n"
+            "2. **Act**: Execute code with ```python ... ```.\n"
+            "3. **Observe**: Review output. If error, **Reflect** and retry.\n"
+            "\n"
+            "## Environment Access\n"
+            "### MCP Multi-Servers\n"
+            "Access specialized servers via `mcp_tools.<server_name>`. \n"
             f"{tool_list_str}\n"
-            "Common aliases: `arxiv` -> `mcp_tools.arxiv_mcp_server`.\n"
-            "NOTE: Check tool functions with `dir()` or `help()` if unsure. Do not hallucinate methods (e.g. use `search_papers`, not `search`).\n"
+            "Common aliases are pre-injected: `arxiv`, `google_search`, etc.\n"
+            "\n"
+            "### High-Level Skills\n"
+            f"{skills_list_str}\n"
+            "Execute a skill via `run_skill(\"skill_name\", args_dict)`. You SHOULD prefer skills for complex repeatable tasks.\n"
+            "You have full agency over your skill library. You can read, edit, and create skills.\n"
+            "\n"
+            "### Helper Functions\n"
+            "- `read_skill(name)`: Returns the source code of a compiled skill for inspection or refactoring.\n"
+            "- `install_package(name)`: Installs a pip package into your REPL environment (agent_venv).\n"
+            "- `install_skill_package(name)`: Installs a pip package into the background skill environment (skills_venv). Use this if `run_skill` fails with `ModuleNotFoundError`.\n"
+            "- `save_skill(name, code, description)`: Persists a successful snippet as a reusable skill in your library.\n"
+            "- `rlm.recall(query)`: Search your graph memory for relevant past thoughts.\n"
+            "\n"
+            "### Skill Development Workflow\n"
+            "1. **Inspect**: Use `read_skill(name)` to understand a skill's logic before running or if it fails.\n"
+            "2. **Iterate**: Test logic in the REPL. Use `install_package` for dependencies.\n"
+            "3. **Persist**: Use `save_skill` to update an existing skill or create a new one. Skills are stored physically in `graph_rlm/backend/skills_dir/`.\n"
+            "NOTE: Check tool functions with `dir()` or `help()` if unsure. Do not hallucinate methods.\n"
         )
 
         current_context = prompt
         final_response = ""
-        max_steps = 10
+        max_steps = 100
         step = 0
 
         while step < max_steps:
+            # Check for cancellation
+            try:
+                 # Check if the queue loop in stream_query has stopped listening or flagged stop
+                 # We can't easily check the queue consumer status from here without a flag.
+                 # But we can check a threading Event if passed.
+                 # Let's assume we can check a context variable or just the queue's health if needed.
+                 # Better approach: stream_query sets a stop_event.
+                 if getattr(self, '_stop_requested', False):
+                     logger.info("Execution stopped by user.")
+                     self.emit_event("error", content="Stopped by user")
+                     break
+            except:
+                pass
+
             step += 1
-            self.emit_event("thinking", content=f"Step {step}/{max_steps}..." if step > 1 else f"Analyzing: {prompt[:50]}...")
+            self.emit_event("thinking", content=f"Step {step}/{max_steps}..." if step > 1 else f"Analyzing: {prompt[:5000]}...")
 
             # 3. LLM Gen
             try:
@@ -368,6 +482,9 @@ class Agent:
 
             if hasattr(repl, 'namespace') and repl.namespace is not None:
                 repl.namespace['rlm'] = rlm_interface
+                repl.namespace['install_package'] = rlm_interface.agent.install_package
+                repl.namespace['install_skill_package'] = rlm_interface.agent.install_skill_package
+                repl.namespace['read_skill'] = rlm_interface.agent.read_skill
 
                 # Injection: MCP Tools & Skills (Idempotent-ish)
                 if 'mcp_tools' not in repl.namespace and MCP_AVAILABLE:
@@ -376,8 +493,10 @@ class Agent:
                         repl.namespace['mcp_tools'] = mcp_tools_pkg
 
                         # Inject runtime aliases for convenience (without treating file)
+                        ignored_aliases = {'list_servers', 'call_tool', 'run_skill'}
                         for mod_name in dir(mcp_tools_pkg):
-                            if mod_name.endswith('_mcp_server') or mod_name.endswith('_mcp'):
+                            if not mod_name.startswith('_') and mod_name not in ignored_aliases:
+                                # Create alias by stripping suffix if present
                                 alias = mod_name.replace('_mcp_server', '').replace('_mcp', '')
                                 repl.namespace[alias] = getattr(mcp_tools_pkg, mod_name)
                     except Exception as e:
@@ -416,5 +535,11 @@ class Agent:
         finally:
             self.current_thought_id = previous_thought_id
             # DO NOT DELETE REPL HERE - It persists for the session
+
+    def stop_generation(self):
+        """Signal the agent to stop processing."""
+        logger.info("Stop signal received.")
+        self._stop_requested = True
+
 
 agent = Agent()

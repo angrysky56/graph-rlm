@@ -60,7 +60,10 @@ if command -v docker &> /dev/null; then
         echo "    -> Launching new FalkorDB container..."
         # Remove dead container if exists
         docker rm -f graph-rlm-db >/dev/null 2>&1
-        docker run -d --name graph-rlm-db --rm -p $REDIS_PORT:6379 falkordb/falkordb
+        # Create data directory if it doesn't exist
+        mkdir -p falkordb_data
+        echo "    -> Launching new FalkorDB container with persistence..."
+        docker run -d --name graph-rlm-db -p $REDIS_PORT:6379 -v $(pwd)/falkordb_data:/data falkordb/falkordb
         REDIS_PID="DOCKER_CONTAINER"
         echo "    -> Container started. Waiting 5s for initialization..."
         sleep 5

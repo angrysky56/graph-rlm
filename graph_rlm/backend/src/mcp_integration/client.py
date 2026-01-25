@@ -12,7 +12,7 @@ from typing import Any
 
 from .core import McpClientManager
 
-logger = logging.getLogger("mcp_coordinator.client")
+logger = logging.getLogger("graph_rlm.mcp_integration.client")
 
 
 class CoordinatorClient:

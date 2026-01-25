@@ -21,10 +21,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const [models, setModels] = useState<Model[]>([]);
     const [sessions, setSessions] = useState<any[]>([]);
 
-
     useEffect(() => {
-        api.listModels().then(setModels).catch(console.error);
-        api.getSessions().then(setSessions).catch(console.error);
+        let isStopped = false;
+        const fetchModels = async () => {
+            let retries = 0;
+            const max = 20;
+            while (retries < max && !isStopped) {
+                try {
+                    const data = await api.listModels();
+                    if (data && data.length > 0) {
+                        setModels(data);
+                        break;
+                    }
+                } catch (e) { }
+                retries++;
+                await new Promise(r => setTimeout(r, 1000 * Math.min(retries, 5)));
+            }
+        };
+
+        const fetchSessions = async () => {
+            let retries = 0;
+            const max = 20;
+            while (retries < max && !isStopped) {
+                try {
+                    const data = await api.getSessions();
+                    // Sessions can be empty legitimately, so we check if the request just worked (didn't throw)
+                    setSessions(data || []);
+                    break;
+                } catch (e) { }
+                retries++;
+                await new Promise(r => setTimeout(r, 1000 * Math.min(retries, 5)));
+            }
+        };
+
+        fetchModels();
+        fetchSessions();
+
+        return () => { isStopped = true; };
     }, []);
 
     return (

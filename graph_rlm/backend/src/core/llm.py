@@ -6,15 +6,21 @@ from .logger import get_logger
 
 logger = get_logger("graph_rlm.llm")
 
+
 class LLMService:
     """
     Unified LLM client supporting OpenRouter, Ollama, and OpenAI-compatible endpoints.
-    Based on the architecture from Ethical AI Core.
     """
     def __init__(self):
-        self.provider = settings.LLM_PROVIDER
-        self.config = settings.get_llm_config()
-        logger.info(f"LLMService initialized. Provider={self.provider} Model={self.config.get('model')}")
+        logger.info(f"LLMService initialized.")
+
+    @property
+    def provider(self) -> str:
+        return settings.LLM_PROVIDER
+
+    @property
+    def config(self) -> dict:
+        return settings.get_llm_config()
 
     def _get_headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -24,7 +30,7 @@ class LLMService:
 
         # OpenRouter specific headers
         if self.provider == "openrouter":
-            headers["HTTP-Referer"] = "https://github.com/angrysky56/ethical-ai-core" # Or graph-rlm link
+            headers["HTTP-Referer"] = "https://github.com/angrysky56/graph-rlm"
             headers["X-Title"] = settings.PROJECT_NAME
 
         return headers
@@ -155,7 +161,7 @@ class LLMService:
             if api_key and api_key != "lm-studio":
                 headers["Authorization"] = f"Bearer {api_key}"
             if provider == "openrouter":
-                headers["HTTP-Referer"] = "https://github.com/angrysky56/ethical-ai-core"
+                headers["HTTP-Referer"] = "https://github.com/angrysky56/graph-rlm"
                 headers["X-Title"] = settings.PROJECT_NAME
         else:
             headers = self._get_headers()

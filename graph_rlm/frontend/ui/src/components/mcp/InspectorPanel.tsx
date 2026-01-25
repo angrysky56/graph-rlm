@@ -39,31 +39,46 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ onInjectContent 
     const fetchData = async () => {
         setLoading(true);
         setError(null);
-        try {
-            // Fetch Servers
-            const mcpStatus = await api.getMcpStatus();
-            if (mcpStatus.error) {
-                // If endpoint fails completely
-                setError(mcpStatus.error || "Failed to fetch MCP status");
-            } else {
+
+        const fetchOnce = async () => {
+            try {
+                // Fetch Servers
+                const mcpStatus = await api.getMcpStatus();
+                if (mcpStatus.error) {
+                    throw new Error(mcpStatus.error || "Failed to fetch MCP status");
+                }
                 setServers(mcpStatus.servers || []);
+
+                // Fetch Skills
+                const skillsList = await api.getSkills();
+                setSkills(skillsList || []);
+
+                setLoading(false);
+                return true;
+            } catch (e) {
+                console.error(e);
+                return false;
             }
+        };
 
-            // Fetch Skills
-            const skillsList = await api.getSkills();
-            setSkills(skillsList || []);
+        const runRetryLoop = async () => {
+            let retries = 0;
+            const max = 30; // 30 retries
+            while (retries < max) {
+                const success = await fetchOnce();
+                if (success) break;
+                retries++;
+                // Exponential-ish backoff
+                await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(1.5, retries), 10000)));
+            }
+            if (loading) setLoading(false);
+        };
 
-        } catch (e) {
-            console.error(e);
-            setError("Network error fetching MCP data");
-        } finally {
-            setLoading(false);
-        }
+        runRetryLoop();
     };
 
     useEffect(() => {
         fetchData();
-        // Removed polling as per user request to reduce log spam
     }, []);
 
     // Helper to sanitize python name

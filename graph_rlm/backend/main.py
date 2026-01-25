@@ -1,28 +1,22 @@
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+# Load environment variables ASAP to ensure settings are correct
+from dotenv import load_dotenv
+project_root = Path(__file__).parent.parent.parent.resolve()
+load_dotenv(project_root / ".env")
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from graph_rlm.backend.src.core.config import settings
 from graph_rlm.backend.src.core.endpoints import router as api_router
 
-app = FastAPI(title=settings.PROJECT_NAME, openapi_url=f"{settings.API_V1_STR}/openapi.json")
-
-# CORS for Frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Vite default
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-@app.on_event("startup")
-async def startup_event():
+@asynccontextmanager
+async def lifespan(app: FastAPI):
     """Initialize MCP Tools on startup."""
-    from pathlib import Path
-    import os
     from graph_rlm.backend.src.mcp_integration.config import create_default_env_file
     from graph_rlm.backend.src.mcp_integration.discovery import discover_all_servers
-    from graph_rlm.backend.src.mcp_integration.generator import ToolGenerator, generate_from_config
+    from graph_rlm.backend.src.mcp_integration.generator import ToolGenerator
 
     try:
         project_root = Path(__file__).parent.parent.parent.resolve()
@@ -45,6 +39,22 @@ async def startup_event():
     except Exception as e:
         print(f"MCP Initialization Failed: {e}")
 
+    yield
+
+app = FastAPI(
+    title=settings.PROJECT_NAME,
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan
+)
+
+# CORS for Frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],  # Vite default
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 app.include_router(api_router, prefix="/api/v1")
 
