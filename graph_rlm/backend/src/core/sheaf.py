@@ -1,11 +1,13 @@
+from typing import Any, Dict, List
+
 import networkx as nx
-from networkx.utils import *
 import numpy as np
-from typing import Dict, List, Any, Optional
-from .db import db, GraphClient
+
+from .db import GraphClient, db
 from .logger import get_logger
 
 logger = get_logger("graph_rlm.sheaf")
+
 
 class SheafMonitor:
     """
@@ -19,6 +21,7 @@ class SheafMonitor:
     - Laplacian L measures local consistency.
     - Energy E = x^T L x.
     """
+
     def __init__(self):
         self.db: GraphClient = db
 
@@ -39,9 +42,11 @@ class SheafMonitor:
 
         # Helper to safely get ID/Embedding whether it's a Node object or Dict
         def get_props(entity):
-            if hasattr(entity, 'properties'): return entity.properties
-            if isinstance(entity, dict): return entity
-            return {} # Fallback
+            if hasattr(entity, "properties"):
+                return entity.properties
+            if isinstance(entity, dict):
+                return entity
+            return {}  # Fallback
 
         for row in res:
             # FalkorDB Python Client & LangChain wrapper usually return results as a list of values.
@@ -52,31 +57,37 @@ class SheafMonitor:
             node_m = None
             if isinstance(row, (list, tuple)):
                 # Expected format: [n, r, m]
-                if len(row) >= 1: node_n = row[0]
-                if len(row) >= 2: rel = row[1]
-                if len(row) >= 3: node_m = row[2]
+                if len(row) >= 1:
+                    node_n = row[0]
+                if len(row) >= 2:
+                    rel = row[1]
+                if len(row) >= 3:
+                    node_m = row[2]
             elif isinstance(row, dict):
                 # Fallback format: {'n': ..., 'r': ..., 'm': ...}
-                node_n = row.get('n')
-                rel = row.get('r')
-                node_m = row.get('m')
+                node_n = row.get("n")
+                rel = row.get("r")
+                node_m = row.get("m")
 
             props_n = get_props(node_n)
-            if props_n and 'id' in props_n:
-                G.add_node(props_n['id'], embedding=props_n.get('embedding'))
+            if props_n and "id" in props_n:
+                G.add_node(props_n["id"], embedding=props_n.get("embedding"))
 
             if node_m:
                 props_m = get_props(node_m)
-                if props_m and 'id' in props_m:
-                    G.add_node(props_m['id'], embedding=props_m.get('embedding'))
+                if props_m and "id" in props_m:
+                    G.add_node(props_m["id"], embedding=props_m.get("embedding"))
                     # Edge handling
                     rel_type = "RELATED"
-                    if hasattr(rel, 'relation'): rel_type = rel.relation
-                    elif isinstance(rel, dict) and 'type' in rel: rel_type = rel['type']
-                    elif hasattr(rel, 'type'): rel_type = rel.type
+                    if hasattr(rel, "relation"):
+                        rel_type = rel.relation
+                    elif isinstance(rel, dict) and "type" in rel:
+                        rel_type = rel["type"]
+                    elif hasattr(rel, "type"):
+                        rel_type = rel.type
 
-                    if 'id' in props_n and 'id' in props_m:
-                         G.add_edge(props_n['id'], props_m['id'], type=rel_type)
+                    if "id" in props_n and "id" in props_m:
+                        G.add_edge(props_n["id"], props_m["id"], type=rel_type)
 
         return G
 
@@ -89,9 +100,9 @@ class SheafMonitor:
         """
         energies = {}
 
-        for u, v, data in G.edges(data=True):
-            emb_u = G.nodes[u].get('embedding')
-            emb_v = G.nodes[v].get('embedding')
+        for u, v, _ in G.edges(data=True):
+            emb_u = G.nodes[u].get("embedding")
+            emb_v = G.nodes[v].get("embedding")
 
             if emb_u is not None and emb_v is not None:
                 # FalkorDB returns embeddings as list of floats directly.
@@ -110,9 +121,9 @@ class SheafMonitor:
 
                 if norm_u > 0 and norm_v > 0:
                     similarity = np.dot(vec_u, vec_v) / (norm_u * norm_v)
-                    energy = 1.0 - similarity # Distance
+                    energy = 1.0 - similarity  # Distance
                 else:
-                    energy = 1.0 # Max distance if zero vector
+                    energy = 1.0  # Max distance if zero vector
 
                 energies[f"{u}<->{v}"] = float(energy)
 
@@ -129,6 +140,7 @@ class SheafMonitor:
         knots = []
         try:
             from networkx.algorithms import simple_cycles
+
             cycles = list(simple_cycles(G))
             for cycle in cycles:
                 # cycle is list of nodes [n1, n2, n3 ...]
@@ -141,19 +153,21 @@ class SheafMonitor:
                     v = cycle[(i + 1) % len(cycle)]
 
                     # Compute local energy
-                    emb_u = G.nodes[u].get('embedding')
-                    emb_v = G.nodes[v].get('embedding')
+                    emb_u = G.nodes[u].get("embedding")
+                    emb_v = G.nodes[v].get("embedding")
                     if emb_u is not None and emb_v is not None:
-                         # Dist sq
-                         d = np.array(emb_u) - np.array(emb_v)
-                         cycle_energy += np.dot(d, d)
+                        # Dist sq
+                        d = np.array(emb_u) - np.array(emb_v)
+                        cycle_energy += np.dot(d, d)
 
                 if cycle_energy > 0.5:
-                    knots.append({
-                        "nodes": cycle,
-                        "energy": cycle_energy,
-                        "description": f"Circular reasoning detected: {path_str}"
-                    })
+                    knots.append(
+                        {
+                            "nodes": cycle,
+                            "energy": cycle_energy,
+                            "description": f"Circular reasoning detected: {path_str}",
+                        }
+                    )
 
         except Exception as e:
             logger.warning(f"Cycle detection skipped/failed: {e}")
@@ -191,7 +205,7 @@ class SheafMonitor:
             "status": status,
             "energy": total_energy,
             "knots": knots,
-            "critique": critique
+            "critique": critique,
         }
 
     def scan_and_log(self):
@@ -205,8 +219,9 @@ class SheafMonitor:
         # Check for knots
         knots = self.find_logical_knots(G)
         if knots:
-             logger.warning(f"LOGICAL KNOTS FOUND: {knots}")
+            logger.warning(f"LOGICAL KNOTS FOUND: {knots}")
 
         return energies
+
 
 sheaf = SheafMonitor()

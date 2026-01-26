@@ -70,7 +70,7 @@ function App() {
 
       // We check for success boolean now
       const configOk = await refreshConfig();
-      const graphOk = await loadGraph();
+      await loadGraph();
 
       // If config loaded (model selected), we consider backend ready.
       // Graph might be empty for new session, so configOk is the main signal.
@@ -97,7 +97,7 @@ function App() {
     setReplEntries([]);
     setGraphData({ nodes: [], links: [] });
     // Reset usage stats
-    setUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+
   };
 
   const handleSessionSelect = (sid: string) => {
@@ -118,7 +118,7 @@ function App() {
   // ... imports
 
   // Mapping Stream Events to REPL Entries
-  const [usage, setUsage] = useState({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
+
 
   // ... (keep handleNewChat as single source of truth at top level)
 
@@ -146,13 +146,7 @@ function App() {
             return [...prev, { type: 'output', content: event.content, timestamp: Date.now(), isStreaming: true }];
           }
         });
-      } else if (event.type === 'usage') {
-        // Accumulate usage
-        setUsage(prev => ({
-          prompt_tokens: prev.prompt_tokens + (event.prompt_tokens || 0),
-          completion_tokens: prev.completion_tokens + (event.completion_tokens || 0),
-          total_tokens: prev.total_tokens + (event.total_tokens || 0)
-        }));
+
       } else if (event.type === 'thinking') {
         // ...
         // 'Thinking' events (gray text)

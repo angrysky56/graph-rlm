@@ -10,14 +10,14 @@ Uses the schema_builder to:
 
 import sys
 from pathlib import Path
-from typing import Any
 
-# Add knowledge_base to path for skill imports
-_kb_path = Path(__file__).parent.parent.parent.parent / "knowledge_base" / "skills"
+# Add skills_dir to path for skill imports
+_kb_path = Path(__file__).parent.parent.parent.parent / "skills_dir"
 if str(_kb_path) not in sys.path:
     sys.path.insert(0, str(_kb_path))
 
-from schema_builder import SchemaBuilder
+# trunk-ignore(ruff/E402)
+from .schema_builder import SchemaBuilder
 
 
 class TaskSchemaProcessor:
@@ -98,7 +98,7 @@ class TaskSchemaProcessor:
         self._task_schemas_created = True
 
     def classify_task(
-        self, task_description: str, extracted_params: dict = None
+        self, task_description: str, extracted_params: dict | None = None
     ) -> dict:
         """
         Classify a task against known schemas.
@@ -159,13 +159,12 @@ class TaskSchemaProcessor:
             "SearchTask": ["brave_web_search", "firecrawl_search", "arxiv_search"],
             "CodeTask": ["execute_code", "view_file", "replace_file_content"],
             "ReasoningTask": [
-                "apply_advanced_reasoning",  # From advanced_reasoning_methodology
                 "deconstruct",
                 "synthesize",
                 "crystallize_thought",
                 "advanced_reasoning",
             ],
-            "Task": ["call_tool", "coordinator_task"],
+            "Task": ["call_tool", "run_skill"],
         }
         return tool_map.get(task_type, tool_map["Task"])
 
@@ -201,7 +200,7 @@ def get_task_schema_processor() -> TaskSchemaProcessor:
     return _processor
 
 
-async def classify_and_route_task(task: str, params: dict = None) -> dict:
+async def classify_and_route_task(task: str, params: dict | None = None) -> dict:
     """
     Convenience function for task classification.
 

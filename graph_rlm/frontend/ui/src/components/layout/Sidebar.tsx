@@ -19,7 +19,6 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
     onNewChat,
     currentModel,
-    onSelectModel,
     onOpenSettings,
     onSelectSession,
     usage

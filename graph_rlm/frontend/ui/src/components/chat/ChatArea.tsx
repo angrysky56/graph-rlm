@@ -395,8 +395,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ sessionId }) => {
             setShowSettings(false);
             // Refresh models when settings close
             api.fetchModels().then(setModels).catch(console.error);
-          }}
-        />
+          } } isOpen={false}        />
       )}
     </div>
   );

@@ -2,14 +2,14 @@
 The Python REPL implementation that maintains state between executions.
 Ported from local-repl-mcp with minimal changes.
 """
+
+import ast
 import io
-import sys
+import logging
 import traceback
 import uuid
-import ast
-from contextlib import redirect_stdout, redirect_stderr
-from typing import Dict, Tuple, Optional, Any, cast
-import logging
+from contextlib import redirect_stderr, redirect_stdout
+from typing import Any, Dict, Optional, Tuple, cast
 
 logger = logging.getLogger("graph_rlm.repl.core")
 
@@ -19,6 +19,7 @@ class StreamingOutput(io.TextIOBase):
     A custom writer that buffers line by line (or chunk by chunk)
     and invokes a callback immediately.
     """
+
     def __init__(self, callback):
         self.callback = callback
         self.buffer = io.StringIO()
@@ -37,6 +38,7 @@ class StreamingOutput(io.TextIOBase):
 
     def getvalue(self):
         return self.buffer.getvalue()
+
 
 def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
     """
@@ -71,6 +73,7 @@ def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
                 tree = ast.parse(code)
             except SyntaxError:
                 # If it's a syntax error, run it to get the standard traceback
+                # trunk-ignore(bandit/B102)
                 exec(code, self.namespace, self.namespace)
                 return stdout_capture.getvalue(), stderr_capture.getvalue(), None
 
@@ -83,11 +86,21 @@ def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
                 # Execute previous statements if any
                 if body_nodes:
                     module = ast.Module(body=body_nodes, type_ignores=[])
-                    exec(compile(module, filename="<string>", mode="exec"), self.namespace, self.namespace)
+                    # trunk-ignore(bandit/B102)
+                    exec(
+                        compile(module, filename="<string>", mode="exec"),
+                        self.namespace,
+                        self.namespace,
+                    )
 
                 # Evaluate the last expression
                 expr = ast.Expression(body=last_node.value)
-                result = eval(compile(expr, filename="<string>", mode="eval"), self.namespace, self.namespace)
+                # trunk-ignore(bandit/B307)
+                result = eval(
+                    compile(expr, filename="<string>", mode="eval"),
+                    self.namespace,
+                    self.namespace,
+                )
 
                 # If the result is not None, print it to stdout so it streams
                 # But typically REPLs only return it.
@@ -96,6 +109,7 @@ def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
             else:
                 # Last node is not an expression (e.g. assignment, function def)
                 # Just exec the whole thing
+                # trunk-ignore(bandit/B102)
                 exec(code, self.namespace, self.namespace)
 
     except Exception:
@@ -105,30 +119,42 @@ def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
         logger.error(f"REPL {self.repl_id} Execution Error: {err}")
 
     # Return the captured output and result
-    return (
-        stdout_capture.getvalue(),
-        stderr_capture.getvalue(),
-        result
-    )
+    return (stdout_capture.getvalue(), stderr_capture.getvalue(), result)
+
+
 class PythonREPL:
     """
     A stateful Python REPL implementation that maintains separate environment for each instance.
     """
+
     def __init__(self, repl_id: Optional[str] = None):
         self.repl_id = repl_id or str(uuid.uuid4())
         logger.debug(f"Initializing REPL {self.repl_id}")
         # Initialize a single namespace for environment
         # This is crucial for recursive functions to work properly
-        self.namespace: Dict[str, Any] = {'__builtins__': __builtins__}
+        self.namespace: Dict[str, Any] = {"__builtins__": __builtins__}
 
         # Inject standard libraries for convenience
         try:
-            import os, sys, json, time, math, re, random
-            self.namespace.update({
-                'os': os, 'sys': sys, 'json': json,
-                'time': time, 'math': math, 're': re,
-                'random': random
-            })
+            import json
+            import math
+            import os
+            import random
+            import re
+            import sys
+            import time
+
+            self.namespace.update(
+                {
+                    "os": os,
+                    "sys": sys,
+                    "json": json,
+                    "time": time,
+                    "math": math,
+                    "re": re,
+                    "random": random,
+                }
+            )
         except ImportError:
             pass
 

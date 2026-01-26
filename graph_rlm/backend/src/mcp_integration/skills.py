@@ -11,9 +11,8 @@ Refactored to use FalkorDB.
 """
 
 import ast
-import json
 from pathlib import Path
-from typing import Any, cast, Optional
+from typing import Any
 
 from graph_rlm.backend.src.core.db import db
 from graph_rlm.backend.src.core.logger import get_logger
@@ -56,7 +55,11 @@ class SkillsManager:
                 # Parse
                 tree = ast.parse(code)
                 func_def = next(
-                    (node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
+                    (
+                        node
+                        for node in ast.walk(tree)
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    ),
                     None,
                 )
                 if not func_def:
@@ -78,12 +81,15 @@ class SkillsManager:
                 # If we want history, we'd create linked list of :VERSION nodes.
                 # Keeping it simple for MVP: One active version.
 
-                self.db.query(cypher, {
-                    "name": name,
-                    "code": code,
-                    "desc": description,
-                    "func": function_name
-                })
+                self.db.query(
+                    cypher,
+                    {
+                        "name": name,
+                        "code": code,
+                        "desc": description,
+                        "func": function_name,
+                    },
+                )
                 count += 1
             except Exception as e:
                 logger.error(f"Failed to sync skill {file_path.name}: {e}")
@@ -104,14 +110,18 @@ class SkillsManager:
         try:
             tree = ast.parse(code)
             func_def = next(
-                (node for node in ast.walk(tree) if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))),
+                (
+                    node
+                    for node in ast.walk(tree)
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                ),
                 None,
             )
             if func_def is None:
                 raise ValueError("Code must contain a function definition")
             function_name = func_def.name
         except SyntaxError as e:
-            raise ValueError(f"Invalid Python syntax: {e}")
+            raise ValueError(f"Invalid Python syntax: {e}") from e
 
         # Update Graph
         cypher = """
@@ -124,13 +134,16 @@ class SkillsManager:
             s.updated_at = timestamp()
         RETURN s.version
         """
-        res = self.db.query(cypher, {
-            "name": name,
-            "code": code,
-            "desc": description or "",
-            "func": function_name,
-            "tags": tags or []
-        })
+        self.db.query(
+            cypher,
+            {
+                "name": name,
+                "code": code,
+                "desc": description or "",
+                "func": function_name,
+                "tags": tags or [],
+            },
+        )
 
         # Write to disk
         try:
@@ -153,19 +166,19 @@ class SkillsManager:
             if not row:
                 continue
             # Handle list vs dict return from client
-            node = row[0] if isinstance(row, list) else row.get('s')
+            node = row[0] if isinstance(row, list) else row.get("s")
             if not node:
-                 continue
+                continue
 
-            props = node.properties if hasattr(node, 'properties') else node
+            props = node.properties if hasattr(node, "properties") else node
             if not isinstance(props, dict):
-                 continue
+                continue
 
-            skills[props.get('name', 'unknown')] = {
-                "description": props.get('description'),
-                "tags": props.get('tags', []),
-                "function_name": props.get('function_name'),
-                "version": props.get('version', 1)
+            skills[props.get("name", "unknown")] = {
+                "description": props.get("description"),
+                "tags": props.get("tags", []),
+                "function_name": props.get("function_name"),
+                "version": props.get("version", 1),
             }
         return skills
 
@@ -183,22 +196,22 @@ class SkillsManager:
         if not row:
             return None
 
-        node = row[0] if isinstance(row, list) else row.get('s')
+        node = row[0] if isinstance(row, list) else row.get("s")
         if not node:
             return None
 
-        props = node.properties if hasattr(node, 'properties') else node
+        props = node.properties if hasattr(node, "properties") else node
         if not isinstance(props, dict):
-             return None
+            return None
 
         return {
-            "name": props.get('name'),
-            "code": props.get('code'),
-            "description": props.get('description'),
-            "function_name": props.get('function_name'),
-            "tags": props.get('tags', []),
-            "version": props.get('version', 1),
-            "latest": True
+            "name": props.get("name"),
+            "code": props.get("code"),
+            "description": props.get("description"),
+            "function_name": props.get("function_name"),
+            "tags": props.get("tags", []),
+            "version": props.get("version", 1),
+            "latest": True,
         }
 
     def get_import_statement(self, name: str) -> str:
@@ -213,13 +226,14 @@ class SkillsManager:
         # Write to disk to ensure importable
         skill_file = self.skills_dir / f"{name}.py"
         if not skill_file.exists() or skill_file.read_text() != skill["code"]:
-             skill_file.write_text(skill["code"])
+            skill_file.write_text(skill["code"])
 
         return f"from skills_dir.{name} import {skill['function_name']}"
 
 
 # Global skills manager instance
 _global_skills_manager: SkillsManager | None = None
+
 
 def get_skills_manager() -> SkillsManager:
     """
@@ -234,7 +248,9 @@ def get_skills_manager() -> SkillsManager:
         # User repo has graph_rlm/backend/skills_dir already in previous implementations?
         # Let's use: graph_rlm/backend/skills_cache
 
-        backend_root = Path(__file__).parent.parent.parent # mcp_integration -> src -> backend -> root
+        backend_root = Path(
+            __file__
+        ).parent.parent.parent  # mcp_integration -> src -> backend -> root
         skills_dir = backend_root / "skills_dir"
 
         _global_skills_manager = SkillsManager(skills_dir)

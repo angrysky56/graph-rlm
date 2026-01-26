@@ -1,8 +1,11 @@
+from typing import Optional, List, Dict, Any
 
 from langchain_community.graphs import FalkorDBGraph
 from .config import settings
+from .logger import get_logger
 
-from typing import Optional, List, Dict, Any
+logger = get_logger("graph_rlm.db")
+
 
 class GraphClient:
     def __init__(self):
@@ -71,7 +74,7 @@ class GraphClient:
             return self.query(cypher, params)
         except Exception as e:
             # If default index search fails, we might just return empty or log error
-            print(f"Vector search failed (index missing?): {e}")
+            logger.warning(f"Vector search failed (index missing?): {e}")
             return []
 
     def create_vector_index(self):
@@ -82,14 +85,15 @@ class GraphClient:
         try:
             self.query("CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {dimension:768, similarityFunction:'cosine'}")
         except Exception as e:
-            # Ignore if already exists (usually throws error)
+            # Log as info because it likely already exists
+            logger.info(f"Vector index creation skipped: {e}")
             pass
 
     def drop_vector_index(self):
         try:
             self.query("DROP VECTOR INDEX FOR (t:Thought) ON (t.embedding)")
-        except:
-            pass
+        except Exception as e:
+            logger.info(f"Vector index drop skipped: {e}")
 
 
     def wait_for_index(self, label: str):
@@ -111,8 +115,8 @@ class GraphClient:
 
                     if r_label == label and r_status == 'OPERATIONAL':
                         return
-            except:
-                pass
+            except Exception as e:
+                logger.debug(f"Index check polling error: {e}")
             time.sleep(0.5)
 
     def get_graph_state(self):

@@ -3,13 +3,15 @@ from pathlib import Path
 
 # Load environment variables ASAP to ensure settings are correct
 from dotenv import load_dotenv
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from graph_rlm.backend.src.core.config import settings
+from graph_rlm.backend.src.core.endpoints import router as api_router
+
 project_root = Path(__file__).parent.parent.parent.resolve()
 load_dotenv(project_root / ".env")
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from graph_rlm.backend.src.core.config import settings
-from graph_rlm.backend.src.core.endpoints import router as api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -29,7 +31,9 @@ async def lifespan(app: FastAPI):
             servers_info = await discover_all_servers(config_path)
 
             # Generate tools
-            output_dir = Path(__file__).parent / "mcp_tools" # graph_rlm/backend/mcp_tools
+            output_dir = (
+                Path(__file__).parent / "mcp_tools"
+            )  # graph_rlm/backend/mcp_tools
             gen = ToolGenerator(output_dir)
             count = gen.generate_all(servers_info)
             print(f"MCP: Generated {count} server modules in {output_dir}")
@@ -41,10 +45,11 @@ async def lifespan(app: FastAPI):
 
     yield
 
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # CORS for Frontend
@@ -57,6 +62,7 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
 
 @app.get("/")
 def root():

@@ -1,6 +1,7 @@
+from typing import Any, Dict, List, Optional
 
 import httpx
-from typing import Optional, Dict, Any, List
+
 from .config import settings
 from .logger import get_logger
 
@@ -11,8 +12,9 @@ class LLMService:
     """
     Unified LLM client supporting OpenRouter, Ollama, and OpenAI-compatible endpoints.
     """
+
     def __init__(self):
-        logger.info(f"LLMService initialized.")
+        logger.info("LLMService initialized.")
 
     @property
     def provider(self) -> str:
@@ -43,7 +45,9 @@ class LLMService:
             return f"{base}/api/embeddings"
         return f"{base}/{path}"
 
-    def _format_request(self, messages: List[Dict[str, str]], stream: bool = False) -> Dict[str, Any]:
+    def _format_request(
+        self, messages: List[Dict[str, str]], stream: bool = False
+    ) -> Dict[str, Any]:
         """Format request body based on provider quirks."""
         model = self.config.get("model")
 
@@ -52,16 +56,12 @@ class LLMService:
                 "model": model,
                 "messages": messages,
                 "stream": stream,
-                "options": {"temperature": 0.7} # Default
+                "options": {"temperature": 0.7},  # Default
             }
             return request
         else:
             # Standard OpenAI format
-            return {
-                "model": model,
-                "messages": messages,
-                "stream": stream
-            }
+            return {"model": model, "messages": messages, "stream": stream}
 
     def generate(self, prompt: str, system: Optional[str] = None) -> str:
         """
@@ -86,7 +86,11 @@ class LLMService:
                 if self.provider == "ollama":
                     return data.get("message", {}).get("content", "")
                 else:
-                    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return (
+                        data.get("choices", [{}])[0]
+                        .get("message", {})
+                        .get("content", "")
+                    )
 
         except Exception as e:
             logger.error(f"LLM Generation Error: {e}")
@@ -96,7 +100,11 @@ class LLMService:
         """
         Get embeddings. Supports Ollama (nomic/llama3) and OpenAI/OpenRouter formats.
         """
-        endpoint = self._get_endpoint("embeddings") if self.provider == "ollama" else self._get_endpoint("embeddings")
+        endpoint = (
+            self._get_endpoint("embeddings")
+            if self.provider == "ollama"
+            else self._get_endpoint("embeddings")
+        )
         headers = self._get_headers()
 
         # Determine embedding model
@@ -129,16 +137,13 @@ class LLMService:
         Unload a model from memory. Primarily for Ollama.
         """
         if self.provider != "ollama":
-            return True # No-op for cloud providers
+            return True  # No-op for cloud providers
 
-        endpoint = self._get_endpoint("chat/completions") # /api/chat
+        endpoint = self._get_endpoint("chat/completions")  # /api/chat
         # To unload, send empty prompt with keep_alive=0
-        body = {
-            "model": model_name,
-            "keep_alive": 0
-        }
+        body = {"model": model_name, "keep_alive": 0}
         try:
-             with httpx.Client(timeout=5.0) as client:
+            with httpx.Client(timeout=5.0) as client:
                 client.post(endpoint, json=body)
                 logger.info(f"Unloaded model {model_name}")
                 return True
@@ -183,20 +188,25 @@ class LLMService:
                 if target_provider == "ollama":
                     for m in data.get("models", []):
                         name = m.get("name")
-                        details = m.get("details", {})
-                        family = details.get("family", "")
 
-                        is_embedding = "embed" in name or "nomic" in name or "bert" in name
+                        is_embedding = (
+                            "embed" in name or "nomic" in name or "bert" in name
+                        )
 
-                        models.append({
-                            "id": name,
-                            "name": name,
-                            "context_length": 8192,
-                            "pricing": {"prompt": "0", "completion": "0"},
-                            "supports_tools": "llama3" in name or "mistral" in name or "gemma" in name or "qwen" in name,
-                            "type": "embedding" if is_embedding else "chat",
-                            "provider": "ollama"
-                        })
+                        models.append(
+                            {
+                                "id": name,
+                                "name": name,
+                                "context_length": 8192,
+                                "pricing": {"prompt": "0", "completion": "0"},
+                                "supports_tools": "llama3" in name
+                                or "mistral" in name
+                                or "gemma" in name
+                                or "qwen" in name,
+                                "type": "embedding" if is_embedding else "chat",
+                                "provider": "ollama",
+                            }
+                        )
                 else:
                     # OpenRouter/OpenAI format
                     # 1. Fetch Chat Models
@@ -205,7 +215,7 @@ class LLMService:
                     # 2. Fetch Embedding Models (OpenRouter Specific)
                     if target_provider == "openrouter":
                         try:
-                            embed_url = f"{base}/embeddings/models" # Usually https://openrouter.ai/api/v1/embeddings/models
+                            embed_url = f"{base}/embeddings/models"  # Usually https://openrouter.ai/api/v1/embeddings/models
                             with httpx.Client(timeout=5.0) as client:
                                 resp_emb = client.get(embed_url, headers=headers)
                                 if resp_emb.status_code == 200:
@@ -215,7 +225,9 @@ class LLMService:
                                         em["_is_embedding_endpoint"] = True
                                     raw_list.extend(emb_data)
                         except Exception as e:
-                            logger.warning(f"Failed to fetch separate embedding models: {e}")
+                            logger.warning(
+                                f"Failed to fetch separate embedding models: {e}"
+                            )
 
                     for m in raw_list:
                         m_id = m.get("id")
@@ -224,10 +236,10 @@ class LLMService:
                         # Heuristics for Embeddings (Robust)
                         # Check endpoint tag, ID pattern, or context length
                         is_embedding = (
-                            m.get("_is_embedding_endpoint", False) or
-                            "embed" in m_id.lower() or
-                            "nomic" in m_id.lower() or
-                            "text-embedding" in m_id.lower()
+                            m.get("_is_embedding_endpoint", False)
+                            or "embed" in m_id.lower()
+                            or "nomic" in m_id.lower()
+                            or "text-embedding" in m_id.lower()
                         )
 
                         # Check tool support via 'supported_parameters' (OpenRouter specific)
@@ -242,25 +254,31 @@ class LLMService:
                         ctx = m.get("context_length", 4096)
 
                         # Architecture (for tokenizer info etc)
-                        arch = m.get("architecture", {})
 
-                        models.append({
-                            "id": m_id,
-                            "name": name,
-                            "context_length": ctx,
-                            "pricing": {
-                                "prompt": pricing.get("prompt", "0"),
-                                "completion": pricing.get("completion", "0")
-                            },
-                            "supports_tools": supports_tools,
-                            "type": "embedding" if is_embedding else "chat",
-                            "provider": m_id.split("/")[0] if "/" in m_id else target_provider
-                        })
+                        models.append(
+                            {
+                                "id": m_id,
+                                "name": name,
+                                "context_length": ctx,
+                                "pricing": {
+                                    "prompt": pricing.get("prompt", "0"),
+                                    "completion": pricing.get("completion", "0"),
+                                },
+                                "supports_tools": supports_tools,
+                                "type": "embedding" if is_embedding else "chat",
+                                "provider": (
+                                    m_id.split("/")[0]
+                                    if "/" in m_id
+                                    else target_provider
+                                ),
+                            }
+                        )
 
                 return models
 
         except Exception as e:
             logger.error(f"List Models Error: {e}")
             return []
+
 
 llm = LLMService()

@@ -23,7 +23,7 @@ try:
     from mcp.client.sse import sse_client
     from mcp.client.stdio import stdio_client
 except ImportError:
-    raise ImportError("MCP SDK is required. Install with: uv pip install mcp")
+    raise ImportError("MCP SDK is required. Install with: uv pip install mcp") from None
 
 try:
     from anyio import BrokenResourceError

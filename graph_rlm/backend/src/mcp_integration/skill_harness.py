@@ -11,9 +11,12 @@ import argparse
 import asyncio
 import json
 import logging
-import sys
-import subprocess
 import os
+import shutil
+
+# trunk-ignore(bandit/B404)
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,24 +27,36 @@ logger = logging.getLogger("skill_harness")
 BACKEND_ROOT = Path(__file__).parent.parent.parent.resolve()
 SKILLS_VENV_PATH = BACKEND_ROOT / "skills_venv"
 
+
 def ensure_skills_venv() -> Path:
     """Ensure the skills virtual environment exists."""
     if not SKILLS_VENV_PATH.exists():
         logger.info(f"Creating isolated skills environment at {SKILLS_VENV_PATH}...")
         try:
-            subprocess.run(["uv", "venv", str(SKILLS_VENV_PATH)], check=True, capture_output=True)
+            uv_path = shutil.which("uv")
+            if not uv_path:
+                raise RuntimeError("uv executable not found in PATH")
+
+            # trunk-ignore(bandit/B603)
+            subprocess.run(
+                [uv_path, "venv", str(SKILLS_VENV_PATH)],
+                check=True,
+                capture_output=True,
+            )
             logger.info("Created skills_venv.")
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to create venv: {e.stderr.decode()}")
-            raise RuntimeError("Could not create skills virtual environment.")
+            raise RuntimeError("Could not create skills virtual environment.") from e
 
     return SKILLS_VENV_PATH
+
 
 def get_venv_python() -> Path:
     """Get path to the venv python executable."""
     if sys.platform == "win32":
         return SKILLS_VENV_PATH / "Scripts" / "python.exe"
     return SKILLS_VENV_PATH / "bin" / "python"
+
 
 async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
     """Spawn a subprocess to run the skill in the isolated venv."""
@@ -62,7 +77,7 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
         skill_name,
         "--args",
         json.dumps(kwargs),
-        "--internal-run" # Flag to signal we are inside the venv
+        "--internal-run",  # Flag to signal we are inside the venv
     ]
 
     # Ensure PYTHONPATH includes the project root so we can import the harness
@@ -73,7 +88,9 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
 
     # Current file: .../graph_rlm/backend/src/mcp_integration/skill_harness.py
     # Root of package 'graph_rlm' is .../graph-rlm/ (the folder containing graph_rlm dir)
-    repo_root = BACKEND_ROOT.parent.parent # /home/ty/Repositories/ai_workspace/graph-rlm
+    repo_root = (
+        BACKEND_ROOT.parent.parent
+    )  # /home/ty/Repositories/ai_workspace/graph-rlm
 
     env = os.environ.copy()
     # We need repo_root for graph_rlm package and BACKEND_ROOT for skills_dir module
@@ -84,10 +101,7 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
     logger.info(f"Spawning skill '{skill_name}' in isolated venv...")
 
     process = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env
     )
 
     stdout, stderr = await process.communicate()
@@ -105,11 +119,11 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
         # Filter out log lines if any (though we configured logging to stderr mostly?)
         # For now, blindly try to parse the whole output or the last line
         if not lines:
-             return None
+            return None
         return json.loads(lines[-1])
     except json.JSONDecodeError:
         logger.error(f"Failed to parse skill output: {output}")
-        raise RuntimeError(f"Skill returned invalid JSON: {output}")
+        raise RuntimeError(f"Skill returned invalid JSON: {output}") from None
 
 
 async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any:
@@ -159,6 +173,7 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
                 function_name = "research_topic"
             else:
                 import inspect
+
                 funcs = [
                     n
                     for n, o in inspect.getmembers(module, inspect.isfunction)
@@ -182,9 +197,9 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         return result
 
     except ImportError as e:
-        raise RuntimeError(f"Failed to import skill {skill_name}: {e}")
+        raise RuntimeError(f"Failed to import skill {skill_name}: {e}") from e
     except Exception as e:
-        raise RuntimeError(f"Skill execution failed: {e}")
+        raise RuntimeError(f"Skill execution failed: {e}") from e
     finally:
         cleanup_global_client()
 
@@ -207,7 +222,9 @@ async def main():
     parser = argparse.ArgumentParser(description="Execute an MCP skill")
     parser.add_argument("skill_name", help="Name of the skill to execute")
     parser.add_argument("--args", help="JSON string of arguments", default="{}")
-    parser.add_argument("--internal-run", action="store_true", help="Internal flag: running inside venv")
+    parser.add_argument(
+        "--internal-run", action="store_true", help="Internal flag: running inside venv"
+    )
     parser.add_argument("extra_args", nargs="*", help="Key=value arguments")
 
     args = parser.parse_args()

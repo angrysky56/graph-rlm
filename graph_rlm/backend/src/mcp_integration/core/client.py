@@ -325,7 +325,7 @@ class McpClientManager:
                 del self._connection_tasks[server_name]
             if server_name in self._stop_events:
                 del self._stop_events[server_name]
-            raise RuntimeError(f"Failed to connect to {server_name}: {e}")
+            raise RuntimeError(f"Failed to connect to {server_name}: {e}") from e
 
         if server_name not in self.sessions:
             raise RuntimeError(
@@ -409,6 +409,7 @@ class McpClientManager:
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
             from graph_rlm.backend.mcp_tools import skills as skills_tool
+
             func = getattr(skills_tool, tool_name, None)
             if not func:
                 raise ValueError(f"Tool {tool_name} not found in skills")
@@ -437,7 +438,7 @@ class McpClientManager:
         except TimeoutError:
             raise TimeoutError(
                 f"Tool call {tool_name} on {server_name} timed out after {self.read_timeout}s"
-            )
+            ) from None
         except (ConnectionError, BrokenPipeError, EOFError) as e:
             # Connection died during call - try to reconnect once
             logger.warning(
@@ -459,19 +460,18 @@ class McpClientManager:
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
             from graph_rlm.backend.mcp_tools import skills as skills_tool
+
             # Synthesize Tool objects
             tools = []
             for tool_def in skills_tool.TOOLS:
                 name = str(tool_def["name"])
                 desc = str(tool_def.get("description", ""))
                 schema_data = tool_def.get("input_schema", {})
-                schema: dict[str, Any] = dict(schema_data) if isinstance(schema_data, dict) else {}
+                schema: dict[str, Any] = (
+                    dict(schema_data) if isinstance(schema_data, dict) else {}
+                )
 
-                tools.append(Tool(
-                    name=name,
-                    description=desc,
-                    inputSchema=schema
-                ))
+                tools.append(Tool(name=name, description=desc, inputSchema=schema))
             return tools
 
         self._validate_state_at_least(ConnectionState.INITIALIZED, "list_tools")
@@ -522,8 +522,8 @@ class McpClientManager:
             try:
                 # Type ignore: gather returns Future[list], wait_for expects Awaitable
                 await asyncio.wait_for(
-                    asyncio.gather(*shutdown_tasks, return_exceptions=True), # type: ignore
-                    timeout=2.0
+                    asyncio.gather(*shutdown_tasks, return_exceptions=True),  # type: ignore
+                    timeout=2.0,
                 )
             except Exception as e:
                 logger.warning(f"Error during cleanup wait: {e}")
