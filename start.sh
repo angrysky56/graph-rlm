@@ -85,12 +85,13 @@ done
 echo ""
 
 # 1.5 Setup Agent Venv
-AGENT_VENV="graph_rlm/backend/agent_venv"
-if [[ ! -d ${AGENT_VENV} ]]; then
-	echo "[+] Creating dedicated Agent Venv at ${AGENT_VENV}..."
-	uv venv "${AGENT_VENV}"
-	echo "    -> Environment created."
-fi
+# 1.5 Setup Agent Venv (REMOVED: Consolidated to System Venv)
+# AGENT_VENV="graph_rlm/backend/agent_venv"
+# if [[ ! -d ${AGENT_VENV} ]]; then
+# 	echo "[+] Creating dedicated Agent Venv at ${AGENT_VENV}..."
+# 	uv venv "${AGENT_VENV}"
+# 	echo "    -> Environment created."
+# fi
 
 # 2. Start Backend API
 # Note: Assuming using uvicorn directly or via module

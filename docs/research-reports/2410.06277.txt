@@ -1,0 +1,1626 @@
+Solving Functional Optimization with Deep Networks and Variational Principles
+Kawisorn Kamtue 1 Jose M.F. Moura 1 Orathai Sangpetch 2
+Abstract
+Can neural networks solve math problems using
+first a principle alone? This paper shows how to
+leverage the fundamental theorem of the calcu-
+lus of variations to design deep neural networks
+to solve functional optimization without requir-
+ing training data (e.g., ground-truth optimal solu-
+tions). Our approach is particularly crucial when
+the solution is a function defined over an unknown
+interval or support—such as in minimum-time
+control problems. By incorporating the necessary
+conditions satisfied by the optimal function so-
+lution, as derived from the calculus of variation,
+in the design of the deep architecture, CalVNet
+leverages overparameterized neural networks to
+learn these optimal functions directly. We vali-
+date CalVNet by showing that, without relying
+on ground-truth data and simply incorporating
+first principles, it successfully derives the Kalman
+filter for linear filtering, the bang-bang optimal
+control for minimum-time problems, and finds
+geodesics on manifolds. Our results demonstrate
+that CalVNet can be trained in an unsupervised
+manner, without relying on ground-truth data, es-
+tablishing a promising framework for addressing
+general, potentially unsolved functional optimiza-
+tion problems that still lack analytical solutions.
+1. Introduction
+The fundamental theorem of the calculus of variations is
+a powerful principle at the core of physics, underpinning
+classical mechanics, electromagnetism, and quantum theory.
+Nature inherently follows optimization principles, such as
+the principle of least action to dictate how light travels. This
+variational framework provides a powerful foundation for
+deriving optimality conditions. Given this prior knowledge,
+1Department of Electrical and Computer Engineering,
+Carnegie Mellon University, Pittsburgh, USA
+2Department
+of Electrical and Computer Engineering, CMKL University,
+Bangkok, Thailand.
+Correspondence to: Kawisorn Kamtue
+<kkamtue@andrew.cmu.edu>.
+how can we incorporate this fundamental principle to deep
+neural networks to learn optimal solutions?
+We consider a general functional optimization problem
+where the support of the functions, defined over the in-
+terval [0, tf], is unknown. Specifically, the terminal time
+tf itself is subject to optimization, and the terminal state is
+constrained to lie within a predefined set. This formulation
+introduces significant challenges: traditional methods such
+as the forward methods (Chen et al., 2018; B¨ottcher et al.,
+2022) and shooting methods (Quartapelle & Rebay, 1990;
+Bonnans, 2013) are inapplicable, as they rely on known or
+fixed time horizons. Moreover, performance metrics are
+only valid for admissible trajectories—those that success-
+fully reach the desired terminal state. Methods that directly
+minimizes the performance functional (Mowlavi & Nabi,
+2023) are not valid.
+In this paper, we draw inspiration from the calculus of vari-
+ations—a field dedicated to finding extrema of functionals
+through variations—to design a neural network based this
+first principle. Calculus of variations, the mathematics of
+optimizing functionals, optimizes directly over the func-
+tion space, which contrasts with approaches that convert
+the function optimization into a parameter optimization by
+first parametrizing the possible function solutions, e.g., by
+representing the functions through splines. Our approach
+aims to solve functional optimization problems arising in
+engineering, optimal control, and differential geometry. We
+begin by formulating a variational framework for these prob-
+lems, using the calculus of variations to derive the optimality
+conditions that make the functional variation vanish. While
+traditional methods solve these conditions analytically or
+numerically, they become intractable for nonlinear, second-
+order differential equations with complex boundary condi-
+tions. Instead, we propose a neural network that learns the
+optimal solution by directly minimizing these variations.
+Additionally, the presence of extra constraints, such as
+boundedness or compactness requirements on the state func-
+tion (e.g., finding curve on a manifold) and control functions,
+further complicates the problem. These constraints restrict
+the space of admissible control functions, often leading to
+optimal solutions that are discontinuous (resembling step
+functions) or undefined in certain regions. Such characteris-
+tics pose substantial difficulties for neural network training,
+1
+arXiv:2410.06277v4  [cs.LG]  11 Mar 2025
+Solving Functional Optimization with Deep Networks and Variational Principles
+frequently resulting in vanishing or exploding gradients. To
+date, no prior work has successfully addressed these chal-
+lenges in their entirety.
+This paper presents a method to integrate prior knowledge
+from calculus of variations, functional optimization, and
+classical control into the architectural design of deep models.
+We incorporate dynamical constraints, control constraints,
+and optimality conditions derived from the first principle
+into the loss function for training neural networks, enabling
+unsupervised learning. Our contributions are as follows.
+Main contributions:
+• We provide a general framework of functional opti-
+mization by incorporating the fundamental theorem of
+calculus: train a deep neural network that makes the
+functional variation zero for all admissible variations
+• Propose learning paradigms that effectively train
+CalVNet to derive the optimal solution.
+• We use CalVNet to solve three optimization prob-
+lems: one with constraints on control and one with
+constraints on state.
+• Show that our CalVNet replicates the design of the
+Kalman filter, derives the bang-bang control, learns
+shortest curves (geodesics) on manifolds.
+2. Theory
+2.1. Problem setting
+We present a context of functional optimization problem.
+Given an initial value problem, specified by a dynamical
+system and its initial condition
+˙x(t) = f(x(t), u(t))
+x(0) = x0
+(1)
+where x : R≥0 7→X
+⊆Rm is the state function,
+u : R≥0 7→U ⊆Rn is the control function (if exists), and
+f : X × U 7→X is a known function representing the dy-
+namics. We suppose that x is differentiable and f is differen-
+tiable with respect to each variable. Unlike previous works
+that consider fixed support (Mowlavi & Nabi, 2023) or fixed
+terminal state (D’Ambrosio et al., 2021), we consider a
+more general stopping set S = {(x(t), t)| φ(x(t), t) =
+0} = X × R≥0 where s : Rm × R≥0 7→Rk is a differ-
+entiable function. This definition of S allows us to solve
+general functional optimization problems when the terminal
+state and time are not explicitly specified, e.g., finding the
+distance between two curves or finding the minimum time
+to reach the surface of a manifold. In these cases, we do not
+know the terminal point and terminal time beforehand.
+Functional optimization problems involve finding a valid a
+trajectory x⋆: [0, tf] 7→X such that it reaches the termi-
+nal state (x⋆(tf), tf) ∈S and minimizes some functional
+measure L(x, u) of the form
+L(x, u) = qT (x(tf), tf) +
+tf
+Z
+0
+g(x(t), ˙x(t), u(t))dt
+(2)
+where qT is the terminal cost and g is the running cost.
+Not all pairs of functions (x, u) are admissible trajecto-
+ries since trajectories must satisfy a dynamical constraint
+˙x(t) = f(x(t), u(t)) and (x(tf), tf) ∈S. The domain of
+integration [0, tf] can be variable, depending on each admis-
+sible control. The optimal control problem is therefore the
+constrained optimization
+min
+x,u
+L(x, u)
+s.t.
+˙x(t) = f(x(t), u(t)), ∀t ∈[0, tf]
+x(0) = x0
+(x(tf), tf) ∈S
+(3)
+In (3), the optimization variables are functions over variable
+support, say {u(t), t ∈[0 , tf]}, where tf may be fixed or is
+to be optimized itself (like in the minimum time problem).
+To handle dynamics constraints, the Langragian multipliers
+function λ(t) and the Lagrangian multiplier scalar λf are
+introduced and the new functional becomes
+J (x, u, λ, λf) = qT (x(tf), tf) + λfφ(x(tf), tf)
++
+tf
+Z
+0
+g(x, ˙x, u) + λT (f(x, u) −˙x)dt
+(4)
+For all admissible trajectories (x, u), i.e. (x, u) satisfying
+the dynamics ˙x = f(x, u), we have J (x, u, λ) = L(x, u).
+Therefore, the admissible optimal solution for (4) is also the
+optimal solution for (3).
+2.2. Calculus of variations
+Calculus of variations enables us to identify the optimal
+functions s = (x, u, λ) that minimize J . The fundamental
+theorem of calculus of variations states that variation at the
+optimal solution is 0,
+δJ (s⋆, δs) = 0,
+for all admissible δs
+we can use this powerful law to derive the necessary condi-
+tions at the optimal solution s⋆= (x⋆, u⋆, λ⋆, λ⋆
+f)
+To compute a variation δJ at (x, λ, u), we first add a pertur-
+bation δs = (δx, δu, δλ). Note that δs may not be arbitrary,
+2
+Solving Functional Optimization with Deep Networks and Variational Principles
+i.e. there is a set of admissible δs that makes s + δs a valid
+trajectory. This perturbation causes the new trajectory to
+reach terminal state and time (xf + δxf, tf + δtf)
+Then we compute ∆J = J (s+δs)−J (s). Then δJ (s, δs)
+is the first order terms in Taylor expansion of ∆J, i.e. the
+linear terms of δs.
+Using the fundamental theorem of calculus of variations, we
+can derive a set of necessary conditions {ψi}i∈I that makes
+δJ (s⋆, δs) = 0 for all admissible δs
+ψi(s⋆, x⋆
+f, t⋆
+f) = 0
+(5)
+{ψi}i∈I consists of a system of partial differential, usually
+containing the Euler-Lagrange equation. This system of
+differential equation is generally nonlinear, time-varying,
+second-order, and hard-to-solve. Numerical methods also
+pose challenges due to the split boundary conditions–
+neither the initial values (x(0), ˙x(0)) nor the final values
+(λ(tf), ˙λ(tf)) are fully known.
+2.3. CalVNet: Calculus of Variations informed Network
+Instead of solving Equation (5) analytically or numerically,
+we propose leveraging neural networks’ well-known capa-
+bility as universal function approximators (Cybenko, 1989)
+to learn {x(t), u(t), λ(t), t ∈[0 , tf]}, along with the learn-
+able parameter time interval tf, that satisfy Equation (5).
+Unlike other parametric functions like spline functions
+(Beik-Mohammadi et al., 2021; Detlefsen et al., 2021) and
+constrained expressions (Mortari, 2017), deep networks are
+overparameterized that can model even step functions (see
+results on Section 4). In the training stage, rather than
+directly matching the CalVNet’s outputs to ground truth
+data {x(t)⋆, u(t)⋆, λ(t)⋆, t ∈[0 , tf]}, our CalVNet learns
+to predict solutions that adhere to the Equation (5) by in-
+stead minimizing a smooth function
+Ψ =
+X
+i∈I
+∥ψi∥2
+di
+where ∥· ∥di is an appropriate norm chosen. Because this
+process incorporates the fundamental principle that variation
+vanishes at optimal solution, we interpret it as bringing to
+the neural networks “prior knowledge”(Betti & Gori, 2016).
+Our approach introduces an inductive bias into the CalVNet,
+allowing it to learn the optimal solution in an unsupervised
+manner. By simultaneously predicting both the state and the
+control, CalVNet eliminates the need for integration and can
+address optimal control problems with unknown terminal
+time.
+The algorithm is detailed in Algorithm 1. During the for-
+ward pass, CalVNet takes time as input and predicts the state
+xθ(t), the control uθ(t), and the costate λθ(t). The loss Ψ
+Algorithm 1 CalVNet for functional optimization problem
+Input: Functional cost J, {ψi}i∈I
+network parameter θ, start time t0, initial value x0
+final time tf
+Learnable parameters: Φ = {θ, tf, λf}
+while unconverged do
+Sample time {tk}N
+k=1 uniformly
+Compute (xθ(tk), λθ(tk), uθ(tk)) for all k = 1, .., N
+Compute ψi(xθ, λθ, uθ) that makes δJ zero
+Compute Ψ = P
+i∈I
+∥ψi∥2
+di
+loss = MSELoss(xθ(t0), x0) + Ψ
+Φ ←Φ −η∇Φloss
+end while
+return Φ
+is then calculated based on these predictions. By leveraging
+the automatic differentiation capabilities of neural networks
+(Baydin et al., 2017; Lu et al., 2021), we can efficiently
+compute the derivatives and partial derivatives present in
+Ψ by computing in-graph gradients of the relevant output
+nodes with respect to their corresponding inputs. In the
+experiments in Section 3 and Section 4, we also incorporate
+additional architectural features into our CalVNet to enforce
+hard constraints and to allow CalVNet to learn even when
+the terminal time is unknown.
+3. Designing the optimal linear filter
+In this section, our goal is to design a linear filter that pro-
+vides the best estimate of the current state based on noisy
+observations. The optimal solution is known as “Kalman
+Filtering” (Kalman & Bucy, 1961), which is one of the most
+practical and computationally efficient methods for solving
+estimation, tracking, and prediction problems. The Kalman
+filter has been widely applied in various fields from satel-
+lite data assimilation in physical oceanography, to econo-
+metric studies, or to aerospace-related challenges (Leonard
+et al., 1985; Auger et al., 2013). The optimal solution being
+known, the Kalman filter is the ground truth that serves to
+benchmark CalVNet.
+3.1. Kalman Filter
+Reference Athans & Tse (1967) formulated a variational
+approach to derive the Kalman filter as an optimal control
+problem. We consider the dynamical system
+˙x(t) = Ax(t) + Bw(t), 0 ≤t ≤tf,
+wt−1 ∼N(0, Q)
+y(t) = Cx(t) + v(t), vt−1 ∼N(0, R)
+x(0) ∼N(x0, Σ0)
+(6)
+where x(t) ∈Rn is the state, y(t) ∈Rm is the observation.
+A ∈Rn×n is the state transition matrix, B ∈Rn×r is the
+3
+Solving Functional Optimization with Deep Networks and Variational Principles
+input matrix, and C ∈Rn×r is the measurement matrix.
+The white Gaussian noise w(t) (resp. v(t)) is the process
+(resp. measurement) with covariance Q (resp. R) noise. We
+assume that x(0), w(t), v(t), are independent of each other.
+Kalman designed a recursive filter that estimates the state
+by
+˙ˆx(t) = Aˆx(t) + G(t)
+h
+Cy(t) −Aˆx(t)
+i
+ˆx(0) = x0
+(7)
+where G(t) is the Kalman gain to be determined. Given the
+state estimation ˆx(t) at time t, the error covariance defined
+as
+Σ(t) = E
+h
+(ˆx −x)(ˆx −x)T i
+has the following dynamics
+˙Σ(t) =
+h
+A −G(t)C
+i
+Σ(t) + Σ(t)
+h
+A −G(t)C
+iT
++ BQBT + G(t)RG(t)T
+Σ(0) =Σ0
+(8)
+where Σ(t) is the n × n error covariance matrix. The goal
+of Kalman filter is to find the optimal gain (perceived in this
+variational approach as a control) G⋆(t) such that the final
+cost
+qT (Σ(T)) = tr [Σ(T)]
+is minimized, or equivalently the L2 norm between the
+estimation and the actual state is minimized. In this case,
+the stopping set is S = {(Σ(t), t)| t = T}, there is no
+constraint on terminal state and terminal time is fixed at T.
+J (Σ, G, λ) = tr [Σ(T)] +
+tf
+Z
+0
+λT (f(x, u) −˙x)dt
+(9)
+where f is the dynamics described in Equation (8). Deriving
+δJ from Equation (8) (see Appendix B), the necessary
+conditions to solve for the optimal Kalman gain are
+ψ1 = ˙Σ⋆−f(Σ⋆, G⋆) = 0
+ψ2 = ˙λ⋆T + ∂H
+∂Σ
+
+⋆= 0
+ψ3 = ∂H
+∂G
+
+⋆= 0
+ψ4 = λ⋆(T)T −In = 0
+(10)
+where the Hamiltonian H = tr
+
+λT f(Σ⋆, G⋆)
+
+3.2. Learning the Kalman Filter with CalVNet
+Architecture: The state, costate, and control estimators
+are modeled by 6-layer feedforward neural networks with
+hyperbolic tangent activation. Since Σ is both symmetric
+and positive semi-definite, we embed this inductive bias
+into our neural network architecture. Specifically, the state
+estimator outputs an intermediate matrix P and estimates
+the error covariance Σ as Σ = P T P, ensuring symmetry
+and positive semi-definiteness. We adopt the feedback loop
+design in engineering so that the control estimator only takes
+the output state as input.
+Training: We adopt curriculum training, as optimizing loss
+with multiple soft constraints can be challenging (Krish-
+napriyan et al., 2021). We set the loss function to be
+Lossθ = ∥Σ(0) −Σ0∥2
+2 + αΨ
+During each epoch, 5000 points are uniformly sampled
+from time [0 , T]. After every 5000 epochs, we increment
+the value of α by a factor of 1.04. All neural networks
+are initialized with Glorot uniform initialization (Glorot &
+Bengio, 2010). We train CalVNet using stochastic gradient
+descent with the initial learning rate 8 × 10−4.
+Evaluation: For a fair evaluation, we take the estimated G
+from CalVNet and use the fourth-order Runge-Kutta inte-
+grator (Runge, 1895) in scipy.integrate.solve ivp to
+derive the trajectory of the state. This is necessary because
+the state estimated by CalVNet might not adhere to the dy-
+namics constraints, making it into an implausible trajectory.
+3.3. Results
+For our experiment, we set
+A=
+0
+I2
+0
+0
+
+∈R4×4, B =
+ 0
+I2
+
+∈R4×2, C = I4, T = 5.0
+This dynamical system models a kinematics system where
+the state x corresponds to position and velocity and the
+control u corresponds to the force applied to the state.
+With these experimental settings, Kalman filtering reaches
+a steady state where Σ⋆converges (hence, the Kalman gain
+converges to G⋆
+∞). We compare our method against two
+baselines: 1) the baseline NN trained with 50 points of
+ground truth control G⋆sampled from the time interval
+[0 , 2.0], covering the transient phase of the Kalman filter
+before it reaches steady-state and 2) the baseline PINN that
+enforces the dynamics constraints and directly minimize
+the cost functional qT (Mowlavi & Nabi, 2023) instead of
+variations. We evaluate and compare the trace of Σ gen-
+erated by CalVNet, the baseline methods, and the optimal
+Kalman gain. Figure 1 shows that, even though there is some
+discrepancy between the CalVNet’s control output G and
+the Kalman gain G⋆during the transient phase, CalVNet
+matches the optimal Kalman gain G⋆
+∞at the terminal time,
+while the baseline diverges. Table 1 shows that the base-
+line PINN that learns to satisfy dynamics constraint and to
+minimize the cost functional without using optimality condi-
+tions shows a divergent behavior. This result demonstrates
+4
+Solving Functional Optimization with Deep Networks and Variational Principles
+Figure 1. CalVNet learns the Kalman filter, deriving the optimal value of the functional cost. The baseline NN performs well in the time
+interval where ground truth is available, but fails to learn the optimal steady-state Kalman gain G⋆
+∞, resulting in diverging error. The
+baseline PINN shows diverging error. CalVNet learns the optimal steady-state error covariance Σ⋆
+∞and Kalman gain G⋆
+∞and they
+remain convergent beyond the time interval of the problem [0, 5]
+Table 1. Trace and Convergence of predicted Σ by CalVNet and
+baseline PINN
+METHOD
+TR(Σ)
+CONVERGENCE
+OPTIMAL GAIN (KALMAN)
+6.06
+√
+CALVNET
+6.07
+√
+BASELINE PINN
+14.7
+×
+that directly optimizing functional measure (e.g. qT ) can
+be more unstable that optimizing variations. CalVNet’s tra-
+jectory of (Σ, G) converges to their corresponding optimal
+values (Σ⋆
+∞, G⋆
+∞). Since the gain G is learned as a function
+of one input Σ, (Σ, G) remains convergent even after time
+interval of the problem [0, 5], allowing us to use CalVNet
+in different time horizon. CalVNet learns the correct rela-
+tionship between Σ⋆
+∞and G⋆
+∞, equivalent to deriving the
+Riccati equation. The error covariance, and tr(Σ) remain
+close to the ground truth of the analytical solution beyond
+time T = 5. The discrepancy during the transient time
+does not affect the overall performance, since CalVNet’s
+control G converges to the optimal steady-state value G⋆
+∞.
+In practice, this is what usually matters, since in Kalman
+filter practice, the steady-state G⋆
+∞is often pre-computed
+and used instead of G⋆(t). We investigated the effect of
+using curriculum training. As shown in Figure 1, using cur-
+riculum training results in a trajectory with a smaller trace
+of the error covariance throughout the interval of interest,
+especially during the transient phase.
+4. Learning the Minimum Time optimal
+control
+In this section, we seek the optimal control strategy that
+drives a state from an arbitrary initial position to a specified
+terminal position in the shortest possible time. In practice,
+the control is subject to constraints, such as maximum out-
+put levels. The optimal control strategy for the minimum
+time problem is commonly known as “bang-bang” control.
+Examples of bang-bang control applications include guid-
+ing a rocket to the moon in the shortest time possible while
+adhering to acceleration constraints (Athans & Falb, 1996).
+4.1. The Minimum time problem
+We illustrate the CalVNet with the following problem. Con-
+sider the kinematics system
+ ˙x1(t)
+˙x2(t)
+
+=
+0
+1
+0
+0
+ x1(t)
+x2(t)
+
++
+0
+1
+
+u
+(11)
+where x1, x2, u correspond to the position, velocity, and
+acceleration of a mobile platform. The goal is to drive the
+system from the initial state (x1(0), x2(0)) = (p0, v0) to
+a final destination S = {(x(t), t) | ∥x(t)∥= 0}. where
+x(t) ∈Rn is the state at time t, u(t) ∈Rm is the control
+at time t. We are interested in finding the optimal control
+n
+u⋆(t), t ∈[0 , t⋆
+f]
+o
+that drives the state from x0 to xf in a
+minimum time t⋆
+f. The performance measure can be written
+as
+T(x, u) =
+tf
+Z
+0
+1dt
+(12)
+where tf is the time in which the sequence (x, u) reaches
+the terminal state. Note that here tf is a function of (x, u)
+since the time to reach the target state depends on the state
+and control. In practice, the control components may be con-
+strained by requirements such as a maximum acceleration
+or maximum thrust
+|ui(t)| ≤1,
+i ∈[1, m]
+t ∈[t0, tf]
+where ui is the ith component of u. In the case of con-
+trol with constraint, the variation can be nonzero when the
+5
+Solving Functional Optimization with Deep Networks and Variational Principles
+optimal solution is at the boundary.
+J (x, u, λ) = λfψ(xf) +
+tf
+Z
+0
+1 + λT (f(x, u) −˙x)dt (13)
+Deriving δJ gives us the necessary conditions at the valid
+optimal solution (x⋆, u⋆, λ⋆) (see Appendix C)
+ψ1 = ˙x⋆−f(x⋆, u⋆) = 0
+ψ2 = ˙λ⋆−
+ 0
+−λ⋆
+1
+
+= 0
+ψ3 = u⋆−arg min
+u
+H(x⋆, u, λ⋆) = 0
+ψ4 = 1 + λ2(t⋆
+f)u(t⋆
+f) = 0
+(14)
+where f is the dynamic function described in Equation (11)
+and the Hamilton H(x, u, λ) = 1 + λ1x2 + λ2u.
+4.2. Learning bang-bang control with CalVNet
+In our approach, the state estimator, costate estimator, and
+control estimator are modeled by 6-layer feedforward net-
+works. The control estimator has the hyperbolic activation
+at the final output to ensure the control is bounded by 1.
+The learnable parameter tf is subjected to the constraint
+x(tf) = xf.
+Training: We propose a new paradigm for training CalVNet
+for minimum-time problems. First, we set a time T that is
+sufficiently larger than t⋆
+f. We start by pretraining the costate
+estimator such that the costate estimator is not a zero func-
+tion (see Appendix C). Secondly, we propose sequential
+and alternate training. Equation (14) suggests that the op-
+timal control u⋆as a function of (x⋆, λ⋆) can be learned
+without knowing (x⋆, λ⋆). Therefore, in the first step, we
+can generate a random (x, λ) and train the control estimator
+to minimize H(x, λ, u). We freeze the state and costate
+estimator and take n gradient update for the control estima-
+tor since u⋆= arg minu H(x, λ, u). Next, we freeze the
+control estimator and train the state and costate estimator by
+uniformly sampling 5000 points from time interval [0, T]
+and perform one gradient update for the state and costate
+estimator before going back to the first step again. This can
+prevent vanishing gradients or exploding gradients. We also
+compute the gradient of the loss function with respect to the
+variable tf, allowing it to be optimized during backpropa-
+gation. We train CalVNet using stochastic gradient descent
+with the initial learning rate 8 × 10−4.
+Evaluation: Similar to the experiment in Section 3.2, we
+generate the control estimate from CalVNet and use a fourth-
+order Runge-Kutta integrator to estimate the state trajectory.
+For the baseline, we employ the optimal (bang-bang) control
+and integrate it with the fourth-order Runge-Kutta method.
+During prediction, we consider the state to have reached the
+target if the Euclidean distance between them is less than
+ϵ = 0.05.
+4.3. Results
+For our experiment, we set x0 =
+1
+0
+
+, xf =
+0
+0
+
+, T = 3.0.
+The optimal control is to apply the acceleration −1 from
+time [0, 1] and acceleration +1 from time ]1, 2] that will
+drive the state from the initial state x0 to the target state xf in
+minimum time t⋆
+f = 2 seconds. The control switches from
+−1 to +1 at the switching time at t = 1 where λ⋆
+2(t) = 0
+as shown in Figure 2.
+Figure 2 show that the generated trajectory of state and
+costate match the optimal solution. CalVNet learns a con-
+trol strategy that exhibits “bang-bang” behavior, switching
+from +1 to −1 when λ2 changes sign. Since standard neu-
+ral networks inherently produce continuous functions, there
+is a small discrepancy between the predicted control and
+the theoretical bang-bang control. This limitation may, in
+fact, better reflect real-world scenarios, as the control cannot
+switch instantaneously between two extremes. While reduc-
+ing this discrepancy is possible by using a larger control
+estimator and more computational resources to compute gra-
+dients of higher magnitude, such optimization is beyond the
+scope of this work. Figure 2 demonstrates that the trainable
+variable tf in CalVNet successfully converges to the true
+value of t⋆
+f = 2. This key result highlights CalVNet’s ability
+to learn when the terminal time is unknown.
+5. Geodesics on manifold
+In this section, we explore the task of finding the shortest
+curve on a manifold from a starting point to a stopping
+set S. This general formulation encompasses a variety of
+specific problems, such as projecting a point in Rd onto a
+submanifold, determining a tangent curve from a point to a
+submanifold, or computing the shortest path between two
+points on a manifold. It is well-established that geodesic
+curves, which represent the shortest paths on a manifold, are
+the solutions to such problems. Beyond their theoretical im-
+portance, geodesics have significant practical applications.
+For instance, they are crucial in optimizing the transport
+of goods and passengers by minimizing time and energy
+costs. Additionally, they play a key role in numerical meth-
+ods, where they help satisfy constraints during numerical
+optimization processes.
+5.1. Minimum length curve
+Given a Riemannian manifold (M, g) where M is a smooth
+submanifold of Rn and g is a Riemannian metric g on M
+that assigns to each point p ∈M a positive-definite inner
+product gp : TpM × TpM →R where TpM is a tangent
+6
+Solving Functional Optimization with Deep Networks and Variational Principles
+Figure 2. CalVNet generates the trajectory of the state, the costate, and the control over the time interval of interest that matches the
+optimal trajectory. Most importantly, CalVNet learns the bang-bang behavior where control u is a negative sign function of λ2 and
+correctly learns the minimum time t⋆
+f.
+space at p. For simplicity, we consider the usual ∥· ∥of Rn.
+Given the curve γ : [0, 1] →M, the arc length is defined as
+L(γ) =
+1
+Z
+0
+∥˙γ(t)∥dt
+The functional L is not smooth and the minimizer is non-
+unique. Instead, we can define energy functional
+E(γ) =
+1
+Z
+0
+∥˙γ(t)∥2dt
+The energy functional is locally uniformly convex, therefore
+the minimizer is unique. The optimal solution minimizing
+the energy functional also minimizes length functional (see
+Appendix).
+Suppose the equation for the manifold M is described by
+f(p) = 0 and the equation for stopping set S is φ(p) = 0.
+We introduce lagrange multiplier and solve for the
+J (γ, λ, λf) = λfφ(xf)+
+1
+Z
+0
+∥˙γ∥2+λ(t)T f(γ(t))dt (15)
+Deriving δJ from Equation (15) yields
+ψ1 = f(γ⋆(t)) = 0
+∀t ∈[0, 1]
+ψ2 = λ⋆T ∂f
+∂γ −¨γ⋆= 0
+∀t ∈[0, 1]
+ψ3 = ˙v(1) −λf
+∂φ
+∂γ
+γ⋆(0) = p0
+φ(γ⋆(1)) = 0
+(16)
+The second equation ψ2 in Equation (16) is equivalent to the
+definition of ”geodesics”: the acceleration is perpendicular
+to the tangent plane (the covariant derivative of ˙γ relative to
+˙γ is 0.
+5.2. Experiments
+We consider two problems
+• finding the shortest path on a sphere S2 = {x2 + y2 +
+z2 = 1} from a point p0 ∈S2 to the equator. The
+stopping set is defined by the equator φ(x, y, z) =
+(x2 + y2 + z2 −1)2 + z
+• finding the shortest path on a hyperbolic paraboloid
+H2 = {z = x2−y2} from a point p0 ∈H2 to p1 ∈H2
+The results are shown in Figures 3 and 4. The optimal
+curves found lie on respective manifold and representing
+geodesics (acceleration is orthogonal to the tangent plane).
+For hyperbolic paraboloid, there is closed-form solution for
+the geodesics (Livio & Simmons, 2006). This motivates our
+work to use deep learning to learn geodesics on complex
+surfaces.
+6. Related Work
+Our approach aligns with the use of neural networks for
+solving optimal control problems and is inspired by exist-
+ing literature on integrating constraints into neural network
+architectures. Below, we provide a concise overview of
+these areas, highlighting their relevance. We provide a brief
+overview of these areas and emphasize how our work distin-
+guishes itself from them.
+Enforcing dynamics constraints in neural networks: Dy-
+namics constraints in neural networks can be addressed
+through two main approaches: (1) designing specialized
+architectures that inherently satisfy the constraints (hard
+constraints), and (2) incorporating the constraints into the
+loss function, as done in Physics-Informed Neural Networks
+(PINNs) (Raissi et al., 2019) (soft constraints).
+7
+Solving Functional Optimization with Deep Networks and Variational Principles
+1.0
+0.5
+0.0
+0.5
+1.0
+1.0
+0.5
+0.0
+0.5
+1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+True Optimal geodesic path
+Predicted Shortest Curve
+North pole
+Starting point p0
+Figure 3. CalVNet finds the geodesics path from the point p0 to
+the equator. The optimal path is given by a geodesics that past
+through the north pole and the point p0
+1.0
+0.5
+0.0
+0.5
+1.0
+1.0
+0.5
+0.0
+0.5
+1.0
+1.0
+0.5
+0.0
+0.5
+1.0
+Predicted shortest curve
+Starting point p0
+End point p1
+Figure 4. CalVNet finds the geodesics path on hyperbolic
+paraboloid from point p0 to p1
+In hard constraint approaches, B¨ottcher et al. (2022) enforce
+dynamic constraints using neural ODEs (Chen et al., 2018)
+to learn the optimal control. ODE-based methods primarily
+address the forward problem by integrating the state to the
+terminal time, calculating the loss function, and minimizing
+it. This framework is not applicable when the terminal time
+tf is unknown and must be optimized, or when the terminal
+state is prescribed. Similarly, D’Ambrosio et al. (2021)
+parameterize the state x and express the control u in terms
+of x and its higher-order derivatives to satisfy the dynamic
+constraints. However, such a representation is not always
+feasible in general dynamics.
+In a soft constraint approach, Mowlavi & Nabi (2023) em-
+ploy PINNs to parameterize the state x and control u, ensur-
+ing they satisfy the dynamics. The neural network weights
+are then updated to minimize the performance measure.
+However, this direct method assumes the performance met-
+ric can always be calculated—requiring the supports of the
+relevant functions to be fixed and known.
+In contrast, our method uses the indirect method by leverag-
+ing the calculus of variations, enabling us to address cases
+where the terminal time and terminal state are variables
+(moving boundary). Our approach simultaneously learns
+the optimal control and the minimum time, even under these
+conditions.
+Incorporating optimality conditions in neural networks:
+Several works have used optimality conditions of con-
+strained optimization in neural networks. Reference Amos
+& Kolter (2017) and Donti et al. (2021) incorporate
+Karush–Kuhn–Tucker (KKT) conditions in implementing
+backward passes in neural networks. But this is constrained
+optimization over constant variables (parameters) while we
+optimize over functions with a dynamic constraint. Refer-
+ence Yin et al. (2024) and Betti et al. (2024) propose using
+neural networks to parameterize the state and costate that
+learns to satisfy KKT and PMP conditions. However, these
+works only consider problems where the support is fixed.
+This approach can not be extended to a problem where the
+support is unknown, e.g., as in the minimum time prob-
+lem. While D’Ambrosio et al. (2021) considers learning
+the terminal time, their approach remains limited when the
+terminal state is not specified (e.g. when finding a projection
+onto manifolds).
+7. Conclusion
+We present a novel paradigm that integrates calculus of
+variations into neural networks for learning the solutions to
+functional optimization problems arising in many engineer-
+ing and technology and scientific problems. Our CalVNet is
+unsupervised, generalizable and can be applied to a general
+functional optimization problems with moving boundaries
+that other related works have not addressed. We illustrate
+the CalVNet framework with classical problems of great ap-
+plied significance and show that it successfully recovers the
+Kalman filter, bang-bang control solutions and geodesics.
+By leveraging the calculus of variations, we can analyze
+variations in the terminal state and time, and CalVNet suc-
+cessfully optimizes this variable in the minimum time prob-
+lem—something most prior works fail to do. Although
+these solutions have been derived analytically in the past,
+we experiment with these problems, especially bang-bang
+control where no prior work has managed to use neural
+network to solve before, so that we can evaluate our results
+with the analytical optimal solutions. Our work paves the
+way for applying deep neural networks to more complex,
+higher-dimensional, and analytically intractable functional
+optimization problems.
+8
+Solving Functional Optimization with Deep Networks and Variational Principles
+References
+Amos, B. and Kolter, J. Z. OptNet: Differentiable optimiza-
+tion as a layer in neural networks. In Proceedings of the
+34th International Conference on Machine Learning, vol-
+ume 70 of Proceedings of Machine Learning Research,
+pp. 136–145. PMLR, 2017.
+Athans, J. M. and Falb, P. L. Optimal Control: An Introduc-
+tion to the Theory and Its Applications. McGraw- Hill,
+New York, 1996.
+Athans, M. and Tse, E. A direct derivation of the optimal
+linear filter using the maximum principle. IEEE Trans-
+actions on Automatic Control, 12(6):690–698, 1967. doi:
+10.1109/TAC.1967.1098732.
+Auger, F., Hilairet, M., Guerrero, J. M., Monmasson, E.,
+Orlowska-Kowalska, T., and Katsura, S. Industrial appli-
+cations of the Kalman filter: A review. IEEE Transactions
+on Industrial Electronics, 60(12):5458–5471, 2013. doi:
+10.1109/TIE.2012.2236994.
+Baydin, A. G., Pearlmutter, B. A., Radul, A. A., and Siskind,
+J. M. Automatic differentiation in machine learning: a
+survey. J. Mach. Learn. Res., 18(1):5595–5637, jan 2017.
+ISSN 1532-4435.
+Beik-Mohammadi, H., Hauberg, S., Arvanitidis, G.,
+Neumann, G., and Rozo, L. D.
+Learning rieman-
+nian manifolds for geodesic motion skills.
+CoRR,
+abs/2106.04315, 2021. URL https://arxiv.org/
+abs/2106.04315.
+Betti,
+A. and Gori,
+M.
+The principle of least
+cognitive
+action.
+Theoretical
+Computer
+Sci-
+ence,
+633:83–99,
+2016.
+ISSN
+0304-3975.
+doi:
+https://doi.org/10.1016/j.tcs.2015.06.042.
+URL
+https://www.sciencedirect.com/
+science/article/pii/S0304397515005526.
+Biologically Inspired Processes in Neural Computation.
+Betti, A., Casoni, M., Gori, M., Marullo, S., Melacci,
+S., and Tiezzi, M.
+Neural time-reversed generalized
+riccati equation. Proceedings of the AAAI Conference
+on Artificial Intelligence, 38:7935–7942, 03 2024. doi:
+10.1609/aaai.v38i8.28630.
+Bonnans, J. F.
+The shooting approach to optimal
+control
+problems.
+IFAC
+Proceedings
+Volumes,
+46(11):281–292, 2013.
+ISSN 1474-6670.
+doi:
+https://doi.org/10.3182/20130703-3-FR-4038.00158.
+URL
+https://www.sciencedirect.com/
+science/article/pii/S1474667016329597.
+11th IFAC Workshop on Adaptation and Learning in
+Control and Signal Processing.
+B¨ottcher, L., Antulov-Fantulin, N., and Asikis, T. AI Pon-
+tryagin or how artificial neural networks learn to control
+dynamical systems. Nature Communications, 13, 01 2022.
+doi: 10.1038/s41467-021-27590-0.
+Chen, R. T. Q., Rubanova, Y., Bettencourt, J., and
+Duvenaud, D. K.
+Neural ordinary differential equa-
+tions.
+In Bengio, S., Wallach, H., Larochelle, H.,
+Grauman, K., Cesa-Bianchi, N., and Garnett, R.
+(eds.),
+Advances
+in
+Neural
+Information
+Process-
+ing Systems, volume 31. Curran Associates, Inc.,
+2018.
+URL https://proceedings.neurips.
+cc/paper_files/paper/2018/file/
+69386f6bb1dfed68692a24c8686939b9-Paper.
+pdf.
+Cybenko, G. V.
+Approximation by superpositions of a
+sigmoidal function. Mathematics of Control, Signals
+and Systems, 2:303–314, 1989. URL https://api.
+semanticscholar.org/CorpusID:3958369.
+Detlefsen,
+N.
+S.,
+Pouplin,
+A.,
+Feldager,
+C.
+W.,
+Geng,
+C.,
+Kalatzis,
+D.,
+Hauschultz,
+H.,
+Gonz´alez-Duque,
+M.,
+Warburg,
+F.,
+Miani,
+M.,
+and Hauberg,
+S.
+Stochman.
+GitHub. Note:
+https://github.com/MachineLearningLifeScience/stochman/,
+2021.
+Donti, P., Rolnick, D., and Kolter, J. Z. Dc3: A learning
+method for optimization with hard constraints. In Inter-
+national Conference on Learning Representations, 2021.
+D’Ambrosio, A., Schiassi, E., Curti, F., and Furfaro,
+R.
+Pontryagin neural networks with functional inter-
+polation for optimal intercept problems.
+Mathemat-
+ics, 9(9), 2021.
+ISSN 2227-7390.
+doi:
+10.3390/
+math9090996.
+URL https://www.mdpi.com/
+2227-7390/9/9/996.
+Glorot, X. and Bengio, Y. Understanding the difficulty of
+training deep feedforward neural networks. In Interna-
+tional Conference on Artificial Intelligence and Statistics,
+2010.
+URL https://api.semanticscholar.
+org/CorpusID:5575601.
+Kalman, R. E. and Bucy, R. S.
+New results in linear
+filtering and prediction theory.
+Journal of Basic En-
+gineering, 83:95–108, 1961.
+URL https://api.
+semanticscholar.org/CorpusID:8141345.
+Krishnapriyan, A. S., Gholami, A., Zhe, S., Kirby, R., and
+Mahoney, M. W. Characterizing possible failure modes
+in physics-informed neural networks. Advances in Neural
+Information Processing Systems, 34, 2021.
+Leonard,
+McGee,
+A.,
+Stanley,
+and Schmidt,
+F. R.
+Discovery of the Kalman filter as a practical tool
+9
+Solving Functional Optimization with Deep Networks and Variational Principles
+for aerospace and industry.
+1985.
+URL https:
+//api.semanticscholar.org/CorpusID:
+106584647.
+Livio, M. and Simmons, E. The equation that couldn’t be
+solved: How mathematical genius discovered the lan-
+guage of symmetry. Physics Today - PHYS TODAY, 59,
+07 2006. doi: 10.1063/1.2337831.
+Lu, L., Meng, X., Mao, Z., and Karniadakis, G. E. Deep-
+XDE: A deep learning library for solving differential
+equations. SIAM Review, 63(1):208–228, 2021. doi:
+10.1137/19M1274067.
+Mortari, D.
+The theory of connections:
+Connecting
+points. Mathematics, 5(4), 2017. ISSN 2227-7390. doi:
+10.3390/math5040057.
+URL https://www.mdpi.
+com/2227-7390/5/4/57.
+Mowlavi, S. and Nabi, S.
+Optimal control of PDEs
+using physics-informed neural networks.
+Journal of
+Computational Physics, 473:111731, 2023. ISSN 0021-
+9991.
+doi: https://doi.org/10.1016/j.jcp.2022.111731.
+URL
+https://www.sciencedirect.com/
+science/article/pii/S002199912200794X.
+Quartapelle, L. and Rebay, S.
+Numerical solution of
+two-point boundary value problems. Journal of Compu-
+tational Physics, 86(2):314–354, 1990. ISSN 0021-9991.
+doi:
+https://doi.org/10.1016/0021-9991(90)90104-9.
+URL
+https://www.sciencedirect.com/
+science/article/pii/0021999190901049.
+Raissi, M., Perdikaris, P., and Karniadakis, G. Physics-
+informed neural networks:
+A deep learning frame-
+work for solving forward and inverse problems involv-
+ing nonlinear partial differential equations.
+Journal
+of Computational Physics, 378:686–707, 2019. ISSN
+0021-9991. doi: https://doi.org/10.1016/j.jcp.2018.10.
+045. URL https://www.sciencedirect.com/
+science/article/pii/S0021999118307125.
+Runge, C. Ueber die numerische aufl¨osung von differential-
+gleichungen. Mathematische Annalen, 46:167–178, 1895.
+URL http://eudml.org/doc/157756.
+Yin, P., Xiao, G., Tang, K., and Yang, C. Aonn: An adjoint-
+oriented neural network method for all-at-once solutions
+of parametric optimal control problems. SIAM Journal
+on Scientific Computing, 46(1):C127–C153, 2024. doi:
+10.1137/22M154209X. URL https://doi.org/10.
+1137/22M154209X.
+10
+Solving Functional Optimization with Deep Networks and Variational Principles
+A. Calculus of variation and Pontryagin’s maximum principle
+Suppose we want to find the control u⋆(t), t ∈[0, tf] that causes the system
+˙x = f(x, u)
+x(0) = x0
+(17)
+, where f is a continuous function with continuous partial derivatives with respect to each variable, to follow an admissible
+trajectory x⋆(t), t ∈[0, tf] that reaches the stopping set S, i.e., (x(tf), tf) ∈S and minimizes the performance measure
+L(x, u) = qT (xf, tf) +
+Z tf
+0
+g(x(t), u(t), t)dt
+We consider the stopping set S to be of a general form S = {(x(t), t)| s(x(t), t) = 0} = X × R≥0 where φ : Rm × R≥0 is
+a differentiable function. We suppose that the integrand g and qT are smooth. We introduce the (vector function) Lagrange
+multipliers λ, also known as costates. The primary function of λ is to enable us to make perturbations (δx, δu) to an
+admissible trajectory (x, u) while ensuring the dynamic constraints in (17) remain satisfied. Suppose we have an admissible
+trajectory (x, u, λ) such that reaches the terminal state xf at time tf, the new functional J is
+J (x, u, λ, xf, tf) = qT (x(tf), tf) + λfφ(xf, tf) +
+tf
+Z
+0
+g(x, u) + λT (f(x, u) −˙x)dt
+Defining the Hamiltonian H = g(x(t), u(t)) + λ(t)T f(x(t), u(t)). The calculus of variations studies how making a small
+pertubation to (x, u, λ) changes the performance. Suppose the new trajectory (x + δx, u + δu, λ + δλ) reaches new terminal
+state (xf + δxf, tf + δtf). Using Taylor expansion to the first order, the change in performance is
+∆J = J (x + δx, u + δu, λ + δλ, xf + δxf, tf + δtf) −J (x, u, λ, xf, tf)
+= ∂qT
+∂x δxf + ∂qT
+∂t δtf + λf
+∂φ
+∂x δxf + λf
+∂φ
+∂t δtf + δλfφ(xf, tf) +
+
+H(x, u, λ, tf) −λ(tf)T ˙x(tf))
+
+δtf
++
+tf
+Z
+0
+∂H
+∂x δx + ∂H
+∂u δu +
+∂H
+∂λ −˙x
+T
+δλ −λT δ ˙xdt + o(∥δx∥, ∥δu∥, ∥δλ∥, ∥δtf∥)
+= δλfφ(xf, tf) +
+∂qT
+∂x + λf
+∂φ
+∂x
+
+δxf +
+
+λf
+∂φ
+∂t + dqT
+dt (xf, tf) + H(x, u, λ, tf) −λ(tf)T ˙x(tf))
+
+δtf
++
+tf
+Z
+0
+∂H
+∂x δx + ∂H
+∂u δu +
+∂H
+∂λ −˙x
+T
+δλ −λT δ ˙xdt + o(∥δx∥, ∥δu∥, ∥δλ∥, ∥δtf∥)
+= δλfφ(xf, tf) +
+∂qT
+∂x + λf
+∂φ
+∂x
+
+δxf +
+
+λf
+∂φ
+∂t + ∂qT
+∂t + H(x, u, λ, tf) −λ(tf)T ˙x(tf))
+
+δtf −λ(tf)T δx(tf)
++
+tf
+Z
+0
+
+˙λ + ∂H
+∂x
+
+δx + ∂H
+∂u δu + [f(x, u) −˙x]T δλdt + o(∥δx∥, ∥δu∥, ∥δλ∥, ∥δtf∥)dt
+=
+∂qT
+∂x + λf
+∂φ
+∂x −λ(tf)
+
+δxf +
+
+λf
+∂φ
+∂t + ∂qT
+∂t + H(x, u, λ, tf))
+
+δtf
++
+tf
+Z
+0
+
+˙λ + ∂H
+∂x
+
+δx + ∂H
+∂u δu + [f(x, u) −˙x]T δλdt + o(∥δx∥, ∥δu∥, ∥δλ∥, ∥δtf∥)dt
+The fundamental theorem of calculus of variation states that if (x⋆, u⋆) is extrema, then the variations δJ (linear terms of
+δx, δu, δxf, δtf) must be zero. Since λ can be chosen arbitrarily, we choose λ⋆such that the linear terms of δx is 0, i.e.
+˙λ⋆+ ∂H
+∂x
+
+⋆= 0
+(18)
+11
+Solving Functional Optimization with Deep Networks and Variational Principles
+Since the (x⋆, u⋆) must satisfy the constraint in (17),
+f(x⋆, u⋆) −˙x⋆= 0
+(19)
+If u is unbounded, we consider all perturbations δu such that δxf and δtf is 0. By the fundamental lemma of calculus of
+variation, its coefficient function must be zero; thus,
+∂H
+∂u
+
+⋆= 0
+(20)
+This equation is also called Pontryagin’s maximum principle. The rest of variations are therefore 0, i.e.,
+∂qT
+∂x + λf
+∂φ
+∂x −λ(tf)
+T
+δxf +
+
+λf
+∂φ
+∂t + ∂qT
+∂t + H(x, u, λ, tf))
+
+δtf
+Note that since φ(xf + δxf, tf + δtf) = φ(xf, tf) = 0, we have
+∂φ
+∂xf
+δγf + ∂φ
+∂t δtf = 0
+i.e.
+" ∂φ
+∂xf
+∂φ
+∂t
+#T δxf
+δtf
+
+= 0
+The admissible
+δxf
+δtf
+
+are on a hyperplane normal to the vector
+" ∂φ
+∂xf
+∂φ
+∂tf
+#
+. Therefore
+ ∂qT
+∂x −λ(tf)
+∂qT
+∂t + H
+
+and
+"
+∂φ
+∂γ
+∂φ
+∂t
+#
+are colinear.
+We can choose λf such that
+ ∂qT
+∂x −λ(tf)
+∂qT
+∂t + H
+
+= λf
+"
+∂φ
+∂γ
+∂φ
+∂t
+#
+(21)
+We consider two special cases that present in our experiment: 1) the terminal state xf is fixed, and 2) the terminal time is
+fixed.
+1) First, if the terminal state is fixed and terminal time is free, i.e., δxf = 0. Then δtf can be arbitrary and coefficients of
+δtf must be 0, i.e.,
+∂qT
+∂t
+
+⋆,t⋆
+f
++ H(x⋆, u⋆, λ⋆, t⋆
+f)
+
+= 0
+x⋆(t⋆
+f) = xf
+(22)
+2) Now we consider the case where the terminal time is fixed and the terminal state is free, i.e., δtf = 0. Then δxf can be
+arbitrary and coefficients of δxf must be 0, i.e.,
+∂qT
+∂x
+
+⋆,t⋆
+f
+−λ(t⋆
+f)T
+
+= 0
+t⋆
+f = tf
+(23)
+The (22) and (23) allow us to determine the optimal terminal state or optimal terminal time when they are free and to be
+optimized.
+B. Kalman Filtering Derivation
+The performance measure for designing optimal linear filter is
+J(Σ, G) = qT (Σ(T), T)
+= tr(Σ(T))
+12
+Solving Functional Optimization with Deep Networks and Variational Principles
+Since the terminal time tf = T is specified and terminal state is free, (23) applies. Pontryagin’s maximum principle yields
+˙Σ⋆=
+h
+A −G⋆C
+i
+Σ+ Σ
+h
+A−G⋆C
+iT
++ BQBT + G⋆RG⋆T
+(24a)
+∂tr(λ⋆˙Σ⋆)
+∂Σ
+
+⋆+ ˙λ⋆T = 0
+(24b)
+∂tr(λ⋆˙Σ⋆)
+∂G
+
+⋆= 0
+(24c)
+λ⋆(T)T = In
+(24d)
+Σ⋆(0) = Σ0
+(24e)
+Simplifying (24b) yields,
+˙λ⋆= −λ⋆h
+A −G⋆C
+i
+−
+h
+A −G⋆C
+iT
+λ⋆
+(25)
+From (24d) and (25), we can conclude that λ⋆is symmetric positive definite. Substitute ˙Σ⋆in (24c) by R.H.S expression
+in (24a) yields,
+2λ⋆h
+2G⋆R −2Σ⋆CT i
+= 0
+(26)
+Since λ⋆is invertible,
+G⋆= Σ⋆CT R−1
+(27)
+Plugging this solution G⋆in (24a) yields
+˙Σ⋆= AΣ⋆+ Σ⋆AT + BQB −Σ⋆CT R−1CΣ⋆
+(28)
+which is the matrix differential equation of the Riccati type. The solution Σ⋆can be derived from the initial condition
+Σ⋆(0) = Σ0 and the differential equation 28.
+C. Bang-bang control derivation
+Since the terminal state xf is specified and terminal time is free, (22) applies. Pontryagin’s maximum principle yields
+˙x⋆=
+x⋆
+2
+0
+
++
+ 0
+u⋆
+
+(29a)
+˙λ⋆=
+ 0
+−λ⋆
+1
+
+(29b)
+u⋆= arg min
+u
+1 + λ⋆
+1x⋆
+2 + λ⋆
+2u
+(29c)
+1 + λ⋆
+1(t⋆
+f)x⋆
+2(t⋆
+f) + λ⋆
+2(t⋆
+f)u⋆(t⋆
+f) = 0
+(29d)
+x⋆
+1(0)
+x⋆
+2(0)
+
+=
+x0
+v0
+
+(29e)
+x⋆
+1(t⋆
+f)
+x⋆
+2(t⋆
+f)
+
+=
+0
+0
+
+(29f)
+The (29c) yield
+∀u, 1 + λ⋆
+1x2 + λ⋆
+2u⋆≤1 + λ⋆
+1x2 + λ⋆
+2u
+u⋆=
+(
+−sign(λ2)
+if λ⋆
+2 ̸= 0
+indeterminate
+if λ⋆
+2 = 0
+13
+Solving Functional Optimization with Deep Networks and Variational Principles
+Assuming that λ⋆
+2 is not a zero function, the (29b) yields
+λ⋆
+1(t) = c1
+λ⋆
+2(t) = −c1t + c2
+(30)
+where c1, c2 are constants to be determined. We see from (30) that λ2 changes sign at most once. There are two possible
+cases:
+1. λ⋆
+2 sign remains constant in [0, t⋆
+f]
+2. λ⋆
+2 changes sign in [0, t⋆
+f]
+For case 1, we have the general form of
+x2(t) = v0 + at
+for t ∈[0, t⋆
+f]
+x1(t) = p0 + v0t + 1
+2at2
+for t ∈[0, t⋆
+f]
+(31)
+For case 2, we have the general form of x
+x2(t) =
+(
+v0 + at
+if t ≤tm
+v0 + atm −a(t −tm)
+if t⋆
+f ≥t ≥tm
+x1(t) =
+
+
+
+
+
+p0 + v0t + 1
+2at2
+if t ≤tm
+x0 + v0t + 3attm −2at2
+m −1
+2at2
+if t ≥tm
+(32)
+where a = ±1 and tm is the time where λ⋆
+2 switches sign. To determine which case corresponds to the system, we validate
+with the boundary condition. Suppose we try with the general expression in (32) and substitute in boundary conditions
+in (29):
+−c1tm + c2 = 0
+( From the condition λ⋆
+2(tm) = 0)
+a = ±1
+v0 + atm −a(tf −tm) = 0
+( From (29f))
+p0 + v0t + 3atftm −2at2
+m −1
+2at2
+f = 0
+( From (29f))
+1 −a(c1tf + c2) = 0
+( From (29d))
+(33)
+Specific example: x0 = 1, v0 = 0.
+Solving (33) yields
+tf = 2tm
+1 = −at2
+m
+a = −1
+tm = 1
+c1 = 1
+c2 = 1
+(34)
+which means the system with initial state condition (1, 0) falls the second case. If we substitute the general expression (31)
+instead, there would be no solutions satisfying (33).
+Remarks: This derivation of bang-bang solution is based on assumption that λ is not a zero function.
+14
+Solving Functional Optimization with Deep Networks and Variational Principles
+D. Geodesics derivation
+Suppose we want to find the curve on a manifold M ⊂R3 with minimal length starting from point p0 ∈M to a submanifold
+(or a boundary) N in M. The optimization problem can be written as
+min
+γ
+L(γ)
+s.t.
+γ(t) ∈M
+γ(0) = p0
+γ(1) ∈N
+(35)
+First we see that reparameterizing a curve γ will not change its arc length. In fact, for any homomorphism ϕ from
+[0, 1] →[0, 1], γ ◦ϕ has the same trace as γ and therefore same arc length. Therefore the minimizer of L is not unique.
+However, the minimizer of E(γ)
+E(γ) =
+1
+Z
+0
+∥˙γ(t)∥2dt
+is unique. The minimizer of E(γ) is also the minimizer of L(γ). In fact, let γ⋆be the minimizer of E(γ). By Cauchy-
+Schwarz inequality
+L(γ)2 ≤E(γ)
+with equality when ∥γ∥is constant. We can choose a reparameterization of γ⋆such that the new curve γc has a constant
+speed. We see that E(γc) = L(γ)2 ≤E(γ), therefore γ = γc. Now suppose by contradiction that there is another curve γ1
+such that L(γ1) < L(γ⋆). We reparameterize γ1 such that the new γ2 has the same length as γ1 and we have
+E(γ2) = L(γ1)2 < L(γ⋆)2 = E(γ⋆)
+, contradiction.
+min
+γ
+1
+Z
+0
+∥˙γ∥2
+s.t.
+f(γ(t)) = 0
+γ(0) = p0
+φ(γ(1)) = 0
+(36)
+Suppose the stopping set is the intersection of two surfaces by the equation f(γ(1)) = 0 (i.e.,γ(1) is on a manifold) and
+another surface h(γ) = 0. Then we can define φ = f 2 + h. In this case, φ vanishes if and only if f(γ) = h(γ) = 0. We
+form the new functional with lagrangian multipliers
+J (x, λ, λf) = λfφ(xf) +
+1
+Z
+0
+∥˙γ∥2 + λ(t)T f(γ(t))dt
+δJ = λf
+∂φ
+∂γ δγf + δλfφ +
+1
+Z
+0
+˙γδ ˙γ + δλT f(γ) + λT ∂f
+∂γ δγdt
+= λf
+∂φ
+∂γ δγf + δλfφ +
+˙
+γ(1)δγf +
+1
+Z
+0
+
+λT ∂f
+∂γ −¨γ
+
+δγ + δλT f(γ)dt
+=
+
+λf
+∂φ
+∂γ + ˙γ(1)
+
+δγf + δλfφ +
+1
+Z
+0
+
+λT ∂f
+∂γ −¨γ
+
+δγ + δλT f(γ)dt
+(37)
+15
+Solving Functional Optimization with Deep Networks and Variational Principles
+Since f(γ + δγ) = f(γ) = 0, the admissible variation δγ is a hyperplane with a normal vector ∂f
+∂γ , i.e. a tangent plane.
+Therefore ⟨¨γ, δγ⟩for all tangent vector δγ, hence ¨γ is colinear with ∂f
+∂γ . We can choose λ(t) such that
+λ(t)∂f
+∂γ = ¨γ(t)
+Next δγf must be perpendicular to each vector
+h
+∂f
+∂γ
+i
+and
+h
+∂h
+∂γ
+i
+. Since ˙γ(t) is perpendicular to ∂f
+∂γ , we deduce that ˙γ must be
+parallel to ∂φ
+∂γ and we can choose λf such that
+λf
+∂φ
+∂γ = ˙γ
+16

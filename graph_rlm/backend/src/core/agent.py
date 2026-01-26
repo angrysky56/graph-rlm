@@ -143,38 +143,29 @@ class Agent:
         if str(skills_path.resolve()) not in sys.path:
             sys.path.append(str(skills_path.resolve()))
 
-        # Inject Agent Venv site-packages (Used for both REPL and Skills)
-        self.agent_venv_path = backend_path / "agent_venv"
-        # self.skills_venv_path = backend_path / "skills_venv" # DEPRECATED: Consolidating
-
-        if self.agent_venv_path.exists():
-            # Find site-packages (e.g., lib/python3.x/site-packages)
-            # This is a robust way to find it across python versions
-            for site_packages in self.agent_venv_path.glob("lib/python*/site-packages"):
-                if str(site_packages.resolve()) not in sys.path:
-                    logger.info(f"Injecting Agent Venv: {site_packages}")
-                    sys.path.append(str(site_packages.resolve()))
+        # DEPRECATED: Venv injection.
+        # We now run/install strictly in the active environment (sys.executable) to ensure consistency.
+        # This prevents the "Installed but not found" bug caused by split environments.
+        logger.info(f"Agent initialized using active environment: {sys.prefix}")
 
         logger.info("Agent initialized with Persistent REPL support")
 
-    def _install_to_venv(self, venv_path: Path, package_name: str) -> str:
-        """Internal helper to install a package into a specific venv."""
+    def _install_to_active_env(self, package_name: str) -> str:
+        """Internal helper to install a package into the CURRENT active environment."""
         import shutil
-
-        # trunk-ignore(bandit/B404)
         import subprocess
 
         logger.info(
-            f"Agent requesting installation of package: {package_name} into {venv_path.name}"
+            f"Agent requesting installation of package: {package_name} into Active Env"
         )
 
-        python_exe = venv_path / "bin" / "python"
-        if not python_exe.exists():
-            return f"Error: Venv not found at {python_exe}. Ensure it is created."
+        # Use the running python executable to ensure installed packages are visible to this process
+        python_exe = sys.executable
 
         try:
             cmd = [str(python_exe), "-m", "pip", "install", package_name]
             if shutil.which("uv"):
+                # Use uv if available for speed, targeting the system python
                 cmd = [
                     "uv",
                     "pip",
@@ -188,27 +179,22 @@ class Agent:
             result = subprocess.run(cmd, capture_output=True, text=True)
 
             if result.returncode == 0:
-                logger.info(
-                    f"Successfully installed {package_name} into {venv_path.name}"
-                )
-                return f"Successfully installed {package_name} into {venv_path.name}\n{result.stdout}"
+                logger.info(f"Successfully installed {package_name}")
+                return f"Successfully installed {package_name}\n{result.stdout}"
             else:
-                logger.error(
-                    f"Failed to install {package_name} into {venv_path.name}: {result.stderr}"
-                )
-                return f"Failed to install {package_name} into {venv_path.name}\nError: {result.stderr}"
+                logger.error(f"Failed to install {package_name}: {result.stderr}")
+                return f"Failed to install {package_name}\nError: {result.stderr}"
         except Exception as e:
-            logger.error(f"Installation error in {venv_path.name}: {e}")
-            return f"Installation error in {venv_path.name}: {e}"
+            logger.error(f"Installation error: {e}")
+            return f"Installation error: {e}"
 
     def install_package(self, package_name: str) -> str:
-        """Installs a package into the agent_venv (REPL environment)."""
-        return self._install_to_venv(self.agent_venv_path, package_name)
+        """Installs a package into the active environment (REPL compatibility)."""
+        return self._install_to_active_env(package_name)
 
     def install_skill_package(self, package_name: str) -> str:
-        """Installs a package into the agent_venv (Unified environment)."""
-        # Formerly used skills_venv_path, now consolidated.
-        return self._install_to_venv(self.agent_venv_path, package_name)
+        """Installs a package into the active environment (Skill compatibility)."""
+        return self._install_to_active_env(package_name)
 
     def read_skill(self, name: str) -> str:
         """Reads the source code of a compiled skill."""
