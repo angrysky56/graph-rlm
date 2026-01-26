@@ -1,24 +1,23 @@
+import json
+from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
-import json
-import time
-import asyncio
-import uuid
 
-from .db import db
-from .llm import llm
 from .agent import agent
 from .config import settings
+from .db import db
+from .llm import llm
 
 router = APIRouter()
+
 
 # --- Data Models ---
 class ChatMessage(BaseModel):
     role: str
     content: str
+
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -26,7 +25,9 @@ class ChatCompletionRequest(BaseModel):
     stream: bool = False
     session_id: Optional[str] = None
 
+
 # --- Endpoints ---
+
 
 @router.get("/system/models")
 async def list_models(provider: Optional[str] = None):
@@ -34,6 +35,7 @@ async def list_models(provider: Optional[str] = None):
     List available models.
     """
     return llm.list_models(provider=provider)
+
 
 @router.get("/system/config")
 async def get_config():
@@ -47,21 +49,27 @@ async def get_config():
         "OLLAMA_BASE_URL": settings.OLLAMA_BASE_URL,
         "OLLAMA_MODEL": settings.OLLAMA_MODEL,
         "OLLAMA_EMBEDDING_MODEL": settings.OLLAMA_EMBEDDING_MODEL,
-        "OPENROUTER_API_KEY": settings.OPENROUTER_API_KEY, # Return it so it populates UI (over OS SSL if needed, but this is local)
+        "OPENROUTER_API_KEY": settings.OPENROUTER_API_KEY,  # Return it so it populates UI (over OS SSL if needed, but this is local)
         "OPENROUTER_MODEL": settings.OPENROUTER_MODEL,
         "OPENROUTER_EMBEDDING_MODEL": settings.OPENROUTER_EMBEDDING_MODEL,
         # "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         # "OPENAI_MODEL": settings.OPENAI_MODEL,
-        "provider": settings.LLM_PROVIDER # Alias for UI
+        "provider": settings.LLM_PROVIDER,  # Alias for UI
     }
+
 
 @router.post("/system/config")
 async def update_config(request: Request):
     data = await request.json()
     # Validate allowed keys (security overlap)
     allowed_keys = {
-        "LLM_PROVIDER", "OLLAMA_BASE_URL", "OLLAMA_MODEL", "OLLAMA_EMBEDDING_MODEL",
-        "OPENROUTER_API_KEY", "OPENROUTER_MODEL", "OPENROUTER_EMBEDDING_MODEL",
+        "LLM_PROVIDER",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+        "OLLAMA_EMBEDDING_MODEL",
+        "OPENROUTER_API_KEY",
+        "OPENROUTER_MODEL",
+        "OPENROUTER_EMBEDDING_MODEL",
         # "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_EMBEDDING_MODEL"
     }
 
@@ -74,7 +82,9 @@ async def update_config(request: Request):
         # Save to .env and reload
         success = settings.save_to_env(updates)
         if not success:
-             raise HTTPException(status_code=500, detail="Failed to persist config to .env")
+            raise HTTPException(
+                status_code=500, detail="Failed to persist config to .env"
+            )
 
     # Refresh llm service if needed (re-init singleton?)
     # ideally we re-init the llm client here if provider changed
@@ -84,9 +94,11 @@ async def update_config(request: Request):
     # Quick fix: Modifying settings.py in-place works for future calls if LLMService reads on usage?
     # LLMService reads provider in __init__. So we need to re-init it.
     from .llm import llm
+
     llm.__init__()
 
     return {"status": "updated", "config": settings.get_llm_config()}
+
 
 @router.get("/chat/sessions")
 async def list_sessions():
@@ -105,23 +117,28 @@ async def list_sessions():
         sessions = []
         for row in res:
             if isinstance(row, dict):
-                sessions.append({
-                    "id": row.get("id"),
-                    "title": row.get("prompt")[:50] if row.get("prompt") else "Untitled Session",
-                    "created_at": row.get("created_at")
-                })
+                sessions.append(
+                    {
+                        "id": row.get("id"),
+                        "title": (
+                            row.get("prompt")[:50]
+                            if row.get("prompt")
+                            else "Untitled Session"
+                        ),
+                        "created_at": row.get("created_at"),
+                    }
+                )
             elif isinstance(row, (list, tuple)) and len(row) >= 3:
                 # Fallback for list/tuple results (id, prompt, created_at)
                 prompt_text = row[1] if row[1] else "Untitled Session"
-                sessions.append({
-                    "id": row[0],
-                    "title": prompt_text[:50],
-                    "created_at": row[2]
-                })
+                sessions.append(
+                    {"id": row[0], "title": prompt_text[:50], "created_at": row[2]}
+                )
         return sessions
     except Exception as e:
         print(f"Session list error: {e}")
         return []
+
 
 @router.get("/chat/history/{session_id}")
 async def get_history(session_id: str):
@@ -142,6 +159,7 @@ async def get_history(session_id: str):
             messages.append({"role": "assistant", "content": r_text})
 
     return messages
+
 
 @router.get("/chat/graph")
 async def get_graph(session_id: Optional[str] = None):
@@ -183,69 +201,71 @@ async def get_graph(session_id: Optional[str] = None):
             elif isinstance(row, dict):
                 # FalkorDB wrapper might return keys 'n', 'r', 'm' based on query
                 # Query was `RETURN n, r, m`
-                source = row.get('n') or row.get('source')
-                rel = row.get('r') or row.get('rel')
-                target = row.get('m') or row.get('target')
+                source = row.get("n") or row.get("source")
+                rel = row.get("r") or row.get("rel")
+                target = row.get("m") or row.get("target")
             else:
-                 # Fallback
-                 source = row
-                 rel = None
-                 target = None
+                # Fallback
+                source = row
+                rel = None
+                target = None
 
             # Helper to extract props
             def get_props(entity):
-                if hasattr(entity, 'properties'): return entity.properties
-                if isinstance(entity, dict): return entity
+                if hasattr(entity, "properties"):
+                    return entity.properties
+                if isinstance(entity, dict):
+                    return entity
                 # Falkor sometimes returns (id, ['Label'], {props}) tuple in old versions?
                 # But simplified client wrapper usually returns objects.
                 # Let's assume object with .id and .properties or dict
                 return {}
 
             def get_id(entity):
-                if hasattr(entity, 'id'): # internal ID
-                     if 'id' in entity.properties: return entity.properties['id']
-                if isinstance(entity, dict): return entity.get('id')
+                if hasattr(entity, "id"):  # internal ID
+                    if "id" in entity.properties:
+                        return entity.properties["id"]
+                if isinstance(entity, dict):
+                    return entity.get("id")
                 return str(entity)
 
             # Process Source Node
             s_props = get_props(source)
-            s_id = s_props.get('id')
+            s_id = s_props.get("id")
             if s_id and s_id not in nodes:
                 nodes[s_id] = {
                     "id": s_id,
-                    "label": s_props.get('prompt', 'Unknown')[:30] + "...",
-                    "group": 2 if 'DECOMPOSES_INTO' in str(rel) else 1, # heuristic
+                    "label": s_props.get("prompt", "Unknown")[:30] + "...",
+                    "group": 2 if "DECOMPOSES_INTO" in str(rel) else 1,  # heuristic
                     "val": 5,
-                    "status": s_props.get('status', 'pending')
+                    "status": s_props.get("status", "pending"),
                 }
 
             # Process Relationship
             if rel and target:
                 t_props = get_props(target)
-                t_id = t_props.get('id')
+                t_id = t_props.get("id")
 
                 if t_id:
                     # Upgrade coloring if we see relationships
-                    if s_id in nodes: nodes[s_id]['group'] = 1 # Root-ish?
+                    if s_id in nodes:
+                        nodes[s_id]["group"] = 1  # Root-ish?
                     if t_id not in nodes:
-                         nodes[t_id] = {
+                        nodes[t_id] = {
                             "id": t_id,
-                            "label": t_props.get('prompt', 'Unknown')[:30] + "...",
-                            "group": 2, # Child
+                            "label": t_props.get("prompt", "Unknown")[:30] + "...",
+                            "group": 2,  # Child
                             "val": 3,
-                            "status": t_props.get('status', 'pending')
-                         }
+                            "status": t_props.get("status", "pending"),
+                        }
 
-                    link_id = f"{s_id}-{t_id}"
                     links.append({"source": s_id, "target": t_id})
 
-        return {
-            "nodes": list(nodes.values()),
-            "links": links
-        }
+        return {"nodes": list(nodes.values()), "links": links}
     except Exception as e:
         print(f"Graph fetch error: {e}")
         return {"nodes": [], "links": []}
+
 
 @router.post("/chat/completions")
 async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
@@ -260,31 +280,28 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
     prompt = last_msg.content
 
     import logging
+
     logger = logging.getLogger("graph_rlm.endpoints")
     logger.info(f"Processing Prompt: {prompt}")
 
     async def response_stream():
-        logger.info("DEBUG: Inside response_stream")
         # 1. Start Event
         yield f"data: {json.dumps({'type': 'thinking', 'data': 'Initializing agent recursion...'})}\n\n"
 
         # 2. Execute Stream (Yields real events from nested recursion)
         try:
-            logger.info("DEBUG: Calling agent.stream_query")
             async for event in agent.stream_query(prompt, parent_id=None):
                 if await req.is_disconnected():
                     logger.info("Client disconnected. Stopping agent.")
                     agent.stop_generation()
                     break
 
-                logger.info(f"DEBUG: Yielding event {event.get('type')}")
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
-            logger.error(f"DEBUG: Exception in response_stream: {e}")
+            logger.error(f"Exception in response_stream: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
         # 3. Finish
-        logger.info("DEBUG: response_stream finished")
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(response_stream(), media_type="text/event-stream")
@@ -292,13 +309,14 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
 
 # --- MCP Integration Endpoints ---
 
+
 @router.get("/mcp/status")
 async def mcp_status():
     """List detected MCP servers and tools (Optimized)."""
-    from pathlib import Path
+    import importlib
     import json
     import re
-    import importlib
+    from pathlib import Path
 
     # Resolve project root
     project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
@@ -319,9 +337,9 @@ async def mcp_status():
         # 2. Inspect Generated Modules
         for name in configured_servers:
             # Sanitize name to find module
-            clean_name = re.sub(r'[^a-zA-Z0-9_]', '_', name)
-            if not clean_name[0].isalpha() and clean_name[0] != '_':
-                clean_name = '_' + clean_name
+            clean_name = re.sub(r"[^a-zA-Z0-9_]", "_", name)
+            if not clean_name[0].isalpha() and clean_name[0] != "_":
+                clean_name = "_" + clean_name
             module_name = clean_name.lower()
 
             error = None
@@ -330,7 +348,9 @@ async def mcp_status():
 
             try:
                 # Dynamic Import
-                mod = importlib.import_module(f"graph_rlm.backend.mcp_tools.{module_name}")
+                mod = importlib.import_module(
+                    f"graph_rlm.backend.mcp_tools.{module_name}"
+                )
                 if hasattr(mod, "list_tools"):
                     tools = mod.list_tools()
                     enabled = True
@@ -340,37 +360,42 @@ async def mcp_status():
             except Exception as e:
                 error = str(e)
 
-            servers.append({
-                "name": name,
-                "enabled": enabled,
-                "configured": True,
-                "tools": tools,
-                "error": error
-            })
+            servers.append(
+                {
+                    "name": name,
+                    "enabled": enabled,
+                    "configured": True,
+                    "tools": tools,
+                    "error": error,
+                }
+            )
 
         return {"servers": servers}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 @router.get("/skills")
 async def list_skills_endpoint():
     """List available skills from the library."""
     try:
         from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+
         mgr = get_skills_manager()
         # Returns dict {name: metadata}
         skills_dict = mgr.list_skills()
         # Convert to list for UI
         skills_list = []
         for name, meta in skills_dict.items():
-            skills_list.append({
-                "name": name,
-                "description": meta.get("description"),
-                "tags": meta.get("tags", []),
-                "version": meta.get("version")
-            })
+            skills_list.append(
+                {
+                    "name": name,
+                    "description": meta.get("description"),
+                    "tags": meta.get("tags", []),
+                    "version": meta.get("version"),
+                }
+            )
         return skills_list
     except Exception as e:
         print(f"Error listing skills: {e}")
         return []
-
