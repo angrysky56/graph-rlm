@@ -185,7 +185,7 @@ function App() {
             // Replace the streaming block with the final complete block
             return [...prev.slice(0, -1), {
               type: 'output',
-              content: `[EXECUTION]\n${event.code}\n\n>> ${event.content}`,
+              content: `[EXECUTION] (REPL: ${event.data?.repl_id || 'unknown'})\n${event.code}\n\n>> ${event.content}`,
               timestamp: Date.now(),
               style: 'code',
               isStreaming: false
@@ -194,7 +194,7 @@ function App() {
             // Just add it if we weren't streaming (fallback)
             return [...prev, {
               type: 'output',
-              content: `[EXECUTION]\n${event.code}\n\n>> ${event.content}`,
+              content: `[EXECUTION] (REPL: ${event.data?.repl_id || 'unknown'})\n${event.code}\n\n>> ${event.content}`,
               timestamp: Date.now(),
               style: 'code'
             }];

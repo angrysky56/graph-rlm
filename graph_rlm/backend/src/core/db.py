@@ -1,6 +1,7 @@
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from langchain_community.graphs import FalkorDBGraph
+
 from .config import settings
 from .logger import get_logger
 
@@ -9,12 +10,26 @@ logger = get_logger("graph_rlm.db")
 
 class GraphClient:
     def __init__(self):
-        self.graph = FalkorDBGraph(database=settings.GRAPH_NAME, host=settings.FALKOR_HOST, port=settings.FALKOR_PORT)
+        self.graph = FalkorDBGraph(
+            database=settings.GRAPH_NAME,
+            host=settings.FALKOR_HOST,
+            port=settings.FALKOR_PORT,
+        )
 
-    def query(self, query: str, params: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    def query(
+        self, query: str, params: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
         return self.graph.query(query, params if params else {})
 
-    def create_thought_node(self, thought_id: str, prompt: str, parent_id: Optional[str] = None, prompt_embedding: Optional[List[float]] = None, session_id: str = "default", root_session_id: Optional[str] = None):
+    def create_thought_node(
+        self,
+        thought_id: str,
+        prompt: str,
+        parent_id: Optional[str] = None,
+        prompt_embedding: Optional[List[float]] = None,
+        session_id: str = "default",
+        root_session_id: Optional[str] = None,
+    ):
         """
         Creates a 'Thought' node in the graph.
         If parent_id is provided, creates a DECOMPOSES_INTO edge from parent to child.
@@ -22,7 +37,12 @@ class GraphClient:
         # If root_session_id is not provided, default to the session_id (implies this IS the root)
         final_root = root_session_id if root_session_id else session_id
 
-        params: Dict[str, Any] = {"tid": thought_id, "prompt": prompt, "sid": session_id, "rsid": final_root}
+        params: Dict[str, Any] = {
+            "tid": thought_id,
+            "prompt": prompt,
+            "sid": session_id,
+            "rsid": final_root,
+        }
 
         # Create the node
         cypher = """
@@ -45,7 +65,13 @@ class GraphClient:
             """
             self.query(edge_cypher, edge_params)
 
-    def update_thought_result(self, thought_id: str, result: str, embedding: Optional[List[float]] = None):
+    def update_thought_result(
+        self,
+        thought_id: str,
+        result: str,
+        embedding: Optional[List[float]] = None,
+        repl_id: Optional[str] = None,
+    ):
         params: Dict[str, Any] = {"tid": thought_id, "result": result}
         cypher = """
         MATCH (t:Thought {id: $tid})
@@ -57,6 +83,10 @@ class GraphClient:
             params["vec"] = embedding
             cypher += ", t.embedding = vecf32($vec)"
 
+        if repl_id:
+            params["repl_id"] = repl_id
+            cypher += ", t.repl_id = $repl_id"
+
         self.query(cypher, params)
 
     def find_similar_thoughts(self, query_embedding: list[float], limit: int = 5):
@@ -66,8 +96,9 @@ class GraphClient:
         params = {"vec": query_embedding}
 
         # Using FalkorDB vector search procedure
-        # CALL db.idx.vector.queryNodes('Thought', 'embedding', <limit>, <vec>)
-        # Note: This requires the index to exist on Thought.embedding
+        # Using FalkorDB vector search procedure
+        # Note: Depending on client version, syntax might vary.
+        # We try the standard procedure call.
         cypher = f"CALL db.idx.vector.queryNodes('Thought', 'embedding', {limit}, vecf32($vec)) YIELD node, score RETURN node, score"
 
         try:
@@ -83,7 +114,9 @@ class GraphClient:
         """
         # FalkorDB Modern Syntax
         try:
-            self.query("CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {dimension:768, similarityFunction:'cosine'}")
+            self.query(
+                "CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {dimension:768, similarityFunction:'cosine'}"
+            )
         except Exception as e:
             # Log as info because it likely already exists
             logger.info(f"Vector index creation skipped: {e}")
@@ -95,13 +128,15 @@ class GraphClient:
         except Exception as e:
             logger.info(f"Vector index drop skipped: {e}")
 
-
     def wait_for_index(self, label: str):
         import time
+
         # Poll db.indexes() until status is OPERATIONAL
         for _ in range(20):
             try:
-                res = self.query("CALL db.indexes() YIELD label, status RETURN label, status")
+                res = self.query(
+                    "CALL db.indexes() YIELD label, status RETURN label, status"
+                )
                 # res is List[Dict] e.g. [{'label': 'Thought', 'status': 'OPERATIONAL'}]
                 for row in res:
                     # Handle both list (driver) and dict (wrapper) formats
@@ -110,10 +145,10 @@ class GraphClient:
                         r_label = row[0]
                         r_status = row[1]
                     elif isinstance(row, dict):
-                        r_label = row.get('label')
-                        r_status = row.get('status')
+                        r_label = row.get("label")
+                        r_status = row.get("status")
 
-                    if r_label == label and r_status == 'OPERATIONAL':
+                    if r_label == label and r_status == "OPERATIONAL":
                         return
             except Exception as e:
                 logger.debug(f"Index check polling error: {e}")
@@ -130,5 +165,6 @@ class GraphClient:
         RETURN n, r, m
         """
         return self.query(cypher)
+
 
 db = GraphClient()

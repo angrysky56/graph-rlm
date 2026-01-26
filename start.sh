@@ -95,15 +95,9 @@ fi
 # 2. Start Backend API
 # Note: Assuming using uvicorn directly or via module
 echo "[+] Launching Backend API on port ${API_PORT}..."
-# Determine python interpreter from venv
-if [[ -f ".venv/bin/python" ]]; then
-	PY_CMD=".venv/bin/python"
-else
-	PY_CMD="python3"
-fi
 
-echo "[+] Launching Backend API (Module Mode)..."
-${PY_CMD} -m uvicorn graph_rlm.backend.main:app --port "${API_PORT}" --reload &
+echo "[+] Launching Backend (without hot reload for stability)..."
+uv run uvicorn graph_rlm.backend.main:app --host 0.0.0.0 --port 8000 &
 API_PID=$!
 echo "    -> API PID: ${API_PID}"
 

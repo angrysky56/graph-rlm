@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from .context_index import context_index
 from .db import GraphClient, db
 from .llm import LLMService, llm
 from .logger import get_logger
@@ -142,9 +143,10 @@ class Agent:
         if str(skills_path.resolve()) not in sys.path:
             sys.path.append(str(skills_path.resolve()))
 
-        # Inject Agent Venv site-packages
+        # Inject Agent Venv site-packages (Used for both REPL and Skills)
         self.agent_venv_path = backend_path / "agent_venv"
-        self.skills_venv_path = backend_path / "skills_venv"
+        # self.skills_venv_path = backend_path / "skills_venv" # DEPRECATED: Consolidating
+
         if self.agent_venv_path.exists():
             # Find site-packages (e.g., lib/python3.x/site-packages)
             # This is a robust way to find it across python versions
@@ -204,8 +206,9 @@ class Agent:
         return self._install_to_venv(self.agent_venv_path, package_name)
 
     def install_skill_package(self, package_name: str) -> str:
-        """Installs a package into the skills_venv (Background skills)."""
-        return self._install_to_venv(self.skills_venv_path, package_name)
+        """Installs a package into the agent_venv (Unified environment)."""
+        # Formerly used skills_venv_path, now consolidated.
+        return self._install_to_venv(self.agent_venv_path, package_name)
 
     def read_skill(self, name: str) -> str:
         """Reads the source code of a compiled skill."""
@@ -415,6 +418,10 @@ class Agent:
             "NOTE: Check tool functions with `dir()` or `help()` if unsure. Do not hallucinate methods.\n"
         )
 
+        # Inject Context Index (Scratchpad)
+        context_scratchpad = context_index.get_context_scratchpad(final_root_id)
+        system_prompt += f"\n\n{context_scratchpad}"
+
         current_context = prompt
         final_response = ""
         max_steps = 100
@@ -464,7 +471,13 @@ class Agent:
                 executed_result = self._execute_code(
                     code, thought_id, session_id, root_session_id=final_root_id
                 )
-                self.emit_event("code_output", content=executed_result, code=code)
+                repl_id = self.active_repls.get(session_id, "unknown")
+                self.emit_event(
+                    "code_output",
+                    content=executed_result,
+                    code=code,
+                    data={"repl_id": repl_id},
+                )
 
                 # Append result to context for next step
                 step_record = f"\n\n--- Step {step} ---\nThought: {response_text}\n[REPL Output]:\n{executed_result}\n"
@@ -472,7 +485,12 @@ class Agent:
 
             # 5. Graph Update (Intermediate)
             try:
-                self.db.update_thought_result(thought_id, response_text, embedding=None)
+                self.db.update_thought_result(
+                    thought_id,
+                    response_text,
+                    embedding=None,
+                    repl_id=self.active_repls.get(session_id),
+                )
             except Exception as e:
                 logger.error(f"Failed to update thought result: {e}")
 

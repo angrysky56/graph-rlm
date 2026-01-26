@@ -154,19 +154,31 @@ class TaskSchemaProcessor:
             return "Low confidence - may need new task schema or clarification"
 
     def suggest_tools(self, task_type: str) -> list[str]:
-        """Suggest tools based on task type schema."""
-        tool_map = {
-            "SearchTask": ["brave_web_search", "firecrawl_search", "arxiv_search"],
-            "CodeTask": ["execute_code", "view_file", "replace_file_content"],
-            "ReasoningTask": [
-                "deconstruct",
-                "synthesize",
-                "crystallize_thought",
-                "advanced_reasoning",
-            ],
-            "Task": ["call_tool", "run_skill"],
-        }
-        return tool_map.get(task_type, tool_map["Task"])
+        """Suggest tools based on task type schema and dynamic system capabilities."""
+        tools = []
+
+        # 1. Inspect MCP Multi-Server Tools
+        try:
+            import graph_rlm.backend.mcp_tools as mcp_pkg
+            ignored = {"list_servers", "call_tool", "run_skill"}
+            mcp_tools = [
+                t for t in dir(mcp_pkg) if not t.startswith("_") and t not in ignored
+            ]
+            tools.extend(mcp_tools)
+        except ImportError:
+            # MCP system might not be active in this context
+            pass
+
+        # 2. Fetch Compiled Skills
+        try:
+            from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+            mgr = get_skills_manager()
+            skills = mgr.list_skills().keys()
+            tools.extend(skills)
+        except ImportError:
+            pass
+
+        return list(set(tools))
 
     def get_methodology_for_task(
         self, task_type: str, depth: str = "deep"
