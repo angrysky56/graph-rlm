@@ -485,9 +485,14 @@ class Agent:
 
             # 5. Graph Update (Intermediate)
             try:
+                # Persist full content (Thought + Code Output) so the graph has context
+                persisted_content = response_text
+                if executed_result:
+                    persisted_content += f"\n\n[REPL Output]:\n{executed_result}"
+
                 self.db.update_thought_result(
                     thought_id,
-                    response_text,
+                    persisted_content,
                     embedding=None,
                     repl_id=self.active_repls.get(session_id),
                 )
