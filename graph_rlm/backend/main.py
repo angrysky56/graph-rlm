@@ -16,6 +16,7 @@ load_dotenv(project_root / ".env")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize MCP Tools on startup."""
+    from graph_rlm.backend.src.core.db import db
     from graph_rlm.backend.src.mcp_integration.config import create_default_env_file
     from graph_rlm.backend.src.mcp_integration.discovery import discover_all_servers
     from graph_rlm.backend.src.mcp_integration.generator import ToolGenerator
@@ -23,6 +24,9 @@ async def lifespan(app: FastAPI):
     try:
         project_root = Path(__file__).parent.parent.parent.resolve()
         create_default_env_file(project_root)
+
+        # Initialize Database Indexes
+        db.create_vector_index()
 
         config_path = project_root / "mcp_servers.json"
         if config_path.exists():

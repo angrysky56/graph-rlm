@@ -23,33 +23,6 @@
     "fetch": {
       "command": "uvx",
       "args": ["mcp-server-fetch"]
-    },
-    "chatdag": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/home/ty/Repositories/ai_workspace/mcp_coordinator/mcp_servers/chat-dag",
-        "run",
-        "chatdag",
-        "mcp"
-      ],
-      "env": {
-        "PYTHONUNBUFFERED": "1",
-        "LOG_LEVEL": "WARNING"
-      }
-    },
-    "reflective-agent-architecture": {
-      "command": "uv",
-      "args": [
-        "--directory",
-        "/home/ty/Repositories/ai_workspace/mcp_coordinator/mcp_servers/reflective-agent-architecture",
-        "run",
-        "raa-server"
-      ],
-      "env": {
-        "LOG_LEVEL": "WARNING",
-        "PYTHONUNBUFFERED": "1"
-      }
     }
   }
 }

@@ -72,9 +72,9 @@ def execute(self, code: str, output_callback=None) -> Tuple[str, str, Any]:
             try:
                 tree = ast.parse(code)
             except SyntaxError:
-                # If it's a syntax error, run it to get the standard traceback
-                # trunk-ignore(bandit/B102)
-                exec(code, self.namespace, self.namespace)
+                # Catch syntax error and return it cleanly via stderr
+                err = traceback.format_exc()
+                stderr_capture.write(err)
                 return stdout_capture.getvalue(), stderr_capture.getvalue(), None
 
             # Check if the last node is an expression

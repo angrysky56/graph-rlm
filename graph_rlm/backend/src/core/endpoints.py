@@ -9,6 +9,9 @@ from .agent import agent
 from .config import settings
 from .db import db
 from .llm import llm
+from .logger import get_logger
+
+logger = get_logger("graph_rlm.endpoints")
 
 router = APIRouter()
 
@@ -100,6 +103,36 @@ async def update_config(request: Request):
     return {"status": "updated", "config": settings.get_llm_config()}
 
 
+@router.post("/system/stop")
+async def stop_generation():
+    """
+    Explicitly stop the agent generation loop.
+    """
+    try:
+        agent.stop_generation()
+        return {"status": "success", "message": "Stop signal sent to agent."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/system/reembed")
+async def reembed_graph():
+    """
+    Trigger a graph-wide re-embedding process using the current model.
+    """
+    try:
+        # Use the global db and llm from the core
+        count = db.reembed_all_thoughts(llm)
+        return {
+            "status": "success",
+            "message": f"Successfully re-embedded {count} thoughts.",
+            "count": count,
+        }
+    except Exception as e:
+        logger.error(f"Re-embedding failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/chat/sessions")
 async def list_sessions():
     """
@@ -144,22 +177,91 @@ async def list_sessions():
 @router.get("/chat/history/{session_id}")
 async def get_history(session_id: str):
     """
-    Get message history for a session.
+    Get message history for a session by traversing the Thought Chain.
+    Reconstructs the conversation from the Graph of Thoughts.
     """
-    q = "MATCH (t:Thought {id: $id}) RETURN t.prompt AS prompt, t.result AS result"
+    # Query: Match root and all subsequent thoughts in the chain
+    # We use *0.. to include the root itself
+    q = """
+    MATCH (root:Thought {id: $id})
+    OPTIONAL MATCH (root)-[:DECOMPOSES_INTO*]->(child:Thought)
+    WITH root, child
+    # If child is null (no chain), we just have root. If chain, we have pairs.
+    # actually *0.. handles root as child.
+    MATCH (n:Thought) WHERE n.id = root.id OR n.id = child.id
+    RETURN DISTINCT n.prompt AS content, n.created_at AS created_at, n.id AS id
+    ORDER BY n.created_at ASC
+    """
+
+    # Better Query for linear chain reconstruction:
+    # We want to walk the tree.
+    # Note: FalkorDB might not support full path traversal robustly in one simple return if branching exists.
+    # But we enforced linear referencing in agent.py primarily.
+
+    q = """
+    MATCH (root:Thought {id: $id})-[:DECOMPOSES_INTO*0..]->(node:Thought)
+    RETURN node.prompt AS content, node.result AS result, node.created_at AS created_at, node.status AS status
+    ORDER BY node.created_at ASC
+    """
+
     res = db.query(q, {"id": session_id})
 
     messages = []
-    if res:
-        row = res[0]
-        p_text = row.get("prompt")
-        r_text = row.get("result")
-        if p_text:
-            messages.append({"role": "user", "content": p_text})
-        if r_text:
-            messages.append({"role": "assistant", "content": r_text})
+    seen = set()
+
+    for row in res:
+        # Check format
+        content = ""
+        result = ""
+        if isinstance(row, dict):
+            content = row.get("content", "")
+            result = row.get("result", "")
+        elif isinstance(row, (list, tuple)):
+            content = row[0]
+            result = row[1] if len(row) > 1 else ""
+
+        # Avoid duplicates just in case graph has cycles (shouldn't with DAG)
+        if content in seen:
+            continue
+        seen.add(content)
+
+        # Format:
+        # The 'content' (node.prompt) in agent.py holds "Thought + [Output]" often.
+        # But the User Prompt is only in the Root Node usually?
+        # agent.py: create_thought_node(task_id, prompt, ...) -> Root
+        # then create_thought_node(tid, full_content, ...) -> Thoughts
+
+        # So:
+        # 1. Root Node = User Prompt
+        # 2. Subsequent Nodes = Assistant Thoughts/Actions
+
+        if not messages:
+            # First node is User
+            messages.append({"role": "user", "content": content})
+        else:
+            # Subsequent nodes are Assistant
+            # If content is empty but result exists?
+            final_text = content
+            if result:
+                # If result is stored separately (old version)
+                final_text += f"\n\nResult: {result}"
+
+            messages.append({"role": "assistant", "content": final_text})
 
     return messages
+
+
+@router.post("/system/reset")
+async def reset_database():
+    """
+    Wipe the database. Used to clean up garbage nodes.
+    """
+    try:
+        # Delete all nodes and relationships
+        db.query("MATCH (n) DETACH DELETE n")
+        return {"status": "success", "message": "Database wiped."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to reset DB: {e}") from e
 
 
 @router.get("/chat/graph")

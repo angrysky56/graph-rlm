@@ -83,6 +83,16 @@ export const api = {
         return res.data;
     },
 
+    stopGeneration: async () => {
+        try {
+            const res = await apiClient.post('/system/stop');
+            return res.data;
+        } catch (e) {
+            console.error("Failed to stop generation", e);
+            return { status: "error" };
+        }
+    },
+
     getSessions: async () => {
         const res = await apiClient.get('/chat/sessions');
         return res.data;
@@ -125,6 +135,11 @@ export const api = {
 
     listSessions: async () => {
         const res = await apiClient.get('/chat/sessions');
+        return res.data;
+    },
+
+    reembedGraph: async () => {
+        const res = await apiClient.post('/system/reembed');
         return res.data;
     },
 

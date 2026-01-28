@@ -1,6 +1,7 @@
-
 from typing import Optional
+
 from pydantic_settings import BaseSettings
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Graph-RLM"
@@ -11,15 +12,15 @@ class Settings(BaseSettings):
     FALKOR_PORT: int = 6380  # Default, or can use REDIS_PORT from env
 
     # Matching .env vars specifically
-    REDIS_PORT: Optional[int] = None # Will read from .env
+    REDIS_PORT: Optional[int] = None  # Will read from .env
     API_PORT: int = 8000
     FALKORDB_PATH: Optional[str] = None
-    LLM_PROVIDER: str = "ollama"
+    LLM_PROVIDER: str = "openrouter"
 
     GRAPH_NAME: str = "rlm_graph"
 
     # LLM Settings (Primary Provider)
-    LLM_PROVIDER: str = "ollama"  # ollama, openrouter, lmstudio, openai
+    LLM_PROVIDER: str = "openrouter"  # ollama, openrouter, lmstudio, openai
 
     # OpenRouter
     OPENROUTER_API_KEY: str = ""
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
     # Ollama
     OLLAMA_BASE_URL: str = "http://localhost:11434"
     OLLAMA_MODEL: str = "gemma3:latest"
-    OLLAMA_EMBEDDING_MODEL: str = "nomic-embed-text"
+    OLLAMA_EMBEDDING_MODEL: str = "embeddinggemma:latest"
 
     # LM Studio / Local
     LMSTUDIO_BASE_URL: str = "http://localhost:1234/v1"
@@ -50,7 +51,7 @@ class Settings(BaseSettings):
                 "api_key": self.OPENROUTER_API_KEY,
                 "base_url": self.OPENROUTER_BASE_URL,
                 "model": self.OPENROUTER_MODEL,
-                "embedding_model": self.OPENROUTER_EMBEDDING_MODEL
+                "embedding_model": self.OPENROUTER_EMBEDDING_MODEL,
             },
             "ollama": {
                 "api_key": "",
@@ -62,13 +63,13 @@ class Settings(BaseSettings):
                 "api_key": "lm-studio",
                 "base_url": self.LMSTUDIO_BASE_URL,
                 "model": self.LMSTUDIO_MODEL,
-                "embedding_model": "local-embedding"
+                "embedding_model": "local-embedding",
             },
             "openai": {
                 "api_key": self.OPENAI_API_KEY,
                 "base_url": self.OPENAI_BASE_URL,
                 "model": self.OPENAI_MODEL,
-                "embedding_model": self.OPENAI_EMBEDDING_MODEL
+                "embedding_model": self.OPENAI_EMBEDDING_MODEL,
             },
         }
         return configs.get(provider, configs["ollama"])
@@ -105,6 +106,7 @@ class Settings(BaseSettings):
 
             # 3. Append missing keys (carefully)
             import os
+
             for key, value in config_updates.items():
                 if key not in updated_keys:
                     # Skip writing keys that are already in OS environ and user didn't explicitly change
@@ -114,14 +116,14 @@ class Settings(BaseSettings):
                     # Strict Filter: Do not write OpenAI defaults if they are not active or explicitly set
                     # If the key is OPENAI_... and the value matches the class default, skip it
                     if key.startswith("OPENAI_") and not key.endswith("API_KEY"):
-                         # Check if it matches default
-                         default_val = getattr(self, key, None)
-                         if str(value) == str(default_val):
-                             continue
+                        # Check if it matches default
+                        default_val = getattr(self, key, None)
+                        if str(value) == str(default_val):
+                            continue
 
                     # Also skip empty keys if they are purely optional/runtime
                     if value == "" and key in ["OPENROUTER_API_KEY", "OPENAI_API_KEY"]:
-                       continue
+                        continue
 
                     new_lines.append(f"{key}={value}\n")
 
@@ -143,5 +145,6 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         extra = "ignore"
+
 
 settings = Settings()

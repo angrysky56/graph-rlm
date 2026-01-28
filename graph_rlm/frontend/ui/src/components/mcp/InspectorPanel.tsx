@@ -59,6 +59,13 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ onInjectContent 
                     s.error && s.error.includes("Tool wrapper not found")
                 );
 
+                // Also retry if empty (maybe startup?)
+                const isEmpty = !mcpStatus.servers || mcpStatus.servers.length === 0;
+
+                if (hasPendingDiscovery || isEmpty) {
+                     return false; // Continue polling
+                }
+
                 if (hasPendingDiscovery) {
                      return false; // Continue polling
                 }

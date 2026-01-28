@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Optional
 
+from falkordb import FalkorDB
 from langchain_community.graphs import FalkorDBGraph
 
 from .config import settings
@@ -15,6 +16,11 @@ class GraphClient:
             host=settings.FALKOR_HOST,
             port=settings.FALKOR_PORT,
         )
+        self.client = FalkorDB(
+            host=settings.FALKOR_HOST,
+            port=settings.FALKOR_PORT,
+        )
+        self.raw_graph = self.client.select_graph(settings.GRAPH_NAME)
 
     def query(
         self, query: str, params: Optional[Dict[str, Any]] = None
@@ -30,6 +36,7 @@ class GraphClient:
         session_id: str = "default",
         root_session_id: Optional[str] = None,
         repl_id: Optional[str] = None,
+        status: str = "pending",
     ):
         """
         Creates a 'Thought' node in the graph.
@@ -43,12 +50,13 @@ class GraphClient:
             "prompt": prompt,
             "sid": session_id,
             "rsid": final_root,
+            "status": status,
         }
 
         # Create the node
         cypher = """
         MERGE (t:Thought {id: $tid})
-        SET t.prompt = $prompt, t.status = 'pending', t.created_at = timestamp(), t.session_id = $sid, t.root_session_id = $rsid
+        SET t.prompt = $prompt, t.status = $status, t.created_at = timestamp(), t.session_id = $sid, t.root_session_id = $rsid
         """
         if prompt_embedding:
             params["vec"] = prompt_embedding
@@ -76,11 +84,16 @@ class GraphClient:
         result: str,
         embedding: Optional[List[float]] = None,
         repl_id: Optional[str] = None,
+        status: str = "complete",
     ):
-        params: Dict[str, Any] = {"tid": thought_id, "result": result}
+        params: Dict[str, Any] = {
+            "tid": thought_id,
+            "result": result,
+            "status": status,
+        }
         cypher = """
         MATCH (t:Thought {id: $tid})
-        SET t.result = $result, t.status = 'complete', t.completed_at = timestamp()
+        SET t.result = $result, t.status = $status, t.completed_at = timestamp()
         """
         if embedding:
             # Note: Storing vectors in FalkorDB enables vector search
@@ -98,7 +111,7 @@ class GraphClient:
         """
         Finds thoughts with similar embeddings to the query.
         """
-        params = {"vec": query_embedding}
+        params: Dict[str, Any] = {"vec": query_embedding}
 
         # Using FalkorDB vector search procedure
         # Using FalkorDB vector search procedure
@@ -107,7 +120,8 @@ class GraphClient:
         cypher = f"CALL db.idx.vector.queryNodes('Thought', 'embedding', {limit}, vecf32($vec)) YIELD node, score RETURN node, score"
 
         try:
-            return self.query(cypher, params)
+            res = self.raw_graph.query(cypher, params)
+            return res.result_set
         except Exception as e:
             # If default index search fails, we might just return empty or log error
             logger.warning(f"Vector search failed (index missing?): {e}")
@@ -115,15 +129,27 @@ class GraphClient:
 
     def create_vector_index(self):
         """
-        Creates a vector index on Thought.embedding.
+        Creates a vector index on Thought.embedding with the correct dimension (3072).
         """
-        # FalkorDB Modern Syntax
+        # Note: google/gemini-embedding-001 (default) returns 3072.
+        # If this doesn't match, we drop and recreate.
+        dim = 3072
         try:
-            self.query(
-                "CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {dimension:768, similarityFunction:'cosine'}"
+            # We use self.raw_graph to bypass LangChain's potential parser issues
+            self.raw_graph.query(
+                f"CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            )
+            logger.info(
+                f"Created Vector Index on Thought(embedding) with dimension {dim}"
             )
         except Exception as e:
-            # Log as info because it likely already exists
+            err_msg = str(e).lower()
+            if "already indexed" in err_msg:
+                # If already exists, we might still want to check dimension?
+                # For now, we just stay silent to avoid startup noise.
+                return
+
+            # Log other legitimate failures
             logger.info(f"Vector index creation skipped: {e}")
             pass
 
@@ -182,24 +208,18 @@ class GraphClient:
 
         Used by the Stateless Agent to 'Wake Up' and load context.
         """
-        # Strategy: Find nodes in this session that are not PARENTS of any other node in this session.
-        # This gives us the tips of the branches.
-        # Also order by timestamp to get the most recent.
+        # Simplified Strategy: Just get the most recent N thoughts in this session.
+        # This works for both linear chains (A->B->C) and flat logs.
+        # It ensures we always see the "Recent History".
 
-        # Note: We filter by repl_id (which maps to session_id in our logic usually,
-        # or we might need to store repl_id on nodes explicitly if session_id != repl_id).
-        # In agent.py currently: params["sid"] = session_id.
-        # Let's assume repl_id passed here IS the session_id used in creation.
-
-        # If we didn't store repl_id but session_id, we use that.
         params = {"sid": repl_id, "limit": limit}
 
-        cypher = """
-        MATCH (n:Thought {session_id: $sid})
-        WHERE NOT (n)-[:DECOMPOSES_INTO]->(:Thought {session_id: $sid})
+        cypher = f"""
+        MATCH (n:Thought)
+        WHERE n.session_id = $sid
         RETURN n
-        ORDER BY n.timestamp DESC
-        LIMIT $limit
+        ORDER BY n.created_at DESC
+        LIMIT {limit}
         """
 
         try:
@@ -207,6 +227,57 @@ class GraphClient:
         except Exception as e:
             logger.error(f"Failed to get context frontier: {e}")
             return []
+
+    def reembed_all_thoughts(self, llm_service: Any):
+        """
+        Iterates through all Thought nodes and refreshes their embeddings.
+        Useful when switching embedding models.
+        """
+        logger.info("Starting graph-wide re-embedding process...")
+        # 1. Fetch all nodes with enough text to embed
+        cypher = "MATCH (n:Thought) RETURN n.id as id, n.prompt as prompt, n.result as result"
+        # Using raw client for consistent list-of-lists format
+        res = self.raw_graph.query(cypher)
+        nodes = res.result_set
+
+        count = 0
+        for row in nodes:
+            # Result set is list of lists: [id, prompt, result]
+            if not row or len(row) < 2:
+                continue
+
+            node_id = row[0]
+            prompt = row[1] if row[1] is not None else ""
+            result = row[2] if len(row) > 2 and row[2] is not None else ""
+
+            if not isinstance(node_id, str):
+                continue
+
+            # Combine prompt and result for better context representation if both exist
+            text_to_embed = prompt
+            if result:
+                text_to_embed += f"\nResult: {result}"
+
+            if not text_to_embed:
+                continue
+
+            try:
+                # Use provided LLM service to get NEW embedding
+                new_vec = llm_service.get_embedding(text_to_embed)
+                if new_vec:
+                    # Update node in FalkorDB
+                    self.update_thought_result(
+                        thought_id=node_id,
+                        result=result,  # Keep existing result
+                        embedding=new_vec,
+                        status="complete",
+                    )
+                    count += 1
+            except Exception as e:
+                logger.error(f"Failed to re-embed thought {node_id}: {e}")
+
+        logger.info(f"Re-embedding complete. Updated {count} thoughts.")
+        return count
 
 
 db = GraphClient()

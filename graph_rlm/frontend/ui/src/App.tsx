@@ -109,13 +109,14 @@ function App() {
     loadGraph(sid);
   };
 
-  const handleStop = () => {
+  const handleStop = async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-      setIsProcessing(false);
-      setReplEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
     }
+    await api.stopGeneration(); // Tell backend to stop
+    setIsProcessing(false);
+    setReplEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
   };
 
   // ... imports

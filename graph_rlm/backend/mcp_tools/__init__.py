@@ -29,4 +29,4 @@ def run_skill(name: str, args: dict | None = None) -> Any:
 
 def list_servers() -> list[str]:
     """Get list of all available MCP servers."""
-    return ['docker-mcp', 'brave-search', 'arxiv-mcp-server', 'wolframalpha', 'mcp-server-firecrawl', 'neo4j-mcp', 'advanced-reasoning', 'fermat-mcp', 'playwright', 'gitmcp', 'notebooklm', 'reflective-agent-architecture', 'ast-mcp-server', 'local-repl', 'desktop-commander', 'mcp-obsidian', 'community-server-llm-txt', 'context7', 'mcp-logic', 'hybrid-ai', 'diagram-server', 'coinbase-trade-assistant', 'chatdag', 'docker-hub', 'verifier-graph', 'data-forge', 'memory']
+    return ['docker-mcp', 'brave-search', 'arxiv-mcp-server', 'wolframalpha', 'mcp-server-firecrawl', 'neo4j-mcp', 'advanced-reasoning', 'fermat-mcp', 'playwright', 'gitmcp', 'notebooklm', 'reflective-agent-architecture', 'ast-mcp-server', 'desktop-commander', 'mcp-obsidian', 'community-server-llm-txt', 'context7', 'mcp-logic', 'hybrid-ai', 'diagram-server', 'coinbase-trade-assistant', 'chatdag', 'verifier-graph', 'data-forge', 'memory']

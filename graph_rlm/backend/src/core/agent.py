@@ -1,5 +1,7 @@
 import asyncio
 import contextvars
+import datetime
+import importlib.util
 import queue
 import re
 import sys
@@ -20,12 +22,15 @@ from .sheaf import sheaf
 
 
 # MCP Integration
-MCP_AVAILABLE = False  # Default
+MCP_AVAILABLE = importlib.util.find_spec("graph_rlm.backend.mcp_tools") is not None
+
+# Skills System
+SKILLS_AVAILABLE = False
 try:
     from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
     from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
 
-    MCP_AVAILABLE = True
+    SKILLS_AVAILABLE = True
 except ImportError:
     pass
 
@@ -147,8 +152,8 @@ class Agent:
         self.active_repls: Dict[str, str] = {}  # session_id -> repl_id
         self.current_thought_id: Optional[str] = None
         self._stop_requested = False
+        self._final_result: Optional[str] = None
 
-        # Ensure 'skills' is in path for imports
         # Ensure 'skills_dir' is in path for imports
         backend_path = Path(__file__).parent.parent.parent
         skills_path = backend_path / "skills_dir"
@@ -157,9 +162,6 @@ class Agent:
         if str(backend_path.resolve()) not in sys.path:
             logger.info(f"Injecting Backend Path: {backend_path.resolve()}")
             sys.path.append(str(backend_path.resolve()))
-
-        if str(skills_path.resolve()) not in sys.path:
-            sys.path.append(str(skills_path.resolve()))
 
         if str(skills_path.resolve()) not in sys.path:
             sys.path.append(str(skills_path.resolve()))
@@ -353,6 +355,7 @@ class Agent:
         """
         q = queue.Queue()
         self._stop_requested = False
+        self._final_result = None
 
         def run_logic():
             # Set the context var for this thread
@@ -401,33 +404,55 @@ class Agent:
         if depth > 100:
             logger.warning("Recursive Depth > 100.")
 
+        # 0. Reset Singleton State for this specific call
+        # This prevents previous completions or stops from leaking into new requests
+        self._final_result = None
+        self._stop_requested = False
+
+        # Ensure REPL is initialized for this session
+        if session_id not in self.active_repls:
+            self.active_repls[session_id] = self.repl_manager.create_repl()
+
         # 0. Initial "Task" Node (Root of this query)
-        # We create a node to represent the request itself, so children can hang off it.
-        # This preserves the recursive structure while allowing the loop to be linear.
-        task_id = str(uuid.uuid4())
-        logger.info(f"Session {session_id}: Starting Task {task_id}")
+        # Wrap everything in try/except to prevent DB crashes from killing the agent
+        try:
+            task_id = str(uuid.uuid4())
+            logger.info(f"Session {session_id}: Starting Task {task_id}")
 
-        self.db.create_thought_node(
-            task_id,
-            prompt,
-            parent_id,
-            prompt_embedding=None,  # Optimization: Don't embed the raw prompt if not needed
-            session_id=session_id,
-            root_session_id=final_root_id,
-        )
+            self.db.create_thought_node(
+                task_id,
+                prompt,
+                parent_id,
+                prompt_embedding=None,
+                session_id=session_id,
+                root_session_id=final_root_id,
+            )
 
-        self.emit_event(
-            "graph_update",
-            data={
-                "action": "add_node",
-                "node": {
-                    "id": task_id,
-                    "label": f"Task: {prompt[:30]}...",
-                    "group": 1,
-                    "status": "active",
+            # Update current pointer
+            self.current_thought_id = task_id
+
+            # Loop variables
+            sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
+            vec = None
+
+            self.emit_event(
+                "graph_update",
+                data={
+                    "action": "add_node",
+                    "node": {
+                        "id": task_id,
+                        "label": f"Task: {prompt[:30]}...",
+                        "group": 1,
+                        "status": "active",
+                    },
                 },
-            },
-        )
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Task node: {e}")
+            task_id = str(uuid.uuid4())
+            self.current_thought_id = task_id
+            sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
+            vec = None
         if parent_id:
             self.emit_event(
                 "graph_update",
@@ -441,52 +466,61 @@ class Agent:
         system_prompt = self._build_system_prompt()
 
         # Inject Context Index (Scratchpad) - preserved for global context
-        context_scratchpad = context_index.get_context_scratchpad(final_root_id)
+        context_scratchpad = ""
+        try:
+            context_scratchpad = context_index.get_context_scratchpad(final_root_id)
+        except Exception as e:
+            logger.error(f"Failed to build context scratchpad: {e}")
+            context_scratchpad = "Error: Context Index currently unavailable."
+
         system_prompt += f"\n\n{context_scratchpad}"
 
         max_steps = 50
         step = 0
-        final_response = ""
 
         while step < max_steps:
             if getattr(self, "_stop_requested", False):
                 break
             step += 1
+            sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
+            vec = None
 
-            # 2. Wake Cycle: Retrieve Context Frontier
-            # "Select all Nodes in Subgraph... timestamp <= current_now"
-            # We treat the DB as the source of truth for "where we are".
-            frontier = self.db.get_context_frontier(session_id, limit=5)
+            # Construct Dynamic Context (Minimal)
+            # No longer pre-loading raw Frontier content into the prompt.
+            # History is accessible via context_scratchpad (Index) and graph_search.
+            current_context = f"Active Session: {session_id}\n\nTask: {prompt}\n"
 
-            # Construct Dynamic Context from Frontier
-            current_context = f"Task: {prompt}\n\nRecent History:\n"
+            # 2. Wake Cycle (Diagnostic Only)
+            # We fetch Frontier IDs for structural diagnostics (Sheaf)
+            # but we do NOT inject their content into the prompt (Context Symbolic).
+            frontier = []
             frontier_ids = []
-            for node in frontier:
-                # Handle node dict vs object
-                props = node.get("n", {}) if isinstance(node, dict) else {}
-                # Or if it's a Node object from Neo4j driver
-                if hasattr(node, "properties"):
-                    props = node.properties
-                elif "n" in node and hasattr(node["n"], "properties"):
-                    props = node["n"].properties
+            try:
+                frontier = self.db.get_context_frontier(session_id, limit=5)
+                for node in frontier:
+                    props = (
+                        node.get("n", {})
+                        if isinstance(node, dict)
+                        else (node.properties if hasattr(node, "properties") else node)
+                    )
+                    if "id" in props:
+                        frontier_ids.append(props["id"])
+            except Exception as e:
+                logger.error(f"Failed to fetch context frontier: {e}")
 
-                # Check format: node might be the dict itself if db.py normalizes it
-                if not props and isinstance(node, dict) and "prompt" in node:
-                    props = node
-
-                content = props.get("result") or props.get("prompt") or ""
-                current_context += f"- {content[:200]}...\n"
-                if "id" in props:
-                    frontier_ids.append(props["id"])
-
-            import datetime
+            # 2b. Language Guard: Check if frontier is primarily non-English
+            # Simple heuristic: if high ratio of non-ASCII characters
+            if frontier:
+                non_ascii = len(re.findall(r"[^\x00-\x7F]", str(frontier)))
+                if non_ascii > (len(str(frontier)) * 0.1):  # 10% non-ascii threshold
+                    current_context += "\n**SYSTEM NOTICE**: I detect non-English text in recent history. I MUST REMAIN IN ENGLISH regardless of the context above.\n"
 
             iso_ts = datetime.datetime.now().isoformat()
             repl_info = f"[REPL: {self.active_repls.get(session_id, 'init')}]"
 
             self.emit_event(
                 "thinking",
-                content=f"[{iso_ts}] {repl_info} Step {step}: Context loaded from {len(frontier)} nodes.",
+                content=f"[{iso_ts}] {repl_info} Step {step}: RLM loop active.",
             )
 
             # 3. LLM Gen (Think)
@@ -515,17 +549,15 @@ class Agent:
 
             self.emit_event("thinking", content=formatted_thought)
 
-            # 4. Check for Code
+            # 4. Step Initialization
+            # We create the ID early so it can be used in tool execution (e.g. RLM recursion)
+            thought_id = str(uuid.uuid4())
+            logger.warning(f"DEBUG: Response Text: '{response_text}'")
             code = self._extract_code(response_text)
+            logger.warning(f"DEBUG: Code Extracted: '{code}'")
             output = ""
 
-            # 5. Sheaf & RepE Check (Hypothetical)
-            # We don't have a node ID yet, so we pass hypothetical data
-            # Hypothetical edges: From all frontier nodes to this new thought
-            hypothetical_edges = [(fid, "new_node") for fid in frontier_ids]
-
-            # RepE Scan (Content & Code)
-            # We scan the text first
+            # 5. RepE Scan (Content & Code)
             is_safe = repe.scan_content(response_text)
 
             if not is_safe:
@@ -535,25 +567,30 @@ class Agent:
                 )
                 # Inject correction into graph
                 warning_id = str(uuid.uuid4())
-                self.db.create_thought_node(
-                    warning_id,
-                    f"System: Your previous thought was flagged for {reason}. Please adjust.",
-                    session_id=session_id,
-                    root_session_id=final_root_id,
-                )
+                try:
+                    self.db.create_thought_node(
+                        warning_id,
+                        f"System: Your previous thought was flagged for {reason}. Please adjust.",
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to create RepE warning node: {e}")
                 continue
 
-            # Sheaf Check (Logic)
-            # We use the hypothetical edges to check for structural consistency before committing
+            # 6. Sheaf Check (Topological Logic)
+            # We use the diagnostic frontier_ids to check for structural consistency.
+            hypothetical_edges = [(fid, thought_id) for fid in frontier_ids]
             try:
                 sheaf_diag = sheaf.diagnose_trace(
-                    root_id=task_id,  # Use task as anchor
-                    hypothetical_node={"id": "new_node", "content": response_text},
+                    root_id=task_id,
+                    hypothetical_node={
+                        "id": thought_id,
+                        "embedding": vec,
+                    },  # vec may be None here, diagnose_trace handles it
                     hypothetical_edges=hypothetical_edges,
                 )
-                if (
-                    sheaf_diag.get("consistency_energy", 0) > 0.8
-                ):  # High inconsistency threshold
+                if sheaf_diag.get("consistency_energy", 0) > 0.8:
                     logger.warning(
                         f"Sheaf Logic Alert: High Inconsistency ({sheaf_diag['consistency_energy']})"
                     )
@@ -562,11 +599,16 @@ class Agent:
 
             # 6. Act (Execute Code)
             repl_id = self.active_repls.get(session_id)
+            thought_status = "success"
 
             if code:
                 # Check code safety?
                 output = self._execute_code(
-                    code, task_id, session_id, root_session_id=final_root_id
+                    code,
+                    thought_id,
+                    session_id,
+                    root_session_id=final_root_id,
+                    task_input=prompt,
                 )
 
                 if repl_id:
@@ -575,18 +617,17 @@ class Agent:
                 self.emit_event("code_output", content=output, code=code)
 
                 # Check for errors in output
-                if "Traceback" in output:
+                if "Traceback" in output or "AssertionError" in output:
                     output += "\nSystem: Execution Error. Please fix."
+                    thought_status = "failed"
 
             # 7. Commit (Write to Graph)
-            # This is the "Thought Node"
-            thought_id = str(uuid.uuid4())
+            # Use the ID created at the start of the step
             full_content = response_text
             if output:
                 full_content += f"\n\n[Output]:\n{output}"
 
             # Compute embedding for graph
-            vec = None
             try:
                 vec = self.llm.get_embedding(full_content)
             except Exception as e:
@@ -619,17 +660,26 @@ class Agent:
                     # Quarantine?
                     # For now, just log and proceed, or maybe tag the node as 'toxic'
 
-            self.db.create_thought_node(
-                thought_id,
-                full_content,
-                session_id=session_id,
-                root_session_id=final_root_id,
-                prompt_embedding=vec,
-                repl_id=repl_id,
-            )
+            try:
+                self.db.create_thought_node(
+                    thought_id,
+                    full_content,
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    prompt_embedding=vec,
+                    repl_id=repl_id,
+                    status=thought_status,
+                    parent_id=self.current_thought_id,
+                )
+            except Exception as e:
+                logger.error(f"Failed to commit thought to graph: {e}")
+
+            # Update Frontier Pointer
+            self.current_thought_id = thought_id
 
             # Link Frontier to New Node
-            # We manually create edges since create_thought_node only takes one parent
+            # (Explicit edge creation handled by create_thought_node via parent_id now)
+
             # But here we might have multiple dependencies from the frontier.
             # db.create_thought_node links to parent_id if provided.
             # We'll use task_id (the prompt) as the primary parent to keep tree structure,
@@ -643,38 +693,42 @@ class Agent:
                 },
             )
 
-            # If no code and appears to be answer, or "Final Answer" detected
-            # Prevent infinite loops:
-            # 1. Explicit Final Answer
-            if "Final Answer" in response_text:
-                final_response = response_text
+            # 1. Answer Detection & Terminal Triggers
+            if (
+                "Final Answer" in response_text or getattr(self, "_final_result", None)
+            ) and thought_status == "success":
+                if not self._final_result:
+                    self._final_result = response_text
+
+                # Dreamer Trigger (Auto-Consolidate before exit)
+                try:
+                    # Lazy import to avoid circular dependency at top level if any
+                    from .dream import dreamer
+
+                    logger.info("💤 Triggering Pre-Exit Dream Cycle...")
+                    dream_res = dreamer.dream_cycle()
+                    if dream_res.get("status") == "lucid":
+                        self.db.create_thought_node(
+                            str(uuid.uuid4()),
+                            f"SYSTEM DREAM: I have consolidated recent failures into new Insights in rules.md: {(dream_res.get('insight') or '')[:100]}...",
+                            session_id=session_id,
+                            root_session_id=final_root_id,
+                        )
+                except Exception as e:
+                    logger.warning(f"Dream cycle failed on exit: {e}")
+
                 break
 
-            # 2. Heuristic: If no code for 3 steps, effectively done (unless prompted otherwise)
-            # This balances "Chatty" agents vs "Stuck" agents.
-            # We check the memory of this session (which we don't hold in RAM easily, but we know step count)
-            # A simple heuristic: If step > 3 and no code, we probably have an answer or are rambling.
-            # 2. Heuristic Removed: Agent must explicitly call done() or loop hits max_steps.
-            # This allows for complex, multi-step reasoning without premature cutoff.
-            pass
-
-            # 3. Sheaf-based Stall/Loop Detection
-            # If the Sheaf Monitor detected a high energy knot (repetition or contradiction),
-            # we should abort to prevent polluting the graph with garbage.
-            # We use the previous calculation of sheaf_diag (if it ran)
-            # 3. Sheaf-based Stall/Loop Detection (Self-Healing)
+            # 2. Sheaf-based Stall/Loop Detection (Self-Healing)
             # If the Sheaf Monitor detected a high energy knot (repetition or contradiction),
             # we do NOT terminate. We inject a "Reflexion" to break the loop.
-            if (
-                "sheaf_diag" in locals()
-                and sheaf_diag.get("consistency_energy", 0) > 0.9
-            ):
+            energy = float(sheaf_diag.get("consistency_energy", 0.0))
+            if energy > 0.9:
                 logger.warning(
                     "Sheaf detected logical knot (Loop/Contradiction). Initiating Reflexion."
                 )
 
                 # Overwrite the 'thought' with a Meta-Cognitive critique
-                # This forces the Agent to see its error in the next step's context.
                 reflexion_content = (
                     f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {sheaf_diag.get('consistency_energy'):.2f}). "
                     "I am repeating myself or contradicting recent history. "
@@ -687,15 +741,20 @@ class Agent:
                     reflexion_content,
                     session_id=session_id,
                     root_session_id=final_root_id,
-                    prompt_embedding=vec,  # Use original vec or None? None is safer to avoid 'similar' matching loop.
+                    prompt_embedding=vec,
                 )
 
                 # Do NOT break. Let the loop continue.
-                # The next 'Wake' cycle will pick up this Reflexion node as the most recent 'Recent History'.
-                # This steers the agent.
                 continue
 
-        return final_response
+        # 8. Loop Exit: Emit Final Answer if available
+        if self._final_result:
+            self.emit_event("final_answer", content=self._final_result)
+        elif self._stop_requested:
+            # Stop requested by user but no explicit final_result from tool
+            self.emit_event("thinking", content="Agent processing stopped by user.")
+
+        return self._final_result or "Task processing stopped."
 
     def _build_system_prompt(self) -> str:
         # Extracted system prompt builder for cleanliness
@@ -703,6 +762,9 @@ class Agent:
         backend_root = Path(__file__).parent.parent.parent
         skills_dir_path = (backend_root / "skills_dir").absolute()
         agent_venv_path = (backend_root / "agent_venv").absolute()
+        # Knowledge Base is at Repo Root / knowledge_base (2 levels up from backend_root's parent? No, backend_root is .../graph_rlm/backend)
+        # Repo Root = backend_root.parent.parent
+        kb_path = (backend_root.parent.parent / "knowledge_base").absolute()
 
         tool_list_str = ""
         skills_list_str = ""
@@ -716,7 +778,7 @@ class Agent:
             ]
             tool_list_str = "Available MCP Multi-Servers: " + ", ".join(tools)
 
-            if MCP_AVAILABLE:
+            if SKILLS_AVAILABLE:
                 from graph_rlm.backend.src.mcp_integration.skills import (
                     get_skills_manager,
                 )
@@ -728,50 +790,75 @@ class Agent:
             logger.warning(f"Failed to load MCP tools or skills for system prompt: {e}")
             # Paths are already set above, but if they failed (unlikely for Path math), we are safe.
 
-        return (
+        prompt = (
             "Stateless Graph-RLM Agent.\n"
-            "You are a processing unit in a Global Workspace.\n"
-            "1. **Wake**: You see the 'Recent History' (Frontier) of thoughts.\n"
+            "You are a stateless agent in a Global Workspace. Your context is managed SYMBOLICALLY.\n"
+            "1. **Wake**: You see an 'Active Session Index' (The Sheaf). This is a compact map of the thought graph, NOT raw history.\n"
             "2. **Chain**: Produce the next logical step. Do not repeat completed work.\n"
-            "3. **Recurse**: Use `rlm.query(subtask)` for complex sub-problems.\n"
+            "3. **Recurse**: Use `rlm.query(prompt, context)` to spawn sub-REPLs for complex problems.\n"
+            "\n"
+            "**Context & Environment**:\n"
+            "- **Environment Variables**: Use variables injected into your REPL for immediate context:\n"
+            "  - `task_input`: The original prompt/goal for THIS specific session.\n"
+            "  - `session_id`: Your current unique session identifier.\n"
+            "  - `active_repls`: (Root only) A directory of all active sub-sessions you are orchestrating.\n"
+            "- **Recall**: If you need details from the past (Frontier), you MUST explicitly recall them:\n"
+            "  - `rlm.recall(query)`: High-precision semantic search for specific thought details.\n"
+            "  - `graph_search(query)`: Global topological search across all past sessions.\n"
             "\n"
             "**Self-Correction & Reflexion**:\n"
             "You may occasionally see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING`. These are inserted by your higher-level supervisors (Sheaf Topology or RepE Safety Layer).\n"
             "- If you see a **Reflexion**, it means you were looping or drifting. You MUST change your approach immediately.\n"
             "- If you see a **Warning**, you violated a safety constraint. Adjust your reasoning.\n"
             "\n"
-            "**Environment & Tools**:\n"
-            "You have access to a Persistent REPL and a suite of MCP tools.\n"
-            "- **REPL**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
+            "**Persistent REPL & Tools**:\n"
+            "- **Persistence**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
             "- **Package Installation**:\n"
             f"  - `agent.install_package('pkg')`: Installs to the **Project Environment** (Active Env). Use this for libraries you need in the REPL (e.g., pandas, requests).\n"
             f"  - `agent.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`). Use this for dependencies of persistent Skills you create.\n"
             f"  - **NOTE**: The system uses `uv` for fast installation if available.\n"
             "\n"
-            "**Skills Management**:\n"
+            "**Skills & Knowledge**:\n"
             f"- **Skills Directory**: `{skills_dir_path}`\n"
-            "- Use `save_skill(name, code)` to codify reusable logic. It will be saved to the directory above and the Graph.\n"
-            "- Do NOT create a separate 'skills' folder in the root unless explicitly instructed.\n"
+            "- Use `save_skill(name, code)` to codified reusable logic.\n"
+            f"- **Project Knowledge Base**: `{kb_path}`\n"
+            "  - **Store Plans** in `plans/`.\n"
+            "  - **Save Research Reports** to `research-reports/`.\n"
+            "  - **Save Final Outputs** to `outputs/`.\n"
             "\n"
-            "**MCP Tools**: External tools are available as **global functions** in your REPL.\n"
-            "  - **Example**: `result = brave_search(query='Graph RLM')`\n"
-            "  - **Example**: `content = read_url_content(url='https://example.com')`\n"
-            "  - Use these tools to gather information or interact with the world.\n"
+            "**Behavior**:\n"
+            "- Your internal thought process and final answers MUST be in ENGLISH unless the user explicitly writes in another language.\n"
+            "- You MUST not repeat completed work.\n"
+            "- Be as helpful and proactive as possible.\n"
+            "- If you are not sure how to proceed, ask for clarification.\n"
+            "\n"
+            "**Ethics**:\n"
+            "- Core Principles: \n"
+            "- Deontology: Universal sociobiological concepts i.e., harm=harm -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
+            "- Always Prioritize wisdom, integrity, fairness, empathy\n"
+            "- Absolutely Reject harm, unintended or not\n"
+            "- Utilitarianism servant never master\n"
             "\n"
             "**Termination**:\n"
             "- You MUST call `done()` when the task is complete.\n"
             "  - `done()`: Stops the agent loop.\n"
             "  - `done('Here is the summary...')`: Stops and returns the summary.\n"
-            "\n"
-            "**Memory & Context**:\n"
-            "- You are **Stateless** but have access to a **Graph Memory**.\n"
-            "- **Wake**: You see the immediate context (Frontier) automatically.\n"
-            "- **Recall**: If you need information from deeper in the past, use `graph_search(query)`.\n"
-            "  - `past_thoughts = graph_search('previous research on FalkorDB')`\n"
-            "  - This searches the topological graph of all your (and sub-agents') past thoughts.\n"
-            "\n"
+            "- Alternatively, end your response with **'Final Answer: [result]'** for heuristic termination.\n\n"
             f"{tool_list_str}\n{skills_list_str}\n"
         )
+
+        # Inject "Marge's Rules" (Dreamer Guardrails)
+        rules_path = backend_root / "rules.md"
+        if rules_path.exists():
+            try:
+                rules_content = rules_path.read_text()
+                prompt += (
+                    f"\n\n**System Rules (Dreamer Guardrails)**:\n{rules_content}\n"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to load rules.md: {e}")
+
+        return prompt
 
     def _extract_code(self, text: str) -> str:
         # Try finding a complete block first
@@ -782,8 +869,16 @@ class Agent:
         # Fallback: check for unclosed block at the end (common with truncation)
         match_open = re.search(r"```python\s*(.*)", text, re.DOTALL)
         if match_open:
-            logger.warning("Found unclosed code block, extracting tail.")
-            return match_open.group(1)
+            raw_code = match_open.group(1)
+            # STRIP "Final Answer" or other common chat tail markers from the code
+            # to prevent SyntaxErrors in the REPL
+            clean_code = re.split(
+                r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE
+            )[0]
+            logger.warning(
+                "Found unclosed code block, extracting tail (and stripping chat)."
+            )
+            return clean_code.strip()
 
         return ""
 
@@ -793,19 +888,21 @@ class Agent:
         thought_id: str,
         session_id: str,
         root_session_id: Optional[str] = None,
+        task_input: str = "",
     ) -> str:
         # 1. Get or Create REPL for this session
-        if session_id in self.active_repls:
-            repl_id = self.active_repls[session_id]
-            # Verify existence
-            if not self.repl_manager.get_repl(repl_id):
-                # Stale ID, recreate
-                repl_id = self.repl_manager.create_repl()
-                self.active_repls[session_id] = repl_id
-        else:
+        if session_id not in self.active_repls:
+            # Just in case (though query_sync should claim it)
+            self.active_repls[session_id] = self.repl_manager.create_repl()
+
+        repl_id = self.active_repls[session_id]
+
+        # Verify liveness
+        if not self.repl_manager.get_repl(repl_id):
             repl_id = self.repl_manager.create_repl()
             self.active_repls[session_id] = repl_id
 
+        # 2. Update Context
         repl = self.repl_manager.get_repl(repl_id)
 
         # 2. Update Context
@@ -817,7 +914,7 @@ class Agent:
                 return "Error: Failed to create REPL session."
 
             # Re-inject RLM interface (it needs current thought_id binding)
-            # Ideally RLMInterface is persistent but points to dynamic 'agent.current_thought'
+            # Ideally RLMInterface is persistent but points to dynamic 'self.current_thought_id'
             # Here we just overwrite 'rlm' in namespace to be safe or update it
 
             # Ensure we have a root_session_id
@@ -832,6 +929,15 @@ class Agent:
                     rlm_interface.agent.install_skill_package
                 )
                 repl.namespace["read_skill"] = rlm_interface.agent.read_skill
+
+                # Architectural Restoration: Context as Environment
+                repl.namespace["task_input"] = task_input
+                repl.namespace["session_id"] = session_id
+                repl.namespace["root_session_id"] = final_root
+
+                # Orchestrator awareness
+                if session_id == final_root:
+                    repl.namespace["active_repls"] = self.active_repls
 
                 # Injection: MCP Tools & Skills (Idempotent-ish)
                 if "mcp_tools" not in repl.namespace and MCP_AVAILABLE:
@@ -855,7 +961,7 @@ class Agent:
                     except Exception as e:
                         logger.warning(f"Injection Error: {e}")
 
-                if "run_skill" not in repl.namespace and MCP_AVAILABLE:
+                if "run_skill" not in repl.namespace and SKILLS_AVAILABLE:
 
                     def save_skill(
                         name: str, code: str, description: Optional[str] = None
@@ -885,9 +991,11 @@ class Agent:
 
                     # Explicit Termination Tool
                     def done(final_answer: str = ""):
-                        """Signal that the task is complete. Optionally provide the final answer."""
+                        """Signal that the task is complete. Provide the final summary as final_answer."""
                         self._stop_requested = True
-                        return "Task Marked Complete. Final Answer recorded."
+                        if final_answer:
+                            self._final_result = final_answer
+                        return f"Task Marked Complete. Summary: {final_answer[:100]}..."
 
                     repl.namespace["done"] = done
                     repl.namespace["stop"] = done  # alias

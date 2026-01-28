@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { api, type Model } from '../../api';
-import { X, Save, RefreshCw } from 'lucide-react';
+import { X, Save, RefreshCw, Brain } from 'lucide-react';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +12,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [config, setConfig] = useState<any>({});
   const [loading, setLoading] = useState(false);
   const [models, setModels] = useState<Model[]>([]);
+  const [reembedding, setReembedding] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -55,6 +56,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       alert("Failed to save settings");
     }
     setLoading(false);
+  };
+
+  const handleReembed = async () => {
+    if (
+      !confirm(
+        'This will refresh the semantic embeddings for ALL memories using the current model. It may take some time. Continue?'
+      )
+    )
+      return;
+
+    setReembedding(true);
+    try {
+      const res = await api.reembedGraph();
+      alert(`Graph Re-embedding Complete! Updated ${res.count} memories.`);
+    } catch (e: any) {
+      alert(`Re-embedding failed: ${e.message || e}`);
+    }
+    setReembedding(false);
   };
 
   if (!isOpen) return null;
@@ -246,6 +265,21 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               );
             })()}
             <p className="text-[10px] text-slate-600">Required for RLM memory.</p>
+
+            <div className="pt-2">
+              <button
+                onClick={handleReembed}
+                disabled={reembedding || loading}
+                className={`w-full py-2 px-3 rounded border flex items-center justify-center gap-2 text-[10px] uppercase font-bold transition-all ${
+                  reembedding
+                    ? 'bg-purple-900/20 border-purple-500/50 text-purple-300 cursor-wait'
+                    : 'bg-slate-800/50 border-slate-700 hover:border-purple-500 text-slate-400 hover:text-white hover:bg-slate-800'
+                }`}
+              >
+               {reembedding ? <RefreshCw className="animate-spin" size={12} /> : <Brain size={12} />}
+               {reembedding ? 'Processing Graph...' : 'Re-embed Memories'}
+              </button>
+            </div>
           </div>
 
         </div>
