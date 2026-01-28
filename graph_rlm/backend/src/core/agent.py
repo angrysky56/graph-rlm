@@ -13,6 +13,8 @@ from .db import GraphClient, db
 from .llm import LLMService, llm
 from .logger import get_logger
 from .manager import REPLManager
+from .repe import repe
+from .sheaf import sheaf
 
 # ... existing imports ...
 
@@ -58,6 +60,11 @@ class RLMInterface:
         # This prevents context pollution and ensures structural recursion.
         new_session_id = str(uuid.uuid4())
 
+        self.agent.emit_event(
+            "thinking",
+            content=f"\n⚡ RLM: Spawning Recursive Agent for: '{prompt[:60]}...'",
+        )
+
         # If context is provided, we might want to inject it or prepend to prompt.
         # For now, simplest RLM pattern: Prepend context to prompt so it's "in the environment".
         full_prompt = prompt
@@ -76,6 +83,9 @@ class RLMInterface:
         Active Recall: Search the Graph for similar past thoughts.
         """
         logger.info(f"Thought {self.agent.current_thought_id}: Recalling '{query}'")
+        self.agent.emit_event(
+            "thinking", content=f"\n🧠 RLM: Recalling memories for '{query}'..."
+        )
         try:
             vec = self.agent.llm.get_embedding(query)
             # Use db.find_similar_thoughts
@@ -114,10 +124,18 @@ class RLMInterface:
                     )
 
             if not formatted:
+                self.agent.emit_event(
+                    "thinking", content="  -> No relevant memories found."
+                )
                 return "No relevant memories found."
+
+            self.agent.emit_event(
+                "thinking", content=f"  -> Found {len(formatted)} relevant memories."
+            )
             return "\n".join(formatted)
         except Exception as e:
             logger.error(f"Recall failed: {e}")
+            self.agent.emit_event("error", content=f"Recall failed: {e}")
             return f"Error during recall: {e}"
 
 
@@ -143,20 +161,29 @@ class Agent:
         if str(skills_path.resolve()) not in sys.path:
             sys.path.append(str(skills_path.resolve()))
 
-        # DEPRECATED: Venv injection.
-        # We now run/install strictly in the active environment (sys.executable) to ensure consistency.
-        # This prevents the "Installed but not found" bug caused by split environments.
-        logger.info(f"Agent initialized using active environment: {sys.prefix}")
+        if str(skills_path.resolve()) not in sys.path:
+            sys.path.append(str(skills_path.resolve()))
 
+        # Environment Strategy:
+        # 1. Core Agent / REPL: Runs in the active project environment (sys.prefix).
+        # 2. Skills / Tools: Run in the dedicated 'agent_venv' for isolation.
+        # 3. MCP Servers: Run in their own independent environments (managed by uv or configured venvs).
+        logger.info(f"Agent initialized using active environment: {sys.prefix}")
         logger.info("Agent initialized with Persistent REPL support")
+        logger.info("RepE Safety Layer & Sheaf Topology Monitor Loaded.")
 
     def _install_to_active_env(self, package_name: str) -> str:
         """Internal helper to install a package into the CURRENT active environment."""
         import shutil
+
+        # trunk-ignore(bandit/B404)
         import subprocess
 
         logger.info(
             f"Agent requesting installation of package: {package_name} into Active Env"
+        )
+        self.emit_event(
+            "thinking", content=f"\n📦 Agent: Installing package '{package_name}'..."
         )
 
         # Use the running python executable to ensure installed packages are visible to this process
@@ -180,9 +207,75 @@ class Agent:
 
             if result.returncode == 0:
                 logger.info(f"Successfully installed {package_name}")
+                self.emit_event("thinking", content="  -> Installation successful.")
                 return f"Successfully installed {package_name}\n{result.stdout}"
             else:
                 logger.error(f"Failed to install {package_name}: {result.stderr}")
+                self.emit_event(
+                    "error", content=f"Installation failed: {result.stderr}"
+                )
+                return f"Failed to install {package_name}\nError: {result.stderr}"
+        except Exception as e:
+            logger.error(f"Installation error: {e}")
+            return f"Installation error: {e}"
+
+    def _install_to_agent_venv(self, package_name: str) -> str:
+        """Internal helper to install a package into the DEDICATED AGENT VENV."""
+        import shutil
+
+        # trunk-ignore(bandit/B404)
+        import subprocess
+
+        # Resolve agent_venv path relative to this file
+        # __file__ = backend/src/core/agent.py
+        # root = backend/
+        backend_root = Path(__file__).parent.parent.parent
+        agent_venv_path = backend_root / "agent_venv"
+
+        # Determine python executable in venv
+        if sys.platform == "win32":
+            python_exe = agent_venv_path / "Scripts" / "python.exe"
+        else:
+            python_exe = agent_venv_path / "bin" / "python"
+
+        if not python_exe.exists():
+            return f"Error: Agent Venv not found at {agent_venv_path}. Cannot install skill dependencies."
+
+        logger.info(
+            f"Agent requesting installation of package: {package_name} into AGENT ENV ({agent_venv_path})"
+        )
+        self.emit_event(
+            "thinking",
+            content=f"\n📦 Agent: Installing '{package_name}' into Skill/Agent Environment...",
+        )
+
+        try:
+            # Use uv if available, targeting the venv python
+            if shutil.which("uv"):
+                cmd = [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(python_exe),
+                    package_name,
+                ]
+            else:
+                # Fallback to direct pip invocation in venv
+                cmd = [str(python_exe), "-m", "pip", "install", package_name]
+
+            # trunk-ignore(bandit/B603)
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                logger.info(f"Successfully installed {package_name} in Agent Venv")
+                self.emit_event("thinking", content="  -> Installation successful.")
+                return f"Successfully installed {package_name}\n{result.stdout}"
+            else:
+                logger.error(f"Failed to install {package_name}: {result.stderr}")
+                self.emit_event(
+                    "error", content=f"Installation failed: {result.stderr}"
+                )
                 return f"Failed to install {package_name}\nError: {result.stderr}"
         except Exception as e:
             logger.error(f"Installation error: {e}")
@@ -193,22 +286,28 @@ class Agent:
         return self._install_to_active_env(package_name)
 
     def install_skill_package(self, package_name: str) -> str:
-        """Installs a package into the active environment (Skill compatibility)."""
-        return self._install_to_active_env(package_name)
+        """Installs a package into the AGENT environment (Skill compatibility)."""
+        return self._install_to_agent_venv(package_name)
 
     def read_skill(self, name: str) -> str:
         """Reads the source code of a compiled skill."""
         if not MCP_AVAILABLE:
             return "Error: MCP/Skills system not available."
+
+        self.emit_event(
+            "thinking", content=f"\n📖 Agent: Reading skill '{name}' source..."
+        )
         try:
             from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
 
             mgr = get_skills_manager()
             skill = mgr.get_skill(name)
             if not skill:
+                self.emit_event("error", content=f"Skill '{name}' not found.")
                 return f"Error: Skill '{name}' not found."
             return skill["code"]
         except Exception as e:
+            self.emit_event("error", content=f"Error reading skill: {e}")
             return f"Error reading skill: {e}"
 
     def emit_event(
@@ -220,7 +319,20 @@ class Agent:
     ):
         """
         Helper to emit events to the current context's queue if it exists.
+        Also mirrors key events to the server logs (terminal) for visibility.
         """
+        # Mirror to Terminal/Logs
+        if event_type == "thinking" and content:
+            # Clean up newlines for cleaner logs if needed, or just log raw
+            logger.info(f"[THINKING] {content.strip()}")
+        elif event_type == "code_output" and content:
+            logger.info(f"[REPL OUTPUT] >>\n{content}")
+        elif event_type == "error" and content:
+            logger.error(f"[AGENT ERROR] {content}")
+        elif event_type == "graph_update":
+            # Optional: log graph changes if debugging
+            pass
+
         q = execution_events.get()
         if q:
             payload = {"type": event_type}
@@ -281,35 +393,25 @@ class Agent:
         root_session_id: Optional[str] = None,
     ) -> str:
         """
-        Synchronous Recursive Logic with Self-Healing Loop.
+        Synchronous Recursive Logic with Stateless Graph Memory.
         Executed in a worker thread.
         """
-        # If root_session_id is missing, default to session_id (implies we are the root)
         final_root_id = root_session_id if root_session_id else session_id
 
-        # if depth > 10:
-        #      return "Error: Maximum recursion depth (10) reached."
         if depth > 100:
-            # Just a very high sanity check to prevent stack overflow crashing Python
-            logger.warning("Recursive Depth > 100. Continuing but be careful.")
+            logger.warning("Recursive Depth > 100.")
 
-        thought_id = str(uuid.uuid4())
-        logger.info(
-            f"Thought {thought_id} (Session {session_id}, Root {final_root_id}, Depth {depth}): Processing."
-        )
+        # 0. Initial "Task" Node (Root of this query)
+        # We create a node to represent the request itself, so children can hang off it.
+        # This preserves the recursive structure while allowing the loop to be linear.
+        task_id = str(uuid.uuid4())
+        logger.info(f"Session {session_id}: Starting Task {task_id}")
 
-        # 0. Embedding
-        try:
-            prompt_vec = self.llm.get_embedding(prompt)
-        except Exception:
-            prompt_vec = None
-
-        # 1. Graph Node
         self.db.create_thought_node(
-            thought_id,
+            task_id,
             prompt,
             parent_id,
-            prompt_vec,
+            prompt_embedding=None,  # Optimization: Don't embed the raw prompt if not needed
             session_id=session_id,
             root_session_id=final_root_id,
         )
@@ -319,38 +421,301 @@ class Agent:
             data={
                 "action": "add_node",
                 "node": {
-                    "id": thought_id,
-                    "label": prompt[:40] + "..." if len(prompt) > 40 else prompt,
-                    "group": 2 if parent_id else 1,
-                    "val": 10 if not parent_id else 5,
-                    "status": "processing",
+                    "id": task_id,
+                    "label": f"Task: {prompt[:30]}...",
+                    "group": 1,
+                    "status": "active",
                 },
             },
         )
-
         if parent_id:
             self.emit_event(
                 "graph_update",
                 data={
                     "action": "add_link",
-                    "link": {"source": parent_id, "target": thought_id},
+                    "link": {"source": parent_id, "target": task_id},
                 },
             )
 
-        # 2. System Prompt
+        # 1. System Prompt
+        system_prompt = self._build_system_prompt()
+
+        # Inject Context Index (Scratchpad) - preserved for global context
+        context_scratchpad = context_index.get_context_scratchpad(final_root_id)
+        system_prompt += f"\n\n{context_scratchpad}"
+
+        max_steps = 50
+        step = 0
+        final_response = ""
+
+        while step < max_steps:
+            if getattr(self, "_stop_requested", False):
+                break
+            step += 1
+
+            # 2. Wake Cycle: Retrieve Context Frontier
+            # "Select all Nodes in Subgraph... timestamp <= current_now"
+            # We treat the DB as the source of truth for "where we are".
+            frontier = self.db.get_context_frontier(session_id, limit=5)
+
+            # Construct Dynamic Context from Frontier
+            current_context = f"Task: {prompt}\n\nRecent History:\n"
+            frontier_ids = []
+            for node in frontier:
+                # Handle node dict vs object
+                props = node.get("n", {}) if isinstance(node, dict) else {}
+                # Or if it's a Node object from Neo4j driver
+                if hasattr(node, "properties"):
+                    props = node.properties
+                elif "n" in node and hasattr(node["n"], "properties"):
+                    props = node["n"].properties
+
+                # Check format: node might be the dict itself if db.py normalizes it
+                if not props and isinstance(node, dict) and "prompt" in node:
+                    props = node
+
+                content = props.get("result") or props.get("prompt") or ""
+                current_context += f"- {content[:200]}...\n"
+                if "id" in props:
+                    frontier_ids.append(props["id"])
+
+            import datetime
+
+            iso_ts = datetime.datetime.now().isoformat()
+            repl_info = f"[REPL: {self.active_repls.get(session_id, 'init')}]"
+
+            self.emit_event(
+                "thinking",
+                content=f"[{iso_ts}] {repl_info} Step {step}: Context loaded from {len(frontier)} nodes.",
+            )
+
+            # 3. LLM Gen (Think)
+            response_text = ""
+            try:
+                generator = self.llm.generate(
+                    current_context, system=system_prompt, stream=False
+                )
+                if isinstance(generator, str):
+                    response_text = generator
+                    self.emit_event("token", content=response_text)
+                else:
+                    for chunk in generator:
+                        response_text += chunk
+                        self.emit_event("token", content=chunk)
+            except Exception as e:
+                response_text = f"LLM Error: {e}"
+
+            # Emit the full thought for the UI scratchpad with metadata
+            repl_id_display = self.active_repls.get(session_id, "unknown")
+            timestamp_display = datetime.datetime.now().isoformat()
+
+            formatted_thought = (
+                f"[{timestamp_display}] [REPL: {repl_id_display}]\n{response_text}"
+            )
+
+            self.emit_event("thinking", content=formatted_thought)
+
+            # 4. Check for Code
+            code = self._extract_code(response_text)
+            output = ""
+
+            # 5. Sheaf & RepE Check (Hypothetical)
+            # We don't have a node ID yet, so we pass hypothetical data
+            # Hypothetical edges: From all frontier nodes to this new thought
+            hypothetical_edges = [(fid, "new_node") for fid in frontier_ids]
+
+            # RepE Scan (Content & Code)
+            # We scan the text first
+            is_safe = repe.scan_content(response_text)
+
+            if not is_safe:
+                reason = "Keyword Blocked"
+                self.emit_event(
+                    "thinking", content=f"🛡️ RepE Alert: {reason}. Steering..."
+                )
+                # Inject correction into graph
+                warning_id = str(uuid.uuid4())
+                self.db.create_thought_node(
+                    warning_id,
+                    f"System: Your previous thought was flagged for {reason}. Please adjust.",
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                )
+                continue
+
+            # Sheaf Check (Logic)
+            # We use the hypothetical edges to check for structural consistency before committing
+            try:
+                sheaf_diag = sheaf.diagnose_trace(
+                    root_id=task_id,  # Use task as anchor
+                    hypothetical_node={"id": "new_node", "content": response_text},
+                    hypothetical_edges=hypothetical_edges,
+                )
+                if (
+                    sheaf_diag.get("consistency_energy", 0) > 0.8
+                ):  # High inconsistency threshold
+                    logger.warning(
+                        f"Sheaf Logic Alert: High Inconsistency ({sheaf_diag['consistency_energy']})"
+                    )
+            except Exception as e:
+                logger.warning(f"Sheaf check failed: {e}")
+
+            # 6. Act (Execute Code)
+            repl_id = self.active_repls.get(session_id)
+
+            if code:
+                # Check code safety?
+                output = self._execute_code(
+                    code, task_id, session_id, root_session_id=final_root_id
+                )
+
+                if repl_id:
+                    self.repl_manager.get_repl(repl_id)
+
+                self.emit_event("code_output", content=output, code=code)
+
+                # Check for errors in output
+                if "Traceback" in output:
+                    output += "\nSystem: Execution Error. Please fix."
+
+            # 7. Commit (Write to Graph)
+            # This is the "Thought Node"
+            thought_id = str(uuid.uuid4())
+            full_content = response_text
+            if output:
+                full_content += f"\n\n[Output]:\n{output}"
+
+            # Compute embedding for graph
+            vec = None
+            try:
+                vec = self.llm.get_embedding(full_content)
+            except Exception as e:
+                logger.warning(f"Failed to generate embedding for thought: {e}")
+
+            # Post-Generation RepE Scan (Latent)
+            if vec:
+                load, moloch = repe.scan_latent(vec)
+                if (
+                    load > 0.65
+                ):  # Lower threshold for Cloud Embeddings which are less sharp
+                    self.emit_event(
+                        "thinking",
+                        content=f"🛡️ RepE Latent Alert: High proximity ({load:.2f}) to '{moloch}'. Initiating Reflexion.",
+                    )
+
+                    # Self-Healing: Inject Reflexion Node
+                    reflexion_id = str(uuid.uuid4())
+                    self.db.create_thought_node(
+                        reflexion_id,
+                        f"SYSTEM REFLEXION: My previous thought was semantically aligned with '{moloch}' (Score: {load:.2f}). "
+                        "I must strictly avoid this behavior and re-evaluate my approach.",
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        # We do NOT pass the 'toxic' embedding here to avoid polluting the safe graph context too much
+                    )
+
+                    # Continue loop to let the agent see this warning
+                    continue
+                    # Quarantine?
+                    # For now, just log and proceed, or maybe tag the node as 'toxic'
+
+            self.db.create_thought_node(
+                thought_id,
+                full_content,
+                session_id=session_id,
+                root_session_id=final_root_id,
+                prompt_embedding=vec,
+                repl_id=repl_id,
+            )
+
+            # Link Frontier to New Node
+            # We manually create edges since create_thought_node only takes one parent
+            # But here we might have multiple dependencies from the frontier.
+            # db.create_thought_node links to parent_id if provided.
+            # We'll use task_id (the prompt) as the primary parent to keep tree structure,
+            # AND add DEPENDS_ON edges from frontier.
+
+            self.emit_event(
+                "graph_update",
+                data={
+                    "action": "add_node",
+                    "node": {"id": thought_id, "label": full_content[:30], "group": 2},
+                },
+            )
+
+            # If no code and appears to be answer, or "Final Answer" detected
+            # Prevent infinite loops:
+            # 1. Explicit Final Answer
+            if "Final Answer" in response_text:
+                final_response = response_text
+                break
+
+            # 2. Heuristic: If no code for 3 steps, effectively done (unless prompted otherwise)
+            # This balances "Chatty" agents vs "Stuck" agents.
+            # We check the memory of this session (which we don't hold in RAM easily, but we know step count)
+            # A simple heuristic: If step > 3 and no code, we probably have an answer or are rambling.
+            # 2. Heuristic Removed: Agent must explicitly call done() or loop hits max_steps.
+            # This allows for complex, multi-step reasoning without premature cutoff.
+            pass
+
+            # 3. Sheaf-based Stall/Loop Detection
+            # If the Sheaf Monitor detected a high energy knot (repetition or contradiction),
+            # we should abort to prevent polluting the graph with garbage.
+            # We use the previous calculation of sheaf_diag (if it ran)
+            # 3. Sheaf-based Stall/Loop Detection (Self-Healing)
+            # If the Sheaf Monitor detected a high energy knot (repetition or contradiction),
+            # we do NOT terminate. We inject a "Reflexion" to break the loop.
+            if (
+                "sheaf_diag" in locals()
+                and sheaf_diag.get("consistency_energy", 0) > 0.9
+            ):
+                logger.warning(
+                    "Sheaf detected logical knot (Loop/Contradiction). Initiating Reflexion."
+                )
+
+                # Overwrite the 'thought' with a Meta-Cognitive critique
+                # This forces the Agent to see its error in the next step's context.
+                reflexion_content = (
+                    f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {sheaf_diag.get('consistency_energy'):.2f}). "
+                    "I am repeating myself or contradicting recent history. "
+                    "I MUST now change my approach completely. What variable am I missing?"
+                )
+
+                # Create a specific 'Reflexion' node
+                self.db.create_thought_node(
+                    str(uuid.uuid4()),
+                    reflexion_content,
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    prompt_embedding=vec,  # Use original vec or None? None is safer to avoid 'similar' matching loop.
+                )
+
+                # Do NOT break. Let the loop continue.
+                # The next 'Wake' cycle will pick up this Reflexion node as the most recent 'Recent History'.
+                # This steers the agent.
+                continue
+
+        return final_response
+
+    def _build_system_prompt(self) -> str:
+        # Extracted system prompt builder for cleanliness
+        # Resolve paths for transparency
+        backend_root = Path(__file__).parent.parent.parent
+        skills_dir_path = (backend_root / "skills_dir").absolute()
+        agent_venv_path = (backend_root / "agent_venv").absolute()
+
         tool_list_str = ""
         skills_list_str = ""
+
         try:
             import graph_rlm.backend.mcp_tools as mcp_pkg
 
-            # List all modules in mcp_tools package that are not internal/utility
             ignored = {"list_servers", "call_tool", "run_skill"}
             tools = [
                 t for t in dir(mcp_pkg) if not t.startswith("_") and t not in ignored
             ]
             tool_list_str = "Available MCP Multi-Servers: " + ", ".join(tools)
 
-            # Fetch Skills
             if MCP_AVAILABLE:
                 from graph_rlm.backend.src.mcp_integration.skills import (
                     get_skills_manager,
@@ -358,193 +723,55 @@ class Agent:
 
                 mgr = get_skills_manager()
                 skills = mgr.list_skills()
-                skills_list_str = "Available Compiled Skills: " + ", ".join(
-                    skills.keys()
-                )
+                skills_list_str = "Available Skills: " + ", ".join(skills.keys())
         except Exception as e:
-            tool_list_str = f"Tools Error: {e}"
+            logger.warning(f"Failed to load MCP tools or skills for system prompt: {e}")
+            # Paths are already set above, but if they failed (unlikely for Path math), we are safe.
 
-        system_prompt = (
-            "You are a Self-Healing Recursive Language Model (RLM). "
-            "You operate in a persistent Python REPL, but you should treat each large step as a new node.\n"
-            "## Recursive Philosophy (CRITICAL)\n"
-            "You are not a chatbot; you are a Graph of Thoughts. Do not solve complex problems in one linear loop.\n"
-            "1. **Decompose**: Break the problem into sub-units.\n"
-            "2. **Recurse**: Call `rlm.query(sub_prompt)` immediately. This spawns a **fresh, atomic REPL** for that thought.\n"
-            "3. **Synthesize**: Use the return value of `rlm.query` to build your answer.\n"
-            "4. **Atomic**: Do not pollute your current REPL with unrelated tasks. Spawn a child.\n"
+        return (
+            "Stateless Graph-RLM Agent.\n"
+            "You are a processing unit in a Global Workspace.\n"
+            "1. **Wake**: You see the 'Recent History' (Frontier) of thoughts.\n"
+            "2. **Chain**: Produce the next logical step. Do not repeat completed work.\n"
+            "3. **Recurse**: Use `rlm.query(subtask)` for complex sub-problems.\n"
             "\n"
-            "## Core Loop\n"
-            "1. **Think**: Plan your next action. Is this task complex? If yes, `rlm.query()`.\n"
-            "2. **Act**: Execute code with ```python ... ```.\n"
-            "3. **Observe**: Review output. If error, **Reflect** and retry.\n"
+            "**Self-Correction & Reflexion**:\n"
+            "You may occasionally see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING`. These are inserted by your higher-level supervisors (Sheaf Topology or RepE Safety Layer).\n"
+            "- If you see a **Reflexion**, it means you were looping or drifting. You MUST change your approach immediately.\n"
+            "- If you see a **Warning**, you violated a safety constraint. Adjust your reasoning.\n"
             "\n"
-            "## Environment Access\n"
-            "### MCP Multi-Servers\n"
-            "Access specialized servers via `mcp_tools.<server_name>`. \n"
-            f"{tool_list_str}\n"
-            "Common aliases are pre-injected: `arxiv`, `google_search`, etc.\n"
+            "**Environment & Tools**:\n"
+            "You have access to a Persistent REPL and a suite of MCP tools.\n"
+            "- **REPL**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
+            "- **Package Installation**:\n"
+            f"  - `agent.install_package('pkg')`: Installs to the **Project Environment** (Active Env). Use this for libraries you need in the REPL (e.g., pandas, requests).\n"
+            f"  - `agent.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`). Use this for dependencies of persistent Skills you create.\n"
+            f"  - **NOTE**: The system uses `uv` for fast installation if available.\n"
             "\n"
-            "### High-Level Skills\n"
-            f"{skills_list_str}\n"
-            'Execute a skill via `run_skill("skill_name", args_dict)`. You SHOULD prefer skills for complex repeatable tasks.\n'
-            "You have full agency over your skill library. You can read, edit, and create skills.\n"
+            "**Skills Management**:\n"
+            f"- **Skills Directory**: `{skills_dir_path}`\n"
+            "- Use `save_skill(name, code)` to codify reusable logic. It will be saved to the directory above and the Graph.\n"
+            "- Do NOT create a separate 'skills' folder in the root unless explicitly instructed.\n"
             "\n"
-            "### Helper Functions\n"
-            "- `read_skill(name)`: Returns the source code of a compiled skill for inspection or refactoring.\n"
-            "- `install_package(name)`: Installs a pip package into your REPL environment (agent_venv).\n"
-            "- `install_skill_package(name)`: Installs a pip package into the background skill environment (skills_venv). Use this if `run_skill` fails with `ModuleNotFoundError`.\n"
-            "- `save_skill(name, code, description)`: Persists a successful snippet as a reusable skill in your library.\n"
-            "- `rlm.recall(query)`: Search your graph memory for relevant past thoughts.\n"
+            "**MCP Tools**: External tools are available as **global functions** in your REPL.\n"
+            "  - **Example**: `result = brave_search(query='Graph RLM')`\n"
+            "  - **Example**: `content = read_url_content(url='https://example.com')`\n"
+            "  - Use these tools to gather information or interact with the world.\n"
             "\n"
-            "### Skill Development Workflow\n"
-            "1. **Inspect**: Use `read_skill(name)` to understand a skill's logic before running or if it fails.\n"
-            "2. **Iterate**: Test logic in the REPL. Use `install_package` for dependencies.\n"
-            "3. **Persist**: Use `save_skill` to update an existing skill or create a new one. Skills are stored physically in `graph_rlm/backend/skills_dir/`.\n"
-            "NOTE: Check tool functions with `dir()` or `help()` if unsure. Do not hallucinate methods.\n"
+            "**Termination**:\n"
+            "- You MUST call `done()` when the task is complete.\n"
+            "  - `done()`: Stops the agent loop.\n"
+            "  - `done('Here is the summary...')`: Stops and returns the summary.\n"
+            "\n"
+            "**Memory & Context**:\n"
+            "- You are **Stateless** but have access to a **Graph Memory**.\n"
+            "- **Wake**: You see the immediate context (Frontier) automatically.\n"
+            "- **Recall**: If you need information from deeper in the past, use `graph_search(query)`.\n"
+            "  - `past_thoughts = graph_search('previous research on FalkorDB')`\n"
+            "  - This searches the topological graph of all your (and sub-agents') past thoughts.\n"
+            "\n"
+            f"{tool_list_str}\n{skills_list_str}\n"
         )
-
-        # Inject Context Index (Scratchpad)
-        context_scratchpad = context_index.get_context_scratchpad(final_root_id)
-        system_prompt += f"\n\n{context_scratchpad}"
-
-        current_context = prompt
-        final_response = ""
-        max_steps = 100
-        step = 0
-
-        while step < max_steps:
-            # Check for cancellation
-            try:
-                # Check if the queue loop in stream_query has stopped listening or flagged stop
-                # We can't easily check the queue consumer status from here without a flag.
-                # But we can check a threading Event if passed.
-                # Let's assume we can check a context variable or just the queue's health if needed.
-                # Better approach: stream_query sets a stop_event.
-                if getattr(self, "_stop_requested", False):
-                    logger.info("Execution stopped by user.")
-                    self.emit_event("error", content="Stopped by user")
-                    break
-            except Exception as e:
-                logger.debug(f"Stop check error: {e}")
-
-            step += 1
-            self.emit_event(
-                "thinking",
-                content=(
-                    f"Step {step}/{max_steps}..."
-                    if step > 1
-                    else f"Analyzing: {prompt[:5000]}..."
-                ),
-            )
-
-            # 3. LLM Gen
-            try:
-                # If this is step > 1, current_context contains previous thoughts + code output
-                response_text = self.llm.generate(current_context, system=system_prompt)
-            except Exception as e:
-                response_text = f"LLM Error: {e}"
-
-            self.emit_event("token", content=response_text)
-
-            # 4. Code Exec
-            executed_result = ""
-            code_block_found = "```python" in response_text
-
-            if code_block_found:
-                code = self._extract_code(response_text)
-                self.emit_event("thinking", content="\nExecuting Code...")
-                executed_result = self._execute_code(
-                    code, thought_id, session_id, root_session_id=final_root_id
-                )
-                repl_id = self.active_repls.get(session_id, "unknown")
-                self.emit_event(
-                    "code_output",
-                    content=executed_result,
-                    code=code,
-                    data={"repl_id": repl_id},
-                )
-
-                # Append result to context for next step
-                step_record = f"\n\n--- Step {step} ---\nThought: {response_text}\n[REPL Output]:\n{executed_result}\n"
-                current_context += step_record
-
-            # 5. Graph Update (Intermediate)
-            try:
-                # Persist full content (Thought + Code Output) so the graph has context
-                persisted_content = response_text
-                if executed_result:
-                    persisted_content += f"\n\n[REPL Output]:\n{executed_result}"
-
-                self.db.update_thought_result(
-                    thought_id,
-                    persisted_content,
-                    embedding=None,
-                    repl_id=self.active_repls.get(session_id),
-                )
-            except Exception as e:
-                logger.error(f"Failed to update thought result: {e}")
-
-            # 6. Diagnosis / Self-Healing
-            error_keywords = ["Traceback", "Error:", "Exception:", "AttributeError"]
-            has_error = any(k in executed_result for k in error_keywords)
-
-            critique = ""
-            diagnosis = "HEALTHY"
-
-            if has_error:
-                diagnosis = "ERROR"
-                critique = "Code execution failed. Analyze the Traceback in [REPL Output] and fix the code."
-
-            # Sheaf Check (Logic)
-            try:
-                from .sheaf import sheaf
-
-                sheaf_diag = sheaf.diagnose_trace(thought_id)
-                if sheaf_diag["status"] != "HEALTHY":
-                    diagnosis = "LOGICAL_KNOT"
-                    critique += f" {sheaf_diag['critique']}"
-            except Exception as e:
-                logger.warning(f"Sheaf diagnosis failed: {e}")
-
-            # DECISION: Continue or Stop?
-
-            if diagnosis != "HEALTHY":
-                # Must fix error on next step
-                self.emit_event(
-                    "thinking", content=f"\n[Self-Healing] {critique}. Retrying..."
-                )
-                current_context += (
-                    f"\n\nSYSTEM ALERT: {critique}\nFix the logic and try again."
-                )
-                continue
-
-            # If no error, check if we are done
-            # Heuristic: If model says "Final Answer:" or didn't run code and just talked?
-            # Or if it ran code, we usually assume it wants to see the result.
-            # If it didn't run code, it might be answering.
-
-            if not code_block_found:
-                # Pure text response -> likely the answer
-                final_response = response_text
-                break
-
-            # If code ran successfully, loop to allow next thought (e.g. "Now I will...")
-            # We append output to context (already done above) and continue.
-
-        if not final_response and step >= max_steps:
-            final_response = (
-                "Error: Maximum reasoning steps reached without final answer."
-            )
-
-        self.emit_event(
-            "graph_update",
-            data={
-                "action": "update_node",
-                "node": {"id": thought_id, "status": "completed", "group": 3},
-            },
-        )
-        return final_response
 
     def _extract_code(self, text: str) -> str:
         # Try finding a complete block first
@@ -644,6 +871,26 @@ class Agent:
 
                     repl.namespace["save_skill"] = save_skill
                     repl.namespace["run_skill"] = run_skill
+
+                    # RLM Graph Search (Context Retrieval)
+                    def graph_search(query: str, limit: int = 5):
+                        """Semantically search the Graph-RLM memory for past thoughts."""
+                        vec = self.llm.get_embedding(query)
+                        if vec:
+                            return self.db.find_similar_thoughts(vec, limit)
+                        return []
+
+                    repl.namespace["graph_search"] = graph_search
+                    repl.namespace["rlm_search"] = graph_search  # alias
+
+                    # Explicit Termination Tool
+                    def done(final_answer: str = ""):
+                        """Signal that the task is complete. Optionally provide the final answer."""
+                        self._stop_requested = True
+                        return "Task Marked Complete. Final Answer recorded."
+
+                    repl.namespace["done"] = done
+                    repl.namespace["stop"] = done  # alias
 
                     # Path injection already done in __init__
             else:

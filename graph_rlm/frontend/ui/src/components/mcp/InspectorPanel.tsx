@@ -48,12 +48,21 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ onInjectContent 
                     throw new Error(mcpStatus.error || "Failed to fetch MCP status");
                 }
                 setServers(mcpStatus.servers || []);
-
-                // Fetch Skills
                 const skillsList = await api.getSkills();
                 setSkills(skillsList || []);
 
                 setLoading(false);
+
+                // Auto-Retry if we see discovery persistence errors (e.g. startup in progress)
+                // This ensures we auto-refresh once the tools are generated.
+                const hasPendingDiscovery = mcpStatus.servers?.some((s: McpServer) =>
+                    s.error && s.error.includes("Tool wrapper not found")
+                );
+
+                if (hasPendingDiscovery) {
+                     return false; // Continue polling
+                }
+
                 return true;
             } catch (e) {
                 console.error(e);

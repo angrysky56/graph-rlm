@@ -173,6 +173,16 @@ class McpClientManager:
                     raise ValueError(f"Server {server_name} missing command")
 
                 env = dict(os.environ)
+
+                # PREVENT LEAKAGE: Remove parent virtualenv variables
+                # This ensures MCP servers use their own defined environments (via uv run etc)
+                if "VIRTUAL_ENV" in env:
+                    logger.debug(
+                        f"Stripping VIRTUAL_ENV from {server_name} process env"
+                    )
+                    env.pop("VIRTUAL_ENV", None)
+                env.pop("UV_PROJECT_ENVIRONMENT", None)
+
                 if server_config.env:
                     env.update(server_config.env)
 

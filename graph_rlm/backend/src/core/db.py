@@ -29,6 +29,7 @@ class GraphClient:
         prompt_embedding: Optional[List[float]] = None,
         session_id: str = "default",
         root_session_id: Optional[str] = None,
+        repl_id: Optional[str] = None,
     ):
         """
         Creates a 'Thought' node in the graph.
@@ -52,6 +53,10 @@ class GraphClient:
         if prompt_embedding:
             params["vec"] = prompt_embedding
             cypher += ", t.embedding = vecf32($vec)"
+
+        if repl_id:
+            params["repl_id"] = repl_id
+            cypher += ", t.repl_id = $repl_id"
 
         self.query(cypher, params)
 
@@ -165,6 +170,43 @@ class GraphClient:
         RETURN n, r, m
         """
         return self.query(cypher)
+
+    def get_context_frontier(
+        self, repl_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves the 'Frontier' of the conversation for a given session.
+        The frontier consists of:
+        1. Leaf nodes (thoughts with no children in this session).
+        2. Recent linear history (if single thread).
+
+        Used by the Stateless Agent to 'Wake Up' and load context.
+        """
+        # Strategy: Find nodes in this session that are not PARENTS of any other node in this session.
+        # This gives us the tips of the branches.
+        # Also order by timestamp to get the most recent.
+
+        # Note: We filter by repl_id (which maps to session_id in our logic usually,
+        # or we might need to store repl_id on nodes explicitly if session_id != repl_id).
+        # In agent.py currently: params["sid"] = session_id.
+        # Let's assume repl_id passed here IS the session_id used in creation.
+
+        # If we didn't store repl_id but session_id, we use that.
+        params = {"sid": repl_id, "limit": limit}
+
+        cypher = """
+        MATCH (n:Thought {session_id: $sid})
+        WHERE NOT (n)-[:DECOMPOSES_INTO]->(:Thought {session_id: $sid})
+        RETURN n
+        ORDER BY n.timestamp DESC
+        LIMIT $limit
+        """
+
+        try:
+            return self.query(cypher, params)
+        except Exception as e:
+            logger.error(f"Failed to get context frontier: {e}")
+            return []
 
 
 db = GraphClient()

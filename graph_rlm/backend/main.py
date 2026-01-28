@@ -26,17 +26,33 @@ async def lifespan(app: FastAPI):
 
         config_path = project_root / "mcp_servers.json"
         if config_path.exists():
-            print(f"MCP: Discovering tools from {config_path}...")
-            # Run discovery
-            servers_info = await discover_all_servers(config_path)
-
             # Generate tools
             output_dir = (
                 Path(__file__).parent / "mcp_tools"
             )  # graph_rlm/backend/mcp_tools
-            gen = ToolGenerator(output_dir)
-            count = gen.generate_all(servers_info)
-            print(f"MCP: Generated {count} server modules in {output_dir}")
+
+            # OPTIMIZATION: Check if we need to regenerate
+            # If config hasn't changed since last generation (checked via mcp_tools dir mtime), skip discovery.
+            should_regenerate = True
+            if (
+                output_dir.exists()
+                and output_dir.stat().st_mtime > config_path.stat().st_mtime
+            ):
+                # Check if directory is empty (rare edge case)
+                if any(output_dir.iterdir()):
+                    print(
+                        "MCP: Config unchanged and tools exist. Skipping discovery (Cached)."
+                    )
+                    should_regenerate = False
+
+            if should_regenerate:
+                print(f"MCP: Discovering tools from {config_path}...")
+                # Run discovery
+                servers_info = await discover_all_servers(config_path)
+
+                gen = ToolGenerator(output_dir)
+                count = gen.generate_all(servers_info)
+                print(f"MCP: Generated {count} server modules in {output_dir}")
         else:
             print("MCP: No mcp_servers.json found, skipping tool generation.")
 

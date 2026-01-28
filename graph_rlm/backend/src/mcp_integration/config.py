@@ -11,7 +11,6 @@ Handles loading MCP server configuration from:
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from dotenv import load_dotenv
 
@@ -83,7 +82,6 @@ class ConfigManager:
             f"No MCP configuration found. Tried:\n  - MCP_JSON environment variable (not set)\n  - {default_path} (not found)\n\nPlease create mcp.json in your project root or set MCP_JSON environment variable."
         )
 
-
     def get_timeouts(self) -> dict[str, float]:
         """
         Get timeout configuration.
@@ -92,11 +90,10 @@ class ConfigManager:
             Dictionary with timeout values in seconds
         """
         return {
-            "connect": float(os.getenv("MCP_CONNECT_TIMEOUT", "45.0")),
-            "read": float(os.getenv("MCP_READ_TIMEOUT", "60.0")),
-            "discovery": float(os.getenv("MCP_DISCOVERY_TIMEOUT", "45.0")),
+            "connect": float(os.getenv("MCP_CONNECT_TIMEOUT", "60.0")),
+            "read": float(os.getenv("MCP_READ_TIMEOUT", "300.0")),
+            "discovery": float(os.getenv("MCP_DISCOVERY_TIMEOUT", "300.0")),
         }
-
 
 
 def create_default_env_file(project_root: Path) -> None:
@@ -145,4 +142,3 @@ OLLAMA_BASE_URL=http://localhost:11434
 
     env_file.write_text(env_content)
     print(f"✓ Created default .env file at {env_file}")
-

@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Tuple
 
 import networkx as nx
 import numpy as np
@@ -174,12 +174,35 @@ class SheafMonitor:
 
         return knots
 
-    def diagnose_trace(self, root_id: str) -> Dict[str, Any]:
+    def diagnose_trace(
+        self,
+        root_id: str,
+        hypothetical_node: Optional[Dict[str, Any]] = None,
+        hypothetical_edges: Optional[List[Tuple[str, str]]] = None,
+    ) -> Dict[str, Any]:
         """
         Diagnose the reasoning trace ending or involving 'root_id'.
         Returns a critique if errors found.
+
+        Args:
+            root_id: The ID of the node to check (or the parent of the hypothetical node).
+            hypothetical_node: Optional dict representing a NEW node not yet in DB.
+                               Format: {"id": "...", "embedding": [...]}
+            hypothetical_edges: Optional list of (source_id, target_id) tuples.
         """
         G = self.build_graph_from_db()
+
+        # Inject hypothetical elements
+        if hypothetical_node:
+            G.add_node(
+                hypothetical_node["id"], embedding=hypothetical_node.get("embedding")
+            )
+
+        if hypothetical_edges:
+            for u, v in hypothetical_edges:
+                # Ensure u exists (it should be in DB)
+                if u in G.nodes and hypothetical_node and v == hypothetical_node["id"]:
+                    G.add_edge(u, v)
 
         # 1. Compute Energy
         energies = self.compute_energy(G)

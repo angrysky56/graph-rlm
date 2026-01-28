@@ -58,10 +58,4 @@ graph_rlm/frontend/ui/dist/
 coverage/
 
 # MCP Generated
-graph_rlm/backend/mcp_tools/
-graph_rlm/backend/skills_dir/
-graph_rlm/backend/skills_venv/
-graph_rlm/backend/agent_venv/
-workspace/
-knowledge_base/
 mcp_servers.json

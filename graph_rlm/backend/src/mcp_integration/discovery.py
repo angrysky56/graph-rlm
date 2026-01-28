@@ -97,8 +97,14 @@ class ServerIntrospector:
         Returns:
             Dictionary with tools, resources, and prompts
         """
-        # Merge with current environment to preserve PATH, etc.
+        # Merge with current environment but SANITIZE logical boundaries
         env = dict(os.environ)
+
+        # PREVENT LEAKAGE: Remove parent virtualenv variables
+        # This fixes the issue where 'uv run' inside a child uses the parent's venv
+        env.pop("VIRTUAL_ENV", None)
+        env.pop("UV_PROJECT_ENVIRONMENT", None)
+
         if self.config.env:
             env.update(self.config.env)
 
@@ -238,6 +244,15 @@ class ServerIntrospector:
                 }
             # Re-raise if it doesn't contain BrokenResourceError
             raise
+        except asyncio.CancelledError:
+            return {
+                "name": self.config.name,
+                "error": "Discovery cancelled (Timeout or Shutdown).",
+                "tools": {},
+                "resources": {},
+                "prompts": {},
+                "tags": self.config.tags,
+            }
         except BaseException as e:
             import traceback
 
@@ -248,6 +263,14 @@ class ServerIntrospector:
             if self.config.transport_type == "stdio":
                 stderr_file.seek(0)
                 stderr_output = stderr_file.read()
+
+            # Clean up stderr if it's just info logs
+            if (
+                "INFO" in stderr_output
+                and "Error" not in stderr_output
+                and "Traceback" not in stderr_output
+            ):
+                stderr_output = "(Info logs suppressed)"
 
             return {
                 "name": self.config.name,

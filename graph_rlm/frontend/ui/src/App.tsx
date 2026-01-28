@@ -52,6 +52,8 @@ function App() {
         setGraphData(data);
         return true;
       }
+      // If data is empty but no error, it's a valid empty graph
+      return true;
     } catch (e) { return false; }
     return false;
   };
@@ -70,11 +72,12 @@ function App() {
 
       // We check for success boolean now
       const configOk = await refreshConfig();
-      await loadGraph();
+      const graphOk = await loadGraph();
 
-      // If config loaded (model selected), we consider backend ready.
-      // Graph might be empty for new session, so configOk is the main signal.
-      if (configOk) {
+      // Ensure BOTH are ready before stopping retries
+      // If config is ready but graph failed (e.g. DB initializing), we should retry graph?
+      // Or just keep retrying both. Ideally we want the graph to be loaded.
+      if (configOk && graphOk) {
         return;
       }
 

@@ -51,18 +51,21 @@ echo "[+] Launching Database on port ${REDIS_PORT}..."
 
 if command -v docker &>/dev/null; then
 	echo "    Checking for existing Database container..."
-	existing_container=$(docker ps -q -f name=graph-rlm-db)
+	# Check for ANY container (running or stopped) with the name
+	existing_container=$(docker ps -aq -f name=graph-rlm-db)
 	if [[ -n ${existing_container} ]]; then
-		echo "    -> Found active graph-rlm-db container. Reusing it."
+		echo "    -> Found existing graph-rlm-db container. Starting/Reusing it."
+		docker start graph-rlm-db >/dev/null 2>&1
 		REDIS_PID="DOCKER_CONTAINER"
 	else
 		echo "    -> Launching new FalkorDB container..."
-		# Remove dead container if exists
+		# Remove dead container if exists (redundant with above check but safe)
 		docker rm -f graph-rlm-db >/dev/null 2>&1
 		# Create data directory if it doesn't exist
 		mkdir -p falkordb_data
 		echo "    -> Launching new FalkorDB container with persistence..."
-		docker run -d --name graph-rlm-db -p "${REDIS_PORT}":6379 -v "${PWD}"/falkordb_data:/data falkordb/falkordb
+		# Ensure Redis saves to disk (appendonly yes)
+		docker run -d --name graph-rlm-db -p "${REDIS_PORT}":6379 -v "${PWD}"/falkordb_data:/data falkordb/falkordb falkordb-server --appendonly yes
 		REDIS_PID="DOCKER_CONTAINER"
 		echo "    -> Container started. Waiting 5s for initialization..."
 		sleep 5
@@ -85,13 +88,12 @@ done
 echo ""
 
 # 1.5 Setup Agent Venv
-# 1.5 Setup Agent Venv (REMOVED: Consolidated to System Venv)
-# AGENT_VENV="graph_rlm/backend/agent_venv"
-# if [[ ! -d ${AGENT_VENV} ]]; then
-# 	echo "[+] Creating dedicated Agent Venv at ${AGENT_VENV}..."
-# 	uv venv "${AGENT_VENV}"
-# 	echo "    -> Environment created."
-# fi
+AGENT_VENV="graph_rlm/backend/agent_venv"
+if [[ ! -d ${AGENT_VENV} ]]; then
+	echo "[+] Creating dedicated Agent Venv at ${AGENT_VENV}..."
+	uv venv "${AGENT_VENV}"
+	echo "    -> Environment created."
+fi
 
 # 2. Start Backend API
 # Note: Assuming using uvicorn directly or via module

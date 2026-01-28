@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useMemo } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import { useResizeObserver } from "../../hooks/useResizeObserver";
+import { processGraphData } from "./graphProcessor";
 
 // Graph Data Interface matching backend schema
 interface GraphNode {
@@ -34,11 +35,18 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   );
   const graphRef = useRef<any>(null);
 
+  // Process data for aesthetics
+  const processedData = useMemo(() => {
+    return processGraphData(data.nodes, data.links);
+  }, [data]); // Re-process when data object changes (includes node updates)
+
   // Auto-zoom when data changes significantly (optional, but nice)
   useEffect(() => {
     if (graphRef.current) {
-      // Gentle fit
-      // graphRef.current.zoomToFit(400);
+       // Only zoom if node count is small (initial load) to avoid jarring jumps
+       if (data.nodes.length < 5) {
+          graphRef.current.zoomToFit(400);
+       }
     }
   }, [data.nodes.length]);
 
@@ -51,40 +59,39 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         ref={graphRef}
         width={dimensions.width}
         height={dimensions.height}
-        graphData={data}
-        nodeColor={(node: any) => {
-          switch (node.group) {
-            case 1:
-              return "#3b82f6"; // Blue (Root)
-            case 2:
-              return "#a855f7"; // Purple (Processing)
-            case 3:
-              return "#10b981"; // Green (Completed)
-            case 4:
-              return "#f59e0b"; // Amber (Verification)
-            default:
-              return "#64748b"; // Slate
-          }
-        }}
+        graphData={processedData}
+        nodeColor={(node: any) => node.color || "#64748b"}
         nodeLabel="label"
         linkLabel={() => "Decomposes Into"}
         linkColor={() => "#475569"}
         backgroundColor="transparent"
-        d3VelocityDecay={0.3}
+        d3VelocityDecay={0.4} // Slightly higher friction for stability
+        d3AlphaDecay={0.02}   // Slower cooling for better convergence
         nodeRelSize={6}
+        nodeVal={(node: any) => node.val || 5} // Use calculated size
         // Interaction
         onNodeClick={(node) => onNodeClick && onNodeClick(node as GraphNode)}
         // Directional Arrows
         linkDirectionalArrowLength={3.5}
         linkDirectionalArrowRelPos={1}
+        // Particles for active nodes
+        linkDirectionalParticles={(_link: any) => {
+             // Optional: highlight links connected to processing nodes?
+             // For now keep simple
+             return 0;
+        }}
+
       />
 
       {/* Overlay Status */}
-      <div className="absolute top-4 right-4 bg-slate-900/80 backdrop-blur border border-slate-700 p-2 rounded text-xs font-mono text-emerald-400 shadow-lg">
+      <div className="absolute top-4 right-4 bg-slate-900/80 backdrop-blur border border-slate-700 p-2 rounded text-xs font-mono text-emerald-400 shadow-lg pointer-events-none select-none">
         GRAPH ENGINE: {data.nodes.length > 0 ? "ACTIVE" : "IDLE"}
+        <div className="text-[10px] text-slate-500 mt-1">
+          LOUVAIN CLUSTERING • BETWEENNESS CENTRALITY
+        </div>
       </div>
 
-      <div className="absolute bottom-4 right-4 text-[10px] text-slate-600 font-mono">
+      <div className="absolute bottom-4 right-4 text-[10px] text-slate-600 font-mono pointer-events-none select-none">
         NODES: {data.nodes.length} | EDGES: {data.links.length}
       </div>
     </div>

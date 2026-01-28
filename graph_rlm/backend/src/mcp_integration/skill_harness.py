@@ -25,13 +25,13 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("skill_harness")
 
 BACKEND_ROOT = Path(__file__).parent.parent.parent.resolve()
-SKILLS_VENV_PATH = BACKEND_ROOT / "skills_venv"
+SKILLS_VENV_PATH = BACKEND_ROOT / "agent_venv"
 
 
 def ensure_skills_venv() -> Path:
     """Ensure the skills virtual environment exists."""
     if not SKILLS_VENV_PATH.exists():
-        logger.info(f"Creating isolated skills environment at {SKILLS_VENV_PATH}...")
+        print(f"Creating isolated agent environment at {SKILLS_VENV_PATH}...")
         try:
             uv_path = shutil.which("uv")
             if not uv_path:
@@ -43,7 +43,7 @@ def ensure_skills_venv() -> Path:
                 check=True,
                 capture_output=True,
             )
-            logger.info("Created skills_venv.")
+            print("Created agent_venv.")
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to create venv: {e.stderr.decode()}")
             raise RuntimeError("Could not create skills virtual environment.") from e

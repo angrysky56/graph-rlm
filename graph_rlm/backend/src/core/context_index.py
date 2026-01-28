@@ -42,7 +42,7 @@ class ContextIndex:
                     continue
 
                 tid = props.get("id", "unknown")[:8]
-                prompt = props.get("prompt", "")[:60].replace("\n", " ")
+                prompt = props.get("prompt", "")[:4096].replace("\n", " ")
                 status = props.get("status", "pending")
 
                 # Check for REPL ID (stored properties or inferred)
@@ -52,12 +52,11 @@ class ContextIndex:
                 if "repl_id" in props:
                     repl_info = f" | REPL: {props['repl_id'][:8]}"
 
-                # If completed with result, maybe show snippet?
                 result_peek = ""
                 if "result" in props:
                     r_text = str(props["result"])
-                    if len(r_text) > 30:
-                        r_text = r_text[:30] + "..."
+                    if len(r_text) > 4096:
+                        r_text = r_text[:4096] + "..."
                     result_peek = f" -> {r_text}"
 
                 lines.append(

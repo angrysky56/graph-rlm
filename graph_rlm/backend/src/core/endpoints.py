@@ -114,6 +114,7 @@ async def list_sessions():
         LIMIT 20
         """
         res = db.query(q)
+
         sessions = []
         for row in res:
             if isinstance(row, dict):
@@ -290,7 +291,11 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
 
         # 2. Execute Stream (Yields real events from nested recursion)
         try:
-            async for event in agent.stream_query(prompt, parent_id=None):
+            # Use provided session_id or fallback to default
+            sid = chat_req.session_id or "default"
+            async for event in agent.stream_query(
+                prompt, parent_id=None, session_id=sid
+            ):
                 if await req.is_disconnected():
                     logger.info("Client disconnected. Stopping agent.")
                     agent.stop_generation()

@@ -63,21 +63,79 @@ class LLMService:
             # Standard OpenAI format
             return {"model": model, "messages": messages, "stream": stream}
 
-    def generate(self, prompt: str, system: Optional[str] = None) -> str:
-        """
-        Synchronous generation (blocking).
-        """
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
-        messages.append({"role": "user", "content": prompt})
+    def generate(
+        self,
+        prompt: Any,
+        system: Optional[str] = None,
+        stream: bool = False,
+        stop: Optional[List[str]] = None,
+    ) -> Any:
+        # Note: prompt can be str or List[Dict] (messages)
+        # We need to handle both since agent passes messages directly sometimes
 
+        messages = []
+        if isinstance(prompt, list):
+            messages = prompt
+        else:
+            if system:
+                messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+
+        if stream:
+            return self._generate_stream(messages)
+        else:
+            return self._generate_blocking(messages)
+
+    def _generate_stream(self, messages: List[Dict[str, str]]):
+        endpoint = self._get_endpoint("chat/completions")
+        headers = self._get_headers()
+        body = self._format_request(messages, stream=True)
+
+        try:
+            with httpx.Client(timeout=120.0) as client:
+                with client.stream(
+                    "POST", endpoint, headers=headers, json=body
+                ) as response:
+                    response.raise_for_status()
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        logger.debug(f"Stream Line: {line}")
+                        if line.strip() == "data: [DONE]":
+                            continue
+                        if line.startswith("data: "):
+                            try:
+                                import json
+
+                                chunk = json.loads(line[6:])
+                                content = ""
+                                if self.provider == "ollama":
+                                    content = chunk.get("message", {}).get(
+                                        "content", ""
+                                    )
+                                else:
+                                    choices = chunk.get("choices", [])
+                                    if choices:
+                                        content = (
+                                            choices[0]
+                                            .get("delta", {})
+                                            .get("content", "")
+                                        )
+
+                                if content:
+                                    yield content
+                            except Exception as e:
+                                logger.warning(f"Stream Parse Error: {e}")
+        except Exception as e:
+            logger.error(f"LLM Stream Error: {e}")
+            yield f"Error: {str(e)}"
+
+    def _generate_blocking(self, messages: List[Dict[str, str]]) -> str:
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
         body = self._format_request(messages, stream=False)
 
         try:
-            # High timeout for reasoning models
             with httpx.Client(timeout=120.0) as client:
                 response = client.post(endpoint, headers=headers, json=body)
                 response.raise_for_status()
@@ -91,9 +149,8 @@ class LLMService:
                         .get("message", {})
                         .get("content", "")
                     )
-
         except Exception as e:
-            logger.error(f"LLM Generation Error: {e}")
+            logger.error(f"LLM Blocking Error: {e}")
             return f"Error: {str(e)}"
 
     def get_embedding(self, text: str) -> List[float]:
