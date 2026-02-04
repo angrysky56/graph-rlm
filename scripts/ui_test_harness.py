@@ -43,8 +43,8 @@ class MockAgentWorker(QObject):
         self.logMessage.emit("INFO", "Mock Agent Started")
 
         # Simulate some initial chatter
-        QTimer.singleShot(1000, lambda: self.chatMessage.emit("user", "Analyze the system architecture."))
-        QTimer.singleShot(2000, lambda: self.chatMessage.emit("assistant", "Sure, starting analysis..."))
+        QTimer.singleShot(500, lambda: self.chatMessage.emit("user", "Perform a security audit of the authentication module."))
+        QTimer.singleShot(1500, lambda: self.chatMessage.emit("assistant", "Initiating security audit protocol v2.4.\nMapping dependency graph..."))
 
         # Start generating thoughts
         self.timer = QTimer()
@@ -62,10 +62,10 @@ class MockAgentWorker(QObject):
 
     def send_query(self, prompt):
         self.chatMessage.emit("user", prompt)
-        QTimer.singleShot(500, lambda: self.chatMessage.emit("assistant", f"I received: {prompt}. Processing..."))
+        QTimer.singleShot(500, lambda: self.chatMessage.emit("assistant", f"Acknowledged. Processing query: {prompt}"))
 
     def _generate_event(self):
-        action = random.choice(["new_node", "update_node", "new_node", "log"])
+        action = random.choice(["new_node", "update_node", "new_node", "log", "log"])
 
         if action == "new_node" or not self.nodes:
             self.node_count += 1
@@ -103,9 +103,9 @@ class MockAgentWorker(QObject):
             status = random.choice(["running", "success", "failed", "reflexion"])
 
             results = {
-                "success": "Operation completed successfully. All unit tests passed. Latency: 15ms.",
-                "failed": "Error: Connection timeout while reaching the external API. Retrying...",
-                "reflexion": "Axiom Violation detected: ensure_no_cycles(). Graph contains a cycle.",
+                "success": "Operation completed successfully.\n- 45 unit tests passed.\n- Latency: 15ms.\n- Memory Usage: 12MB.",
+                "failed": "Error: Connection timeout while reaching the external API.\nStack trace:\n  File 'net.py', line 45, in connect\n    raise TimeoutError",
+                "reflexion": "Axiom Violation detected: ensure_no_cycles().\nGraph contains a cycle at node_3 -> node_1.\nRefactoring required.",
                 "running": "Processing... Step 3/5 complete."
             }
 
@@ -117,7 +117,13 @@ class MockAgentWorker(QObject):
             self.logMessage.emit("DEBUG", f"Updated node {node_id} to {status}")
 
         elif action == "log":
-            self.logMessage.emit("INFO", "System doing background work...")
+            msgs = [
+                "Running background cleanup task...",
+                "Syncing graph state to persistence layer...",
+                "Memory usage: 45% (Stable)",
+                "Heartbeat received from worker thread."
+            ]
+            self.logMessage.emit("INFO", random.choice(msgs))
 
 def main():
     app = QApplication(sys.argv)
