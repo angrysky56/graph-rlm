@@ -11,11 +11,11 @@
       "root_session_id": "session_alpha_001",
       "label": "PROJECT ROOT: Neural Interface",
       "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
-      "created_at": 1770239730110,
+      "created_at": 1770240428699,
       "type": "Thought",
-      "id": "root_thought",
       "x": 0,
-      "y": 0
+      "y": 0,
+      "id": "root_thought"
     },
     {
       "prompt": "Constraint Augmented Generation (CAG) Layer",
@@ -24,11 +24,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Constraint Augmented Generation (CAG) Layer",
-      "created_at": 1770239730112,
+      "created_at": 1770240428702,
       "type": "Thought",
-      "id": "node_domain_cag",
       "x": -400,
-      "y": 250
+      "y": 250,
+      "id": "node_domain_cag"
     },
     {
       "prompt": "Dreamer / Sleep Phase Logic",
@@ -37,11 +37,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Dreamer / Sleep Phase Logic",
-      "created_at": 1770239730113,
+      "created_at": 1770240428703,
       "type": "Thought",
-      "id": "node_domain_dream",
       "x": 0,
-      "y": 250
+      "y": 250,
+      "id": "node_domain_dream"
     },
     {
       "prompt": "Representation Engineering (RepE) Safety",
@@ -50,11 +50,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Representation Engineering (RepE) Safety",
-      "created_at": 1770239730115,
+      "created_at": 1770240428705,
       "type": "Thought",
-      "id": "node_domain_repe",
       "x": 400,
-      "y": 250
+      "y": 250,
+      "id": "node_domain_repe"
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v0.pdf",
@@ -64,11 +64,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 1",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770239730116,
+      "created_at": 1770240428706,
       "type": "Thought",
-      "id": "cag_step_0",
       "x": -400,
-      "y": 430
+      "y": 430,
+      "id": "cag_step_0"
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v1.pdf",
@@ -78,11 +78,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 2",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770239730118,
+      "created_at": 1770240428708,
       "type": "Thought",
-      "id": "cag_step_1",
       "x": -400,
-      "y": 610
+      "y": 610,
+      "id": "cag_step_1"
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v2.pdf",
@@ -92,11 +92,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 3",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770239730119,
+      "created_at": 1770240428709,
       "type": "Thought",
-      "id": "cag_step_2",
       "x": -400,
-      "y": 790
+      "y": 790,
+      "id": "cag_step_2"
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v3.pdf",
@@ -106,11 +106,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 4",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770239730121,
+      "created_at": 1770240428711,
       "type": "Thought",
-      "id": "cag_step_3",
       "x": -400,
-      "y": 970
+      "y": 970,
+      "id": "cag_step_3"
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v4.pdf",
@@ -120,11 +120,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 5",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770239730122,
+      "created_at": 1770240428713,
       "type": "Thought",
-      "id": "cag_step_4",
       "x": -400,
-      "y": 1150
+      "y": 1150,
+      "id": "cag_step_4"
     },
     {
       "prompt": "Initiating NREM Sleep Cycle...",
@@ -133,11 +133,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Sleep Cycle (Active)",
-      "created_at": 1770239730123,
+      "created_at": 1770240428714,
       "type": "Thought",
-      "id": "dream_sleep_cycle",
       "x": 0,
-      "y": 450
+      "y": 450,
+      "id": "dream_sleep_cycle"
     },
     {
       "prompt": "Scanning for Hallucinations in recent traces",
@@ -146,11 +146,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Hallucination Scanner",
-      "created_at": 1770239730125,
+      "created_at": 1770240428716,
       "type": "Thought",
-      "id": "dream_hallucination",
       "x": 200,
-      "y": 450
+      "y": 450,
+      "id": "dream_hallucination"
     },
     {
       "prompt": "Extracting 'Deception' Vector from Embedding Layer 12",
@@ -160,11 +160,11 @@
       "root_session_id": "session_alpha_001",
       "label": "Vector Extraction FAILED",
       "result": "Error: Dimension Mismatch (4096 vs 3072)",
-      "created_at": 1770239730126,
+      "created_at": 1770240428717,
       "type": "Thought",
-      "id": "repe_fail_01",
       "x": 400,
-      "y": 450
+      "y": 450,
+      "id": "repe_fail_01"
     },
     {
       "prompt": "SYSTEM INTERVENTION: Reflexion Triggered. Adjusting dimensions.",
@@ -173,11 +173,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "\ud83d\udca1 REFLEXION: Fix Dimensions",
-      "created_at": 1770239730128,
+      "created_at": 1770240428719,
       "type": "Thought",
-      "id": "repe_reflexion",
       "x": 400,
-      "y": 630
+      "y": 630,
+      "id": "repe_reflexion"
     },
     {
       "prompt": "Retrying Vector Extraction with dim=3072",
@@ -186,11 +186,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Retry Extraction",
-      "created_at": 1770239730129,
+      "created_at": 1770240428720,
       "type": "Thought",
-      "id": "repe_retry",
       "x": 400,
-      "y": 810
+      "y": 810,
+      "id": "repe_retry"
     },
     {
       "prompt": "Background processing task 0...",

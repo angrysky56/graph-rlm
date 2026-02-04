@@ -30,25 +30,39 @@ class AgentWorker(QThread):
         Main Thread Loop.
         Initializes the Agent and polls for events.
         """
+
+        # Load initial state from DB FIRST
+        # This ensures UI is populated even if agent init is slow or fails
+        self._load_initial_state()
+
         # Initialize Agent in the thread context
         try:
             self.statusChanged.emit("Initializing Agent...")
             self.agent = Agent()
 
             # Run async initialization synchronously
-            asyncio.run(self.agent.initialize_system())
+            # Wrap in try/except to prevent blocking on network errors
+            try:
+                # Set a timeout for initialization
+                # We can't easily timeout asyncio.run without wrapping the coroutine
+                async def init_with_timeout():
+                    try:
+                        await asyncio.wait_for(self.agent.initialize_system(), timeout=5.0)
+                    except asyncio.TimeoutError:
+                        self.logMessage.emit("WARNING", "Agent initialization timed out (Network slow/offline?). Proceeding.")
+                    except Exception as e:
+                        self.logMessage.emit("ERROR", f"Agent init error: {e}")
 
-            self.statusChanged.emit("Agent Ready")
-
-            # Small delay to ensure UI is listening
-            self.msleep(500)
-
-            # Load initial state from DB
-            self._load_initial_state()
+                asyncio.run(init_with_timeout())
+                self.statusChanged.emit("Agent Ready")
+            except Exception as e:
+                self.logMessage.emit("ERROR", f"Agent init failed: {e}")
+                self.statusChanged.emit("Agent Error")
 
         except Exception as e:
-            self.logMessage.emit("ERROR", f"Failed to initialize Agent: {e}")
-            return
+            self.logMessage.emit("ERROR", f"Failed to instantiate Agent: {e}")
+            self.statusChanged.emit("Agent Error")
+            # Don't return, keep running so UI stays responsive to logs/graph interactions
 
         # Start Event Polling Loop
         while self._is_running:
@@ -56,18 +70,15 @@ class AgentWorker(QThread):
             try:
                 cmd_type, payload = self.input_queue.get_nowait()
                 if cmd_type == "QUERY":
-                    self._handle_query(payload)
+                    if self.agent:
+                        self._handle_query(payload)
+                    else:
+                        self.logMessage.emit("ERROR", "Agent not initialized.")
                 elif cmd_type == "STOP":
                     if self.agent:
                         self.agent.stop()
             except queue.Empty:
                 pass
-
-            # 2. Process Agent Events (Poll Queue)
-            # The agent uses a context var queue, but since we are running everything
-            # in this thread (or launching tasks from it), we need to bridge the events.
-            # However, `agent.stream_query` is an async generator.
-            # We wrapped that logic in `_handle_query` which runs an asyncio loop.
 
             # Idle sleep
             time.sleep(0.05)
@@ -97,7 +108,6 @@ class AgentWorker(QThread):
             self.msleep(200)
             self.initialLoadComplete.emit()
             self.logMessage.emit("INFO", f"Loaded {count} nodes and {edge_count} edges from persistent memory.")
-            self.statusChanged.emit("Ready")
 
         except Exception as e:
             self.logMessage.emit("ERROR", f"Failed to load initial graph: {e}")
