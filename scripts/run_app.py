@@ -11,6 +11,23 @@ def main():
     sys.path.append(root_dir)
     os.environ["PYTHONPATH"] = root_dir + ":" + os.environ.get("PYTHONPATH", "")
 
+    # Seeding Logic
+    if "--seed" in sys.argv:
+        print("[+] Seeding requested...")
+        try:
+            # We need to import backend logic here, which requires the path setup above
+            # Import client to get the repo
+            from graph_rlm.backend.src.core.database.client import client
+            from scripts.seed_data import seed_graph_data
+
+            # If repo is empty, or forced
+            seed_graph_data(client.repo)
+
+        except Exception as e:
+            print(f"[-] Seeding failed: {e}")
+            import traceback
+            traceback.print_exc()
+
     # Check for Ollama
     try:
         import httpx
@@ -25,7 +42,6 @@ def main():
         pass
 
     # Check for Database
-    # We don't check for redis explicitly because the app handles fallback.
     print("[+] Database Mode: Auto-Detect (FalkorDB -> NetworkX Fallback)")
 
     # Launch UI
