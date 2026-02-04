@@ -11,9 +11,11 @@
       "root_session_id": "session_alpha_001",
       "label": "PROJECT ROOT: Neural Interface",
       "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
-      "created_at": 1770238382075,
+      "created_at": 1770239730110,
       "type": "Thought",
-      "id": "root_thought"
+      "id": "root_thought",
+      "x": 0,
+      "y": 0
     },
     {
       "prompt": "Constraint Augmented Generation (CAG) Layer",
@@ -22,9 +24,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Constraint Augmented Generation (CAG) Layer",
-      "created_at": 1770238382076,
+      "created_at": 1770239730112,
       "type": "Thought",
-      "id": "node_domain_cag"
+      "id": "node_domain_cag",
+      "x": -400,
+      "y": 250
     },
     {
       "prompt": "Dreamer / Sleep Phase Logic",
@@ -33,9 +37,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Dreamer / Sleep Phase Logic",
-      "created_at": 1770238382079,
+      "created_at": 1770239730113,
       "type": "Thought",
-      "id": "node_domain_dream"
+      "id": "node_domain_dream",
+      "x": 0,
+      "y": 250
     },
     {
       "prompt": "Representation Engineering (RepE) Safety",
@@ -44,9 +50,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Representation Engineering (RepE) Safety",
-      "created_at": 1770238382080,
+      "created_at": 1770239730115,
       "type": "Thought",
-      "id": "node_domain_repe"
+      "id": "node_domain_repe",
+      "x": 400,
+      "y": 250
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v0.pdf",
@@ -56,9 +64,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 1",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770238382081,
+      "created_at": 1770239730116,
       "type": "Thought",
-      "id": "cag_step_0"
+      "id": "cag_step_0",
+      "x": -400,
+      "y": 430
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v1.pdf",
@@ -68,9 +78,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 2",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770238382083,
+      "created_at": 1770239730118,
       "type": "Thought",
-      "id": "cag_step_1"
+      "id": "cag_step_1",
+      "x": -400,
+      "y": 610
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v2.pdf",
@@ -80,9 +92,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 3",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770238382084,
+      "created_at": 1770239730119,
       "type": "Thought",
-      "id": "cag_step_2"
+      "id": "cag_step_2",
+      "x": -400,
+      "y": 790
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v3.pdf",
@@ -92,9 +106,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 4",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770238382085,
+      "created_at": 1770239730121,
       "type": "Thought",
-      "id": "cag_step_3"
+      "id": "cag_step_3",
+      "x": -400,
+      "y": 970
     },
     {
       "prompt": "Ingesting Document: cyber_security_protocols_v4.pdf",
@@ -104,9 +120,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 5",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770238382087,
+      "created_at": 1770239730122,
       "type": "Thought",
-      "id": "cag_step_4"
+      "id": "cag_step_4",
+      "x": -400,
+      "y": 1150
     },
     {
       "prompt": "Initiating NREM Sleep Cycle...",
@@ -115,9 +133,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Sleep Cycle (Active)",
-      "created_at": 1770238382088,
+      "created_at": 1770239730123,
       "type": "Thought",
-      "id": "dream_sleep_cycle"
+      "id": "dream_sleep_cycle",
+      "x": 0,
+      "y": 450
     },
     {
       "prompt": "Scanning for Hallucinations in recent traces",
@@ -126,9 +146,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Hallucination Scanner",
-      "created_at": 1770238382089,
+      "created_at": 1770239730125,
       "type": "Thought",
-      "id": "dream_hallucination"
+      "id": "dream_hallucination",
+      "x": 200,
+      "y": 450
     },
     {
       "prompt": "Extracting 'Deception' Vector from Embedding Layer 12",
@@ -138,9 +160,11 @@
       "root_session_id": "session_alpha_001",
       "label": "Vector Extraction FAILED",
       "result": "Error: Dimension Mismatch (4096 vs 3072)",
-      "created_at": 1770238382090,
+      "created_at": 1770239730126,
       "type": "Thought",
-      "id": "repe_fail_01"
+      "id": "repe_fail_01",
+      "x": 400,
+      "y": 450
     },
     {
       "prompt": "SYSTEM INTERVENTION: Reflexion Triggered. Adjusting dimensions.",
@@ -149,9 +173,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "\ud83d\udca1 REFLEXION: Fix Dimensions",
-      "created_at": 1770238382092,
+      "created_at": 1770239730128,
       "type": "Thought",
-      "id": "repe_reflexion"
+      "id": "repe_reflexion",
+      "x": 400,
+      "y": 630
     },
     {
       "prompt": "Retrying Vector Extraction with dim=3072",
@@ -160,9 +186,11 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Retry Extraction",
-      "created_at": 1770238382093,
+      "created_at": 1770239730129,
       "type": "Thought",
-      "id": "repe_retry"
+      "id": "repe_retry",
+      "x": 400,
+      "y": 810
     },
     {
       "prompt": "Background processing task 0...",

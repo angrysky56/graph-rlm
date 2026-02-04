@@ -40,12 +40,16 @@ class GraphScene(QGraphicsScene):
 
         item = NodeItem(node_data)
 
-        # Simple auto-layout: Spiral or Grid (Fallback)
-        count = len(self.nodes)
-        x = (count % 10) * 250
-        y = (count // 10) * 200
+        # Check for explicit coordinates
+        if "x" in node_data and "y" in node_data:
+            item.setPos(float(node_data["x"]), float(node_data["y"]))
+        else:
+            # Fallback layout
+            count = len(self.nodes)
+            x = (count % 10) * 250
+            y = (count // 10) * 200
+            item.setPos(x, y)
 
-        item.setPos(x, y)
         self.addItem(item)
         self.nodes[nid] = item
 
@@ -66,20 +70,18 @@ class GraphScene(QGraphicsScene):
             target_item = self.nodes[target_id]
 
             # Improved Layout Heuristic: Place child relative to parent if at 0,0
-            if target_item.pos() == QPointF(0,0) or target_item.pos() == source_item.pos():
-                import random
-                offset_x = (random.random() - 0.5) * 400
-                target_item.setPos(source_item.pos() + QPointF(offset_x, 250))
+            # Only do this if target didn't have explicit coords (which we check via pos)
+            # But pos defaults to 0,0 only if we didn't set it.
+            # If we set x,y in add_node, pos is not 0,0 (unless explicitly 0,0)
+            # We skip this heuristic if physics is handling it, or trust seed data.
 
             edge = EdgeItem(source_item, target_item)
             self.addItem(edge)
             self.edges.append(edge)
 
-            # Register edge with nodes for efficient updates
             source_item.add_edge(edge)
             target_item.add_edge(edge)
 
-            # Explicit update
             self.update()
 
 class NodeItem(QGraphicsItem):
@@ -124,7 +126,6 @@ class NodeItem(QGraphicsItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
-            # Update connected edges efficiently
             for edge in self._edges:
                 edge.update_path()
         return super().itemChange(change, value)
@@ -139,7 +140,6 @@ class NodeItem(QGraphicsItem):
         color = self.color_map.get(status, QColor("#444444"))
         priority = self.node_data.get("priority", "medium")
 
-        # Glow intensity based on priority/status
         if status in ["running", "active"]:
             self.glow.setColor(color)
             self.glow.setBlurRadius(30 if priority == "high" else 20)
@@ -156,76 +156,57 @@ class NodeItem(QGraphicsItem):
             self.glow.setEnabled(False)
 
     def boundingRect(self) -> QRectF:
-        # Important: Bounding Rect must be accurate for View Fitting
         return QRectF(-5, -5, self.width + 10, self.height + 10)
 
     def paint(self, painter: QPainter, option, widget):
-        # LOD check
-        lod = option.levelOfDetailFromTransform(painter.worldTransform())
+        # Default paint logic without strict LOD blocking to ensure visibility
         status = self.node_data.get("status", "pending")
         base_color = self.color_map.get(status, QColor("#444444"))
 
-        # Determine Visual Style
-        # Background: Semi-transparent dark fill
+        # Background
         painter.setBrush(QBrush(QColor(20, 20, 20, 220)))
 
-        # Border: Colored neon line
+        # Border
         pen = QPen(base_color, 2)
         if self.isSelected():
             pen.setColor(QColor("#ffffff"))
             pen.setWidth(3)
         painter.setPen(pen)
 
-        # Draw Box
+        # Box
         painter.drawRoundedRect(0, 0, self.width, self.height, 10, 10)
 
-        # Draw Header Background
+        # Header
         header_height = 30
         header_path = QPainterPath()
         header_path.addRoundedRect(0, 0, self.width, header_height, 10, 10)
-        # Clip bottom to make it flat
         painter.setClipRect(0, 0, self.width, header_height)
         painter.fillPath(header_path, QBrush(base_color.darker(150)))
         painter.setClipping(False)
 
-        # --- LOD 0: Very Far (Symbols only) ---
-        if lod < 0.3:
-            painter.setFont(QFont("Segoe UI Emoji", 40))
-            emoji = self.emoji_map.get(status, "❓")
-            painter.drawText(QRectF(0, 0, self.width, self.height), Qt.AlignmentFlag.AlignCenter, emoji)
-            return
+        # Content
+        # We try to determine detail level, but default to showing something
+        lod = option.levelOfDetailFromTransform(painter.worldTransform())
 
-        # --- LOD 1: Mid Range (Header + Emoji) ---
-
-        # Draw Emoji Icon
+        # Emoji
         painter.setFont(QFont("Segoe UI Emoji", 14))
         emoji = self.emoji_map.get(status, "")
         painter.setPen(QPen(QColor("#eeeeee")))
         painter.drawText(QRectF(10, 0, 30, header_height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, emoji)
 
-        # Draw ID / Title
-        font_title = QFont("Segoe UI", 10, QFont.Weight.Bold)
-        painter.setFont(font_title)
-        nid = self.node_data.get("id", "Unknown")
-        painter.drawText(QRectF(40, 0, self.width-50, header_height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{nid}")
+        # ID / Title
+        if lod > 0.4:
+            font_title = QFont("Segoe UI", 10, QFont.Weight.Bold)
+            painter.setFont(font_title)
+            nid = self.node_data.get("id", "Unknown")
+            painter.drawText(QRectF(40, 0, self.width-50, header_height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{nid}")
 
-        # Priority Indicator (Right side of header)
-        priority = self.node_data.get("priority", "medium")
-        p_color = {"high": "#ff0055", "medium": "#ffcc00", "low": "#00ffcc"}.get(priority, "#aaaaaa")
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(p_color)))
-        painter.drawEllipse(self.width - 20, 8, 12, 12)
-
-
-        # --- LOD 2: Close Up (Content) ---
-        if lod >= 0.6:
+        # Body
+        if lod > 0.6:
             painter.setPen(QPen(QColor("#dddddd")))
             font_body = QFont("Segoe UI", 9)
             painter.setFont(font_body)
-
             label = self.node_data.get("label", "") or self.node_data.get("prompt", "")
-
-            # Content Area
             rect = QRectF(10, header_height + 5, self.width - 20, self.height - header_height - 10)
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, label)
 
@@ -235,12 +216,9 @@ class EdgeItem(QGraphicsPathItem):
         self.source = source
         self.target = target
         self.setZValue(-1) # Behind nodes
-
-        # Cyberpunk Edge Style
         self.pen = QPen(QColor("#444444"), 2)
         self.pen.setCapStyle(Qt.PenCapStyle.RoundCap)
         self.setPen(self.pen)
-
         self.update_path()
 
     def update_path(self):
@@ -250,7 +228,6 @@ class EdgeItem(QGraphicsPathItem):
         path = QPainterPath()
         path.moveTo(start)
 
-        # Cubic Bezier for smooth flow
         dist_y = end.y() - start.y()
         ctrl_offset = max(50, dist_y * 0.5)
 
@@ -260,10 +237,8 @@ class EdgeItem(QGraphicsPathItem):
 
         self.setPath(path)
 
-        # Dynamic coloring based on source status
         status = self.source.node_data.get("status", "pending")
         if status in ["running", "active", "reflexion"]:
-             # Active flow
              self.pen.setColor(QColor("#00ffcc"))
              self.pen.setWidth(3)
         elif status == "failed":
@@ -275,5 +250,4 @@ class EdgeItem(QGraphicsPathItem):
         self.setPen(self.pen)
 
     def paint(self, painter, option, widget):
-        # We manually call update_path from NodeItem events, so standard paint is fine
         super().paint(painter, option, widget)

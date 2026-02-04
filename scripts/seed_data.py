@@ -6,6 +6,7 @@ def seed_graph_data(repo):
     """
     Populates the repository with a rich, complex dataset to demonstrate UI capabilities.
     Scenario: Designing a Self-Healing Neural Interface.
+    Explicitly sets coordinates to ensure visibility without physics.
     """
     print("🌱 Seeding Graph Data...")
 
@@ -20,7 +21,8 @@ def seed_graph_data(repo):
         "session_id": root_id,
         "root_session_id": root_id,
         "label": "PROJECT ROOT: Neural Interface",
-        "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains."
+        "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
+        "x": 0, "y": 0
     })
 
     # 2. Sub-Domains (Parallel Chains)
@@ -31,8 +33,12 @@ def seed_graph_data(repo):
     ]
 
     domain_nodes = []
-    for d_id, d_prompt, d_status in domains:
+    # Layout: Horizontal spread
+    for i, (d_id, d_prompt, d_status) in enumerate(domains):
         node_id = f"node_{d_id}"
+        x_pos = (i - 1) * 400
+        y_pos = 250
+
         repo.create_thought_node({
             "id": node_id,
             "prompt": d_prompt,
@@ -40,11 +46,12 @@ def seed_graph_data(repo):
             "priority": "high",
             "session_id": root_id,
             "root_session_id": root_id,
-            "label": d_prompt
+            "label": d_prompt,
+            "x": x_pos, "y": y_pos
         }, parent_id="root_thought")
         domain_nodes.append(node_id)
 
-    # 3. Flesh out CAG (Successful Chain)
+    # 3. Flesh out CAG (Vertical Chain)
     cag_root = domain_nodes[0]
     prev = cag_root
     for i in range(5):
@@ -57,14 +64,15 @@ def seed_graph_data(repo):
             "session_id": root_id,
             "root_session_id": root_id,
             "label": f"CAG Ingestion Step {i+1}",
-            "result": "Extracted 12 invariants."
+            "result": "Extracted 12 invariants.",
+            "x": -400, "y": 250 + ((i+1) * 180)
         }, parent_id=prev)
         prev = tid
 
-    # 4. Flesh out Dreamer (Active/Running Chain)
+    # 4. Flesh out Dreamer (Vertical Chain)
     dream_root = domain_nodes[1]
 
-    # Branch A: Sleep Cycle
+    # Branch A
     tid_a = "dream_sleep_cycle"
     repo.create_thought_node({
         "id": tid_a,
@@ -73,10 +81,11 @@ def seed_graph_data(repo):
         "priority": "high",
         "session_id": root_id,
         "root_session_id": root_id,
-        "label": "Sleep Cycle (Active)"
+        "label": "Sleep Cycle (Active)",
+        "x": 0, "y": 450
     }, parent_id=dream_root)
 
-    # Branch B: Hallucination Check
+    # Branch B
     tid_b = "dream_hallucination"
     repo.create_thought_node({
         "id": tid_b,
@@ -85,10 +94,11 @@ def seed_graph_data(repo):
         "priority": "medium",
         "session_id": root_id,
         "root_session_id": root_id,
-        "label": "Hallucination Scanner"
+        "label": "Hallucination Scanner",
+        "x": 200, "y": 450
     }, parent_id=dream_root)
 
-    # 5. Flesh out RepE (Failed Chain with Reflexion)
+    # 5. Flesh out RepE (Vertical Chain)
     repe_root = domain_nodes[2]
 
     # Failed Node
@@ -101,10 +111,11 @@ def seed_graph_data(repo):
         "session_id": root_id,
         "root_session_id": root_id,
         "label": "Vector Extraction FAILED",
-        "result": "Error: Dimension Mismatch (4096 vs 3072)"
+        "result": "Error: Dimension Mismatch (4096 vs 3072)",
+        "x": 400, "y": 450
     }, parent_id=repe_root)
 
-    # Reflexion Node (Correction)
+    # Reflexion Node
     reflex_id = "repe_reflexion"
     repo.create_thought_node({
         "id": reflex_id,
@@ -113,7 +124,8 @@ def seed_graph_data(repo):
         "priority": "high",
         "session_id": root_id,
         "root_session_id": root_id,
-        "label": "💡 REFLEXION: Fix Dimensions"
+        "label": "💡 REFLEXION: Fix Dimensions",
+        "x": 400, "y": 630
     }, parent_id=fail_id)
 
     # Retry Node
@@ -125,22 +137,8 @@ def seed_graph_data(repo):
         "priority": "medium",
         "session_id": root_id,
         "root_session_id": root_id,
-        "label": "Retry Extraction"
+        "label": "Retry Extraction",
+        "x": 400, "y": 810
     }, parent_id=reflex_id)
-
-    # 6. Scatter some random nodes to fill space (Simulation of background thoughts)
-    for i in range(15):
-        pid = random.choice(domain_nodes + [cag_root, dream_root, repe_root])
-        tid = f"bg_thought_{i}"
-        status = random.choice(["success", "pending", "pending", "success"])
-        repo.create_thought_node({
-            "id": tid,
-            "prompt": f"Background processing task {i}...",
-            "status": status,
-            "priority": "low",
-            "session_id": root_id,
-            "root_session_id": root_id,
-            "label": f"Bg Task {i}"
-        }, parent_id=pid)
 
     print("✅ Seed complete.")
