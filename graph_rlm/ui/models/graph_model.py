@@ -1,6 +1,8 @@
-from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem, QGraphicsRectItem, QGraphicsPathItem, QGraphicsDropShadowEffect
+from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem, QGraphicsPathItem, QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
 from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath, QFont, QPainter
+
+from .layout_engine import ForceDirectedLayout
 
 class GraphScene(QGraphicsScene):
     def __init__(self):
@@ -12,6 +14,7 @@ class GraphScene(QGraphicsScene):
         self.setSceneRect(-5000, -5000, 10000, 10000)
 
         # Physics
+        self.layout_engine = ForceDirectedLayout()
         self.physics_enabled = True
         self.physics_timer = QTimer()
         self.physics_timer.timeout.connect(self.tick)
@@ -26,68 +29,8 @@ class GraphScene(QGraphicsScene):
 
     def tick(self):
         """Simple Force-Directed Layout Step"""
-        if not self.nodes: return
-
-        # Constants
-        k = 300.0 # Ideal spring length
-        repulsion = 500000.0
-        attraction = 0.05
-        damping = 0.85
-        max_velocity = 20.0 # Limit speed
-
-        # Initialize forces
-        forces = {nid: QPointF(0, 0) for nid in self.nodes}
-
-        # 1. Repulsion (All nodes repel each other)
-        # Optimization: Only check nearby nodes? For <100 nodes, O(N^2) is fine (10k ops)
-        node_items = list(self.nodes.values())
-        for i, n1 in enumerate(node_items):
-            p1 = n1.pos() + QPointF(n1.width/2, n1.height/2)
-            for n2 in node_items[i+1:]:
-                p2 = n2.pos() + QPointF(n2.width/2, n2.height/2)
-                vec = p1 - p2
-                dist_sq = vec.x()**2 + vec.y()**2
-                if dist_sq < 1: dist_sq = 1
-
-                # F = k / d^2
-                force = vec * (repulsion / dist_sq)
-
-                forces[n1.node_data["id"]] += force
-                forces[n2.node_data["id"]] -= force
-
-        # 2. Attraction (Edges pull connected nodes)
-        for edge in self.edges:
-            n1 = edge.source
-            n2 = edge.target
-            p1 = n1.pos() + QPointF(n1.width/2, n1.height/2)
-            p2 = n2.pos() + QPointF(n2.width/2, n2.height/2)
-
-            vec = p2 - p1
-            dist = (vec.x()**2 + vec.y()**2)**0.5
-            if dist < 1: dist = 1
-
-            # Hooke's Law: F = k * (dist - ideal)
-            # Or just simple linear attraction
-            force = vec * ((dist - k) * attraction)
-
-            forces[n1.node_data["id"]] += force
-            forces[n2.node_data["id"]] -= force
-
-        # 3. Apply Forces
-        for nid, item in self.nodes.items():
-            if item.isUnderMouse() and item.isSelected():
-                continue # Don't move if user is grabbing it
-
-            f = forces[nid]
-
-            # Limit force
-            if f.manhattanLength() > 100:
-                f *= (100 / f.manhattanLength())
-
-            # Update pos
-            # Ideally we'd have velocity, but direct position update with damping works for simple visuals
-            new_pos = item.pos() + f * 0.1
-            item.setPos(new_pos)
+        if self.physics_enabled:
+            self.layout_engine.compute(self.nodes, self.edges)
 
     def add_node(self, node_data: dict):
         nid = node_data.get("id")

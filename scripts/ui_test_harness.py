@@ -125,8 +125,27 @@ def main():
     window.show()
 
     # Run for 5 seconds then exit if running in automation
-    if len(sys.argv) > 1 and sys.argv[1] == "--test-run":
-         QTimer.singleShot(5000, app.quit)
+    if len(sys.argv) > 1 and "--test-run" in sys.argv:
+        screenshot_path = None
+        if "--screenshot" in sys.argv:
+            try:
+                idx = sys.argv.index("--screenshot")
+                if idx + 1 < len(sys.argv):
+                    screenshot_path = sys.argv[idx + 1]
+            except ValueError:
+                pass
+
+        def close_app():
+            if screenshot_path:
+                print(f"Taking screenshot to {screenshot_path}")
+                # Ensure geometry is laid out
+                app.processEvents()
+                # Grab window
+                pixmap = window.grab()
+                pixmap.save(screenshot_path)
+            app.quit()
+
+        QTimer.singleShot(3000, close_app)
 
     sys.exit(app.exec())
 
