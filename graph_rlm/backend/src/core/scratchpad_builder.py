@@ -14,7 +14,7 @@ but NOT included in immediate context to prevent bloat.
 from datetime import datetime, timezone
 from typing import Any, List
 
-from .db import GraphClient, db
+from .database import client
 from .logger import get_logger
 
 logger = get_logger("graph_rlm.scratchpad_builder")
@@ -24,7 +24,7 @@ class ScratchpadBuilder:
     """Builds a structured scratchpad for the stateless agent."""
 
     def __init__(self):
-        self.db: GraphClient = db
+        pass
 
     def build_scratchpad(
         self,
@@ -37,18 +37,6 @@ class ScratchpadBuilder:
     ) -> str:
         """
         Build a complete scratchpad for the agent.
-
-        Uses round-based architecture:
-        - Previous rounds: Compressed summaries with REPL ID pointers
-        - Current round: Full detail of progress
-
-        Args:
-            session_id: Current REPL session ID
-            root_session_id: Root session ID (for sub-REPL tracking)
-            task: The current task/prompt
-            current_step: Current step number
-            max_steps: Maximum allowed steps
-            current_round_id: ID of the current round (for filtering)
         """
         lines = []
 
@@ -57,7 +45,7 @@ class ScratchpadBuilder:
         local_now = datetime.now()
 
         # Count completed rounds for round number display
-        completed_rounds = self.db.get_completed_rounds(root_session_id)
+        completed_rounds = client.repo.get_completed_rounds(root_session_id)
         current_round_num = len(completed_rounds) + 1
 
         lines.append("## Agent Session State")
@@ -100,25 +88,18 @@ class ScratchpadBuilder:
             lines.append("")
 
         # === Graph Topology Context (Recent Nodes) ===
-        # CRITICAL FIX: Give Dreamer visibility into immediate neighbors
-        recent_nodes = self.db.query(
-            """
-            MATCH (t:Thought {session_id: $sid})
-            RETURN t.id as id, t.status as status, t.execution_summary as summary
-            ORDER BY t.created_at DESC LIMIT 3
-            """,
-            {"sid": session_id},
-        )
+        recent_nodes = client.repo.get_context_frontier(session_id, limit=3)
         if recent_nodes:
             lines.append("## Immediate Graph Context")
             for node in recent_nodes:
-                summary = (node.get("summary") or "No summary")[:100]
-                lines.append(f"- [{node['id']}] ({node['status']}): {summary}")
+                summary = (node.get("execution_summary") or "No summary")[:100]
+                status = node.get("status")
+                nid = node.get("id")
+                lines.append(f"- [{nid}] ({status}): {summary}")
             lines.append("")
 
         # === Current Task ===
         lines.append("## Current Task")
-        # Prepend a tag to avoid leading slashes triggering LLM command parsers (Gemini 3)
         lines.append(f"Task: {task}")
         lines.append("")
 
@@ -155,31 +136,9 @@ class ScratchpadBuilder:
     ) -> str:
         """
         Build progress for ONLY the current round (not archived rounds).
-
-        If current_round_id is empty, get thoughts with no round_id assigned yet.
         """
         try:
-            # Get thoughts for current round only
-            # Thoughts that have not yet been archived into a Round node
-            q = """
-            MATCH (n:Thought)
-            WHERE n.root_session_id = $rsid
-            AND (n.round_id IS NULL OR n.round_id = $crid)
-            RETURN n.id as id,
-                   n.prompt as prompt,
-                   n.status as status,
-                   n.result as result,
-                   n.created_at as created_at,
-                   n.repl_id as repl_id,
-                   n.execution_summary as execution_summary,
-                   n.next_action as next_action,
-                   n.dreamer_analysis as dreamer_analysis,
-                   n.final_response as final_response
-            ORDER BY n.created_at ASC
-            """
-            results = self.db.query(
-                q, {"rsid": root_session_id, "crid": current_round_id}
-            )
+            results = client.repo.get_current_round_thoughts(root_session_id, current_round_id)
 
             if not results:
                 return "No progress recorded yet."
@@ -193,33 +152,10 @@ class ScratchpadBuilder:
     def _format_progress_rows(self, results: List[Any]) -> str:
         """
         Helper to format detailed progress rows from db results.
-        Includes condensation logic for repetitive Dreamer rejections.
         """
         lines = []
-        processed_data = []
-
-        # 1. Normalize data
-        for row in results:
-            if not row:
-                continue
-            if isinstance(row, dict):
-                processed_data.append(row)
-            else:
-                # Indices match query order in _build_current_round_progress
-                processed_data.append(
-                    {
-                        "id": row[0],
-                        "prompt": row[1],
-                        "status": row[2],
-                        "result": row[3],
-                        "created_at": row[4],
-                        "repl_id": row[5],
-                        "execution_summary": row[6] or row[3],
-                        "next_action": row[7],
-                        "dreamer_analysis": row[8],
-                        "final_response": row[9],
-                    }
-                )
+        # Repo returns List[Dict] already
+        processed_data = results
 
         # 2. Group and Format
         i = 0
@@ -228,7 +164,7 @@ class ScratchpadBuilder:
             status = row.get("status") or "unknown"
             dreamer_analysis = (row.get("dreamer_analysis") or "").strip()
 
-            # Condensation Logic: Group consecutive rejections with same analysis
+            # Condensation Logic
             if status == "rejected" and dreamer_analysis:
                 group_start_idx = i
                 while (
@@ -277,7 +213,7 @@ class ScratchpadBuilder:
             if any(k in clean_prompt for k in ["def ", "import ", "await "]):
                 action_type = "Code"
                 prompt_lines = clean_prompt.splitlines()
-                summary = prompt_lines[0][:80]
+                summary = prompt_lines[0][:80] if prompt_lines else ""
                 if len(prompt_lines) > 1:
                     summary += "..."
             elif any(
@@ -312,7 +248,7 @@ class ScratchpadBuilder:
 
             if (
                 dreamer_analysis and status != "rejected"
-            ):  # Only show if not already summarized in group
+            ):
                 step_line += f"\n    -> Dreamer Analysis: {dreamer_analysis}"
 
             final_response = row.get("final_response")
@@ -329,42 +265,16 @@ class ScratchpadBuilder:
     ) -> List[str]:
         """Get active sub-REPL sessions with their status."""
         try:
-            q = """
-            MATCH (n:Thought)
-            WHERE n.root_session_id = $root_id AND n.session_id <> $current_id
-            WITH n.session_id as sid,
-                 count(n) as thought_count,
-                 collect(n.prompt)[0] as initial_prompt,
-                 max(n.created_at) as last_activity,
-                 collect(n.status)[-1] as last_status,
-                 collect(n.result)[-1] as last_result,
-                 collect(n.prompt)[-1] as last_action
-            RETURN sid, thought_count, initial_prompt, last_activity, last_status, last_result, last_action
-            ORDER BY last_activity DESC
-            LIMIT 10
-            """
-            results = self.db.query(
-                q, {"root_id": root_session_id, "current_id": current_session_id}
-            )
+            results = client.repo.get_sub_repls_data(root_session_id, current_session_id)
 
             lines = []
             for row in results:
-                if isinstance(row, dict):
-                    sid = row.get("sid", "unknown")
-                    # count = row.get("thought_count", 0) # Unused
-                    prompt = (row.get("initial_prompt") or "")[:40]
-                    status = row.get("last_status", "unknown")
-                    last_activity = row.get("last_activity", "")
-                    last_res = (row.get("last_result") or "")[:60]
-                    last_act = (row.get("last_action") or "")[:40]
-                else:
-                    sid = row[0]
-                    # count = row[1] # Unused
-                    prompt = (row[2] or "")[:40]
-                    status = row[4] if len(row) > 4 else "unknown"
-                    last_activity = row[3] if len(row) > 3 else ""
-                    last_res = (row[5] if len(row) > 5 else "")[:60]
-                    last_act = (row[6] if len(row) > 6 else "")[:40]
+                sid = row.get("sid", "unknown")
+                prompt = (row.get("initial_prompt") or "")[:40]
+                status = row.get("last_status", "unknown")
+                last_activity = row.get("last_activity", "")
+                last_res = (row.get("last_result") or "")[:60]
+                last_act = (row.get("last_action") or "")[:40]
 
                 if last_res:
                     last_res = f" -> {last_res}..."
@@ -400,37 +310,19 @@ class ScratchpadBuilder:
     def _build_logical_audit(self, session_id: str, root_session_id: str) -> str:
         """
         Builds a summary of Active vs Resolved failure knots.
-        This prevents the 'Groundhog Day' loop by showing the agent what is already fixed.
         """
         try:
             lines = []
 
-            # 1. Active Knots (Failures needing attention)
-            q_active = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
-            AND (n.status = 'failed' OR n.status = 'error')
-            AND (n.dreamer_checked IS NULL OR n.dreamer_checked = false)
-            RETURN n.id, n.prompt, n.result
-            ORDER BY n.created_at DESC LIMIT 3
-            """
-            active_res = self.db.query(
-                q_active, {"rsid": root_session_id, "sid": session_id}
-            )
+            # 1. Active Knots
+            active_res = client.repo.get_active_failure_knots(root_session_id, session_id)
 
             if active_res:
                 lines.append("### 🔴 Active Failure Knots (Needs Fix)")
                 for row in active_res:
-                    rid, prompt, res = (
-                        row
-                        if isinstance(row, list)
-                        else (row["n.id"], row["n.prompt"], row["n.result"])
-                    )
-                    # Safe extraction
-                    if isinstance(row, dict):
-                        rid = row.get("n.id") or row.get("id")
-                        prompt = row.get("n.prompt") or row.get("prompt")
-                        res = row.get("n.result") or row.get("result")
+                    rid = row.get("id")
+                    prompt = row.get("prompt")
+                    res = row.get("result")
 
                     short_p = (prompt or "")[:60]
                     short_r = (res or "")[:100]
@@ -438,27 +330,14 @@ class ScratchpadBuilder:
             else:
                 lines.append("### 🟢 Logical State Clean (No Active Failures)")
 
-            # 2. Recently Resolved Knots (Failures marked checked or consolidated)
-            # We look for consolidated/checked failures in this session/root to show progress
-            q_resolved = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
-            AND (n.status = 'consolidated' OR ((n.status='failed' OR n.status='error') AND n.dreamer_checked = true))
-            RETURN n.id, n.prompt
-            ORDER BY n.created_at DESC LIMIT 3
-            """
-            resolved_res = self.db.query(
-                q_resolved, {"rsid": root_session_id, "sid": session_id}
-            )
+            # 2. Recently Resolved Knots
+            resolved_res = client.repo.get_resolved_failure_knots(root_session_id, session_id)
 
             if resolved_res:
                 lines.append("")
                 lines.append("### ✅ Recently Resolved (Dreamer Acknowledged)")
                 for row in resolved_res:
-                    if isinstance(row, dict):
-                        prompt = row.get("n.prompt") or row.get("prompt")
-                    else:
-                        prompt = row[1]
+                    prompt = row.get("prompt")
                     lines.append(f"- [x] {(prompt or '')[:60]}...")
 
             return "\n".join(lines)

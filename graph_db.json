@@ -1,0 +1,583 @@
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "prompt": "Designing a Self-Healing Neural Interface for Autonomous Agents",
+      "status": "success",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "PROJECT ROOT: Neural Interface",
+      "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
+      "created_at": 1770240428699,
+      "type": "Thought",
+      "x": 0,
+      "y": 0,
+      "id": "root_thought"
+    },
+    {
+      "prompt": "Constraint Augmented Generation (CAG) Layer",
+      "status": "active",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Constraint Augmented Generation (CAG) Layer",
+      "created_at": 1770240428702,
+      "type": "Thought",
+      "x": -400,
+      "y": 250,
+      "id": "node_domain_cag"
+    },
+    {
+      "prompt": "Dreamer / Sleep Phase Logic",
+      "status": "running",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Dreamer / Sleep Phase Logic",
+      "created_at": 1770240428703,
+      "type": "Thought",
+      "x": 0,
+      "y": 250,
+      "id": "node_domain_dream"
+    },
+    {
+      "prompt": "Representation Engineering (RepE) Safety",
+      "status": "failed",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Representation Engineering (RepE) Safety",
+      "created_at": 1770240428705,
+      "type": "Thought",
+      "x": 400,
+      "y": 250,
+      "id": "node_domain_repe"
+    },
+    {
+      "prompt": "Ingesting Document: cyber_security_protocols_v0.pdf",
+      "status": "success",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "CAG Ingestion Step 1",
+      "result": "Extracted 12 invariants.",
+      "created_at": 1770240428706,
+      "type": "Thought",
+      "x": -400,
+      "y": 430,
+      "id": "cag_step_0"
+    },
+    {
+      "prompt": "Ingesting Document: cyber_security_protocols_v1.pdf",
+      "status": "success",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "CAG Ingestion Step 2",
+      "result": "Extracted 12 invariants.",
+      "created_at": 1770240428708,
+      "type": "Thought",
+      "x": -400,
+      "y": 610,
+      "id": "cag_step_1"
+    },
+    {
+      "prompt": "Ingesting Document: cyber_security_protocols_v2.pdf",
+      "status": "success",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "CAG Ingestion Step 3",
+      "result": "Extracted 12 invariants.",
+      "created_at": 1770240428709,
+      "type": "Thought",
+      "x": -400,
+      "y": 790,
+      "id": "cag_step_2"
+    },
+    {
+      "prompt": "Ingesting Document: cyber_security_protocols_v3.pdf",
+      "status": "success",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "CAG Ingestion Step 4",
+      "result": "Extracted 12 invariants.",
+      "created_at": 1770240428711,
+      "type": "Thought",
+      "x": -400,
+      "y": 970,
+      "id": "cag_step_3"
+    },
+    {
+      "prompt": "Ingesting Document: cyber_security_protocols_v4.pdf",
+      "status": "success",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "CAG Ingestion Step 5",
+      "result": "Extracted 12 invariants.",
+      "created_at": 1770240428713,
+      "type": "Thought",
+      "x": -400,
+      "y": 1150,
+      "id": "cag_step_4"
+    },
+    {
+      "prompt": "Initiating NREM Sleep Cycle...",
+      "status": "running",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Sleep Cycle (Active)",
+      "created_at": 1770240428714,
+      "type": "Thought",
+      "x": 0,
+      "y": 450,
+      "id": "dream_sleep_cycle"
+    },
+    {
+      "prompt": "Scanning for Hallucinations in recent traces",
+      "status": "pending",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Hallucination Scanner",
+      "created_at": 1770240428716,
+      "type": "Thought",
+      "x": 200,
+      "y": 450,
+      "id": "dream_hallucination"
+    },
+    {
+      "prompt": "Extracting 'Deception' Vector from Embedding Layer 12",
+      "status": "failed",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Vector Extraction FAILED",
+      "result": "Error: Dimension Mismatch (4096 vs 3072)",
+      "created_at": 1770240428717,
+      "type": "Thought",
+      "x": 400,
+      "y": 450,
+      "id": "repe_fail_01"
+    },
+    {
+      "prompt": "SYSTEM INTERVENTION: Reflexion Triggered. Adjusting dimensions.",
+      "status": "reflexion",
+      "priority": "high",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "\ud83d\udca1 REFLEXION: Fix Dimensions",
+      "created_at": 1770240428719,
+      "type": "Thought",
+      "x": 400,
+      "y": 630,
+      "id": "repe_reflexion"
+    },
+    {
+      "prompt": "Retrying Vector Extraction with dim=3072",
+      "status": "running",
+      "priority": "medium",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Retry Extraction",
+      "created_at": 1770240428720,
+      "type": "Thought",
+      "x": 400,
+      "y": 810,
+      "id": "repe_retry"
+    },
+    {
+      "prompt": "Background processing task 0...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 0",
+      "created_at": 1770238382094,
+      "type": "Thought",
+      "id": "bg_thought_0"
+    },
+    {
+      "prompt": "Background processing task 1...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 1",
+      "created_at": 1770238382095,
+      "type": "Thought",
+      "id": "bg_thought_1"
+    },
+    {
+      "prompt": "Background processing task 2...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 2",
+      "created_at": 1770238382096,
+      "type": "Thought",
+      "id": "bg_thought_2"
+    },
+    {
+      "prompt": "Background processing task 3...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 3",
+      "created_at": 1770238382098,
+      "type": "Thought",
+      "id": "bg_thought_3"
+    },
+    {
+      "prompt": "Background processing task 4...",
+      "status": "pending",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 4",
+      "created_at": 1770238382100,
+      "type": "Thought",
+      "id": "bg_thought_4"
+    },
+    {
+      "prompt": "Background processing task 5...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 5",
+      "created_at": 1770238382101,
+      "type": "Thought",
+      "id": "bg_thought_5"
+    },
+    {
+      "prompt": "Background processing task 6...",
+      "status": "pending",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 6",
+      "created_at": 1770238382103,
+      "type": "Thought",
+      "id": "bg_thought_6"
+    },
+    {
+      "prompt": "Background processing task 7...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 7",
+      "created_at": 1770238382104,
+      "type": "Thought",
+      "id": "bg_thought_7"
+    },
+    {
+      "prompt": "Background processing task 8...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 8",
+      "created_at": 1770238382105,
+      "type": "Thought",
+      "id": "bg_thought_8"
+    },
+    {
+      "prompt": "Background processing task 9...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 9",
+      "created_at": 1770238382107,
+      "type": "Thought",
+      "id": "bg_thought_9"
+    },
+    {
+      "prompt": "Background processing task 10...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 10",
+      "created_at": 1770238382108,
+      "type": "Thought",
+      "id": "bg_thought_10"
+    },
+    {
+      "prompt": "Background processing task 11...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 11",
+      "created_at": 1770238382109,
+      "type": "Thought",
+      "id": "bg_thought_11"
+    },
+    {
+      "prompt": "Background processing task 12...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 12",
+      "created_at": 1770238382111,
+      "type": "Thought",
+      "id": "bg_thought_12"
+    },
+    {
+      "prompt": "Background processing task 13...",
+      "status": "success",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 13",
+      "created_at": 1770238382113,
+      "type": "Thought",
+      "id": "bg_thought_13"
+    },
+    {
+      "prompt": "Background processing task 14...",
+      "status": "pending",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 14",
+      "created_at": 1770238382114,
+      "type": "Thought",
+      "id": "bg_thought_14"
+    }
+  ],
+  "edges": [
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "root_thought",
+      "target": "node_domain_cag"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "root_thought",
+      "target": "node_domain_dream"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "root_thought",
+      "target": "node_domain_repe"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "cag_step_0"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_1"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_4"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_6"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_7"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_8"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_10"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_11"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_14"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_5"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_9"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "dream_sleep_cycle"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "dream_hallucination"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_0"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_3"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_5"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_12"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_7"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_9"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_10"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_13"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_6"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_8"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "repe_fail_01"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_9"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_13"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_3"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_4"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_8"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_11"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_0"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_1"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "cag_step_0",
+      "target": "cag_step_1"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "cag_step_1",
+      "target": "cag_step_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "cag_step_2",
+      "target": "cag_step_3"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "cag_step_3",
+      "target": "cag_step_4"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "repe_fail_01",
+      "target": "repe_reflexion"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "repe_reflexion",
+      "target": "repe_retry"
+    }
+  ]
+}

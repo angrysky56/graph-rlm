@@ -1,21 +1,14 @@
 #!/bin/bash
 
 # Configuration
-
 REDIS_PORT=6380
-API_PORT=8000
 
-echo "=== Starting Graph RLM System ==="
+echo "=== Starting Graph RLM System (PyQt Edition) ==="
 
 # Trap functionality for cleanup
 cleanup() {
 	echo ""
 	echo "=== Shutting Down ==="
-
-	if [[ -n ${API_PID} ]]; then
-		echo "[-] Stopping Backend API (PID: ${API_PID})..."
-		kill "${API_PID}" 2>/dev/null
-	fi
 
 	if [[ -n ${REDIS_PID} ]]; then
 		if [[ ${REDIS_PID} == "DOCKER_CONTAINER" ]]; then
@@ -27,10 +20,10 @@ cleanup() {
 		fi
 	fi
 
-	if [[ -n ${FRONTEND_PID} ]]; then
-		echo "[-] Stopping Frontend (PID: ${FRONTEND_PID})..."
-		kill "${FRONTEND_PID}" 2>/dev/null
-	fi
+    # Kill the Python process if it's still running (though closing the window usually does this)
+    if [[ -n ${UI_PID} ]]; then
+        kill "${UI_PID}" 2>/dev/null
+    fi
 
 	echo "=== Goodbye ==="
 	exit 0
@@ -40,18 +33,10 @@ cleanup() {
 trap cleanup SIGINT SIGTERM
 
 # 1. Start Database
-# Load environment (DISABLED: Let Python Backend handle .env reloading natively)
-# if [ -f .env ]; then
-#     set -a
-#     source .env
-#     set +a
-# fi
-
 echo "[+] Launching Database on port ${REDIS_PORT}..."
 
 if command -v docker &>/dev/null; then
 	echo "    Checking for existing Database container..."
-	# Check for ANY container (running or stopped) with the name
 	existing_container=$(docker ps -aq -f name=graph-rlm-db)
 	if [[ -n ${existing_container} ]]; then
 		echo "    -> Found existing graph-rlm-db container. Starting/Reusing it."
@@ -59,12 +44,9 @@ if command -v docker &>/dev/null; then
 		REDIS_PID="DOCKER_CONTAINER"
 	else
 		echo "    -> Launching new FalkorDB container..."
-		# Remove dead container if exists (redundant with above check but safe)
 		docker rm -f graph-rlm-db >/dev/null 2>&1
-		# Create data directory if it doesn't exist
 		mkdir -p falkordb_data
 		echo "    -> Launching new FalkorDB container with persistence..."
-		# Ensure Redis saves to disk (appendonly yes)
 		docker run -d --name graph-rlm-db -p "${REDIS_PORT}":6379 -v "${PWD}"/falkordb_data:/data falkordb/falkordb falkordb-server --appendonly yes
 		REDIS_PID="DOCKER_CONTAINER"
 		echo "    -> Container started. Waiting 5s for initialization..."
@@ -75,7 +57,7 @@ else
 	REDIS_PID=""
 fi
 
-# Wait for Redis to be ready (Double Check)
+# Wait for Redis to be ready
 echo "    ...verifying Database connectivity on port ${REDIS_PORT}..."
 for _ in {1..10}; do
 	if (echo >/dev/tcp/127.0.0.1/"${REDIS_PORT}") >/dev/null 2>&1; then
@@ -87,7 +69,7 @@ for _ in {1..10}; do
 done
 echo ""
 
-# 1.5 Setup Agent Venv
+# 1.5 Setup Agent Venv (for skills)
 AGENT_VENV="graph_rlm/backend/agent_venv"
 if [[ ! -d ${AGENT_VENV} ]]; then
 	echo "[+] Creating dedicated Agent Venv at ${AGENT_VENV}..."
@@ -95,25 +77,16 @@ if [[ ! -d ${AGENT_VENV} ]]; then
 	echo "    -> Environment created."
 fi
 
-# 2. Start Backend API
-# Note: Assuming using uvicorn directly or via module
-echo "[+] Launching Backend API on port ${API_PORT}..."
+# 2. Start PyQt UI
+echo "[+] Launching Graph RLM UI..."
 
-echo "[+] Launching Backend (without hot reload for stability)..."
-uv run uvicorn graph_rlm.backend.main:app --host 0.0.0.0 --port 8000 &
-API_PID=$!
-echo "    -> API PID: ${API_PID}"
-
-# 3. Start Frontend
-echo "[+] Launching Frontend..."
-cd graph_rlm/frontend/ui || exit
-npm run dev -- --host &
-FRONTEND_PID=$!
-echo "    -> Frontend PID: ${FRONTEND_PID}"
-cd ../..
+# Use 'uv run' to ensure dependencies from pyproject.toml are used
+uv run python -m graph_rlm.ui.main &
+UI_PID=$!
 
 echo "=== System Operational ==="
-echo "Press Ctrl+C to stop all services."
+echo "Application PID: ${UI_PID}"
 
-# Wait indefinitely so trap can catch signals
-wait
+# Wait for UI process to exit
+wait ${UI_PID}
+cleanup

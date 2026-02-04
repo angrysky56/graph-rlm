@@ -21,7 +21,7 @@ It solves "Context Rot" through three core mechanisms:
 ### 1. The Persistent REPL & Graph Memory
 Variables define state. In Graph-RLM, every session processes thoughts within a persistent **Python REPL**.
 - **State Sharing**: Recursive calls (`rlm.query`) inherit the session ID, allowing sub-agents to access and modify the shared state.
-- **GraphDB**: We use **FalkorDB** to store the **Graph of Thoughts (GoT)**. Every thought is a timestamped node, allowing us to query the "Topological Frontier" of context rather than just a linear list.
+- **GraphDB**: We use **FalkorDB** (Production) or **NetworkX** (Embedded) to store the **Graph of Thoughts (GoT)**. Every thought is a timestamped node, allowing us to query the "Topological Frontier" of context rather than just a linear list.
 
 ### 2. Constraint Augmented Generation (CAG)
 A deterministic alternative to RAG for high-stakes domains:
@@ -58,32 +58,38 @@ Inspired by the **Ralph Protocol** ("Die and Repeat"):
 
 ## Tech Stack
 
-- **Core**: Python 3.12+ (FastAPI)
-- **Memory**: FalkorDB (Graph + Vector Store)
+- **Core**: Python 3.12+ (PyQt6 Desktop App)
+- **Memory**: FalkorDB (Production) OR **NetworkX** (Embedded/Offline Mode)
 - **Execution**: `uv` (Package Management), Native REPL
-- **LLM**: OpenRouter (xAI Grok, GPT-4, etc.) or Ollama (Local)
-- **Frontend**: React + Vite + D3.js (Live Graph Visualization)
+- **LLM**: OpenRouter (Cloud) or Ollama (Local/Offline)
+- **Frontend**: PyQt6 (High-Performance Desktop GUI)
 
 ---
 
 ## Getting Started
 
-### 1. Automated Setup
+### 1. Setup
 
 ```bash
-./setup_env.sh    # Checks dependencies (Python, UV, Docker)
-./start.sh        # Launches Database, Backend, and Frontend
+# Install dependencies
+pip install .
+# OR
+uv sync
 ```
 
-### 2. Usage
+### 2. Run Application
 
-1.  **Launch the UI** (localhost:5173).
-2.  **Enter a Recursive Prompt**:
-    > "Research the 'Ralph Protocol' for AI agents. Recursively break down its 5 pillars and implement a Python mock for each."
-3.  **Watch the Graph**:
-    - Blue Nodes: Thoughts.
-    - Red Pulses: High Surprise (Logical Knots).
-    - **Final Answer**: Triggers a "Micro-Dream" to save insights before exiting.
+```bash
+python scripts/run_app.py
+```
+*Note: The application automatically detects if FalkorDB is running. If not, it falls back to an embedded in-memory graph database (`graph_db.json`), allowing full offline usage without Docker.*
+
+### 3. (Optional) Local LLM
+
+To enable fully offline AI:
+1.  Install [Ollama](https://ollama.com).
+2.  Pull a model: `ollama pull tinyllama` (or your preferred model).
+3.  The app will auto-detect Ollama running on localhost.
 
 ---
 
