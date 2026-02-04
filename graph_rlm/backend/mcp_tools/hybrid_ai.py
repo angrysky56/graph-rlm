@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def create_mcp_neuron(weights: list[float], threshold: float | None = None, name: Any | None = None) -> Any:
+def create_mcp_neuron(weights: list[float] | Any = None, threshold: float | None = None, name: Any | None = None, **kwargs) -> Any:
     """Create a McCulloch-Pitts neuron for transparent decision-making.
 
 Args:
@@ -36,7 +36,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if weights is not None:
         mcp_args["weights"] = weights
@@ -64,7 +64,7 @@ Example:
     return asyncio.run(_async_call())
 
 
-def evaluate_neuron(inputs: list[float], weights: list[float], threshold: float | None = None) -> Any:
+def evaluate_neuron(inputs: list[float] | Any = None, weights: list[float] | Any = None, threshold: float | None = None, **kwargs) -> Any:
     """Evaluate an MCP neuron with given inputs and return explainable result.
 
 Args:
@@ -91,7 +91,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if inputs is not None:
         mcp_args["inputs"] = inputs
@@ -119,7 +119,7 @@ Example:
     return asyncio.run(_async_call())
 
 
-def logic_gate(gate_type: str, inputs: list[float]) -> Any:
+def logic_gate(gate_type: str | Any = None, inputs: list[float] | Any = None, **kwargs) -> Any:
     """Apply a standard logic gate using MCP neurons.
 
 Args:
@@ -144,7 +144,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if gate_type is not None:
         mcp_args["gate_type"] = gate_type
@@ -170,7 +170,7 @@ Example:
     return asyncio.run(_async_call())
 
 
-def create_decision_rule(rule_name: str, weights: list[float], threshold: float | None = None, description: str | None = None) -> Any:
+def create_decision_rule(rule_name: str | Any = None, weights: list[float] | Any = None, threshold: float | None = None, description: str | None = None, **kwargs) -> Any:
     """Create a named decision rule in the network for reuse.
 
 This is useful for encoding business rules, safety constraints,
@@ -205,7 +205,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if rule_name is not None:
         mcp_args["rule_name"] = rule_name
@@ -235,7 +235,7 @@ Example:
     return asyncio.run(_async_call())
 
 
-def apply_decision_rule(rule_name: str, inputs: list[float]) -> Any:
+def apply_decision_rule(rule_name: str | Any = None, inputs: list[float] | Any = None, **kwargs) -> Any:
     """Apply a named decision rule with full explanation.
 
 This provides complete transparency for why a decision was made,
@@ -263,7 +263,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if rule_name is not None:
         mcp_args["rule_name"] = rule_name
@@ -289,7 +289,7 @@ Example:
     return asyncio.run(_async_call())
 
 
-def get_decision_log() -> Any:
+def get_decision_log(**kwargs) -> Any:
     """Get the complete decision log for auditability.
 
 Returns all decisions made by the network with their explanations,
@@ -304,7 +304,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -326,7 +326,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def clear_decision_log() -> Any:
+def clear_decision_log(**kwargs) -> Any:
     """Clear the decision log.
 
     Returns:
@@ -335,7 +335,7 @@ def clear_decision_log() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -357,7 +357,7 @@ def clear_decision_log() -> Any:
     return asyncio.run(_async_call())
 
 
-def post_nn_decision(nn_outputs: dict[str, Any], decision_rule: str, threshold: float | None = None) -> Any:
+def post_nn_decision(nn_outputs: dict[str, Any] | Any = None, decision_rule: str | Any = None, threshold: float | None = None, **kwargs) -> Any:
     """Hybrid AI workflow: Use NN outputs with transparent decision rules.
 
 This implements the "post-NN calculator" pattern where:
@@ -393,7 +393,7 @@ Example:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if nn_outputs is not None:
         mcp_args["nn_outputs"] = nn_outputs

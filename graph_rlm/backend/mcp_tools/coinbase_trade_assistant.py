@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def screen_all_coins(limit: int | None = None, min_volume_usd: float | None = None) -> Any:
+def screen_all_coins(limit: int | None = None, min_volume_usd: float | None = None, **kwargs) -> Any:
     """
 Run comprehensive technical screening across all available coins
 
@@ -32,7 +32,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if limit is not None:
         mcp_args["limit"] = limit
@@ -58,7 +58,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def analyze_coin(product_id: str, timeframe: str | None = None) -> Any:
+def analyze_coin(product_id: str | Any = None, timeframe: str | None = None, **kwargs) -> Any:
     """
 Perform deep technical analysis on a specific cryptocurrency
 
@@ -80,7 +80,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if product_id is not None:
         mcp_args["product_id"] = product_id
@@ -106,7 +106,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def get_market_data(product_ids: str | None = None) -> Any:
+def get_market_data(product_ids: str | None = None, **kwargs) -> Any:
     """
 Get current market data for specified cryptocurrencies
 
@@ -126,7 +126,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if product_ids is not None:
         mcp_args["product_ids"] = product_ids
@@ -150,7 +150,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def check_signals() -> Any:
+def check_signals(**kwargs) -> Any:
     """
 Review recent trading signals from the last screening run
 
@@ -164,7 +164,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -186,7 +186,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def monitor_portfolio(watchlist: str | None = None) -> Any:
+def monitor_portfolio(watchlist: str | None = None, **kwargs) -> Any:
     """
 Monitor a custom watchlist of cryptocurrencies for trading signals
 
@@ -206,7 +206,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if watchlist is not None:
         mcp_args["watchlist"] = watchlist

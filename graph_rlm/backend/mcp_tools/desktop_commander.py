@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def get_config() -> Any:
+def get_config(**kwargs) -> Any:
     """
                         Get the complete server configuration as JSON. Config includes fields for:
                         - blockedCommands (array of blocked shell commands)
@@ -31,7 +31,7 @@ def get_config() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -53,7 +53,7 @@ def get_config() -> Any:
     return asyncio.run(_async_call())
 
 
-def set_config_value(key: str, value: Any) -> Any:
+def set_config_value(key: str | Any = None, value: Any | Any = None, **kwargs) -> Any:
     """
                         Set a specific configuration value by key.
                         
@@ -83,7 +83,7 @@ def set_config_value(key: str, value: Any) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if key is not None:
         mcp_args["key"] = key
@@ -109,7 +109,7 @@ def set_config_value(key: str, value: Any) -> Any:
     return asyncio.run(_async_call())
 
 
-def read_file(path: str, isUrl: bool | None = None, offset: float | None = None, length: float | None = None, sheet: str | None = None, range: str | None = None, options: dict[str, Any] | None = None) -> Any:
+def read_file(path: str | Any = None, isUrl: bool | None = None, offset: float | None = None, length: float | None = None, sheet: str | None = None, range: str | None = None, options: dict[str, Any] | None = None, **kwargs) -> Any:
     """
                         Read contents from files and URLs.
                         Read PDF files and extract content as markdown and images.
@@ -168,7 +168,7 @@ def read_file(path: str, isUrl: bool | None = None, offset: float | None = None,
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -204,7 +204,7 @@ def read_file(path: str, isUrl: bool | None = None, offset: float | None = None,
     return asyncio.run(_async_call())
 
 
-def read_multiple_files(paths: list[str]) -> Any:
+def read_multiple_files(paths: list[str] | Any = None, **kwargs) -> Any:
     """
                         Read the contents of multiple files simultaneously.
                         
@@ -227,7 +227,7 @@ def read_multiple_files(paths: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if paths is not None:
         mcp_args["paths"] = paths
@@ -251,7 +251,7 @@ def read_multiple_files(paths: list[str]) -> Any:
     return asyncio.run(_async_call())
 
 
-def write_file(path: str, content: str, mode: str | None = None) -> Any:
+def write_file(path: str | Any = None, content: str | Any = None, mode: str | None = None, **kwargs) -> Any:
     """
                         Write or append to file contents.
 
@@ -300,7 +300,7 @@ def write_file(path: str, content: str, mode: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -328,7 +328,7 @@ def write_file(path: str, content: str, mode: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def write_pdf(path: str, content: Any, outputPath: str | None = None, options: dict[str, Any] | None = None) -> Any:
+def write_pdf(path: str | Any = None, content: Any | Any = None, outputPath: str | None = None, options: dict[str, Any] | None = None, **kwargs) -> Any:
     """
                         Create a new PDF file or modify an existing one.
 
@@ -394,7 +394,7 @@ def write_pdf(path: str, content: Any, outputPath: str | None = None, options: d
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -424,7 +424,7 @@ def write_pdf(path: str, content: Any, outputPath: str | None = None, options: d
     return asyncio.run(_async_call())
 
 
-def create_directory(path: str) -> Any:
+def create_directory(path: str | Any = None, **kwargs) -> Any:
     """
                         Create a new directory or ensure a directory exists.
                         
@@ -443,7 +443,7 @@ def create_directory(path: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -467,7 +467,7 @@ def create_directory(path: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_directory(path: str, depth: float | None = None) -> Any:
+def list_directory(path: str | Any = None, depth: float | None = None, **kwargs) -> Any:
     """
                         Get a detailed listing of all files and directories in a specified path.
                         
@@ -509,7 +509,7 @@ def list_directory(path: str, depth: float | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -535,7 +535,7 @@ def list_directory(path: str, depth: float | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def move_file(source: str, destination: str) -> Any:
+def move_file(source: str | Any = None, destination: str | Any = None, **kwargs) -> Any:
     """
                         Move or rename files and directories.
                         
@@ -555,7 +555,7 @@ def move_file(source: str, destination: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if source is not None:
         mcp_args["source"] = source
@@ -581,7 +581,7 @@ def move_file(source: str, destination: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def start_search(path: str, pattern: str, searchType: str | None = None, filePattern: str | None = None, ignoreCase: bool | None = None, maxResults: float | None = None, includeHidden: bool | None = None, contextLines: float | None = None, timeout_ms: float | None = None, earlyTermination: bool | None = None, literalSearch: bool | None = None) -> Any:
+def start_search(path: str | Any = None, pattern: str | Any = None, searchType: str | None = None, filePattern: str | None = None, ignoreCase: bool | None = None, maxResults: float | None = None, includeHidden: bool | None = None, contextLines: float | None = None, timeout_ms: float | None = None, earlyTermination: bool | None = None, literalSearch: bool | None = None, **kwargs) -> Any:
     """
                         Start a streaming search that can return results progressively.
                         
@@ -681,7 +681,7 @@ def start_search(path: str, pattern: str, searchType: str | None = None, filePat
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -725,7 +725,7 @@ def start_search(path: str, pattern: str, searchType: str | None = None, filePat
     return asyncio.run(_async_call())
 
 
-def get_more_search_results(sessionId: str, offset: float | None = None, length: float | None = None) -> Any:
+def get_more_search_results(sessionId: str | Any = None, offset: float | None = None, length: float | None = None, **kwargs) -> Any:
     """
                         Get more results from an active search with offset-based pagination.
                         
@@ -760,7 +760,7 @@ def get_more_search_results(sessionId: str, offset: float | None = None, length:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if sessionId is not None:
         mcp_args["sessionId"] = sessionId
@@ -788,7 +788,7 @@ def get_more_search_results(sessionId: str, offset: float | None = None, length:
     return asyncio.run(_async_call())
 
 
-def stop_search(sessionId: str) -> Any:
+def stop_search(sessionId: str | Any = None, **kwargs) -> Any:
     """
                         Stop an active search.
                         
@@ -810,7 +810,7 @@ def stop_search(sessionId: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if sessionId is not None:
         mcp_args["sessionId"] = sessionId
@@ -834,7 +834,7 @@ def stop_search(sessionId: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_searches() -> Any:
+def list_searches(**kwargs) -> Any:
     """
                         List all active searches.
                         
@@ -850,7 +850,7 @@ def list_searches() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -872,7 +872,7 @@ def list_searches() -> Any:
     return asyncio.run(_async_call())
 
 
-def get_file_info(path: str) -> Any:
+def get_file_info(path: str | Any = None, **kwargs) -> Any:
     """
                         Retrieve detailed metadata about a file or directory including:
                         - size
@@ -899,7 +899,7 @@ def get_file_info(path: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path is not None:
         mcp_args["path"] = path
@@ -923,7 +923,7 @@ def get_file_info(path: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def edit_block(file_path: str, old_string: str | None = None, new_string: str | None = None, expected_replacements: float | None = None, range: str | None = None, content: Any | None = None, options: dict[str, Any] | None = None) -> Any:
+def edit_block(file_path: str | Any = None, old_string: str | None = None, new_string: str | None = None, expected_replacements: float | None = None, range: str | None = None, content: Any | None = None, options: dict[str, Any] | None = None, **kwargs) -> Any:
     """
                         Apply surgical edits to files.
 
@@ -982,7 +982,7 @@ def edit_block(file_path: str, old_string: str | None = None, new_string: str | 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if file_path is not None:
         mcp_args["file_path"] = file_path
@@ -1018,7 +1018,7 @@ def edit_block(file_path: str, old_string: str | None = None, new_string: str | 
     return asyncio.run(_async_call())
 
 
-def start_process(command: str, timeout_ms: float, shell: str | None = None, verbose_timing: bool | None = None) -> Any:
+def start_process(command: str | Any = None, timeout_ms: float | Any = None, shell: str | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Start a new terminal process with intelligent state detection.
                         
@@ -1102,7 +1102,7 @@ LINUX-SPECIFIC NOTES:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if command is not None:
         mcp_args["command"] = command
@@ -1132,7 +1132,7 @@ LINUX-SPECIFIC NOTES:
     return asyncio.run(_async_call())
 
 
-def read_process_output(pid: float, timeout_ms: float | None = None, offset: float | None = None, length: float | None = None, verbose_timing: bool | None = None) -> Any:
+def read_process_output(pid: float | Any = None, timeout_ms: float | None = None, offset: float | None = None, length: float | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Read output from a running process with file-like pagination support.
                         
@@ -1180,7 +1180,7 @@ def read_process_output(pid: float, timeout_ms: float | None = None, offset: flo
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pid is not None:
         mcp_args["pid"] = pid
@@ -1212,7 +1212,7 @@ def read_process_output(pid: float, timeout_ms: float | None = None, offset: flo
     return asyncio.run(_async_call())
 
 
-def interact_with_process(pid: float, input: str, timeout_ms: float | None = None, wait_for_prompt: bool | None = None, verbose_timing: bool | None = None) -> Any:
+def interact_with_process(pid: float | Any = None, input: str | Any = None, timeout_ms: float | None = None, wait_for_prompt: bool | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Send input to a running process and automatically receive the response.
                         
@@ -1284,7 +1284,7 @@ def interact_with_process(pid: float, input: str, timeout_ms: float | None = Non
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pid is not None:
         mcp_args["pid"] = pid
@@ -1316,7 +1316,7 @@ def interact_with_process(pid: float, input: str, timeout_ms: float | None = Non
     return asyncio.run(_async_call())
 
 
-def force_terminate(pid: float) -> Any:
+def force_terminate(pid: float | Any = None, **kwargs) -> Any:
     """
                         Force terminate a running terminal session.
                         
@@ -1331,7 +1331,7 @@ def force_terminate(pid: float) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pid is not None:
         mcp_args["pid"] = pid
@@ -1355,7 +1355,7 @@ def force_terminate(pid: float) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_sessions() -> Any:
+def list_sessions(**kwargs) -> Any:
     """
                         List all active terminal sessions.
                         
@@ -1377,7 +1377,7 @@ def list_sessions() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -1399,7 +1399,7 @@ def list_sessions() -> Any:
     return asyncio.run(_async_call())
 
 
-def list_processes() -> Any:
+def list_processes(**kwargs) -> Any:
     """
                         List all running processes.
                         
@@ -1413,7 +1413,7 @@ def list_processes() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -1435,7 +1435,7 @@ def list_processes() -> Any:
     return asyncio.run(_async_call())
 
 
-def kill_process(pid: float) -> Any:
+def kill_process(pid: float | Any = None, **kwargs) -> Any:
     """
                         Terminate a running process by PID.
 
@@ -1452,7 +1452,7 @@ def kill_process(pid: float) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pid is not None:
         mcp_args["pid"] = pid
@@ -1476,7 +1476,7 @@ def kill_process(pid: float) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_usage_stats() -> Any:
+def get_usage_stats(**kwargs) -> Any:
     """
                         Get usage statistics for debugging and analysis.
                         
@@ -1490,7 +1490,7 @@ def get_usage_stats() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -1512,7 +1512,7 @@ def get_usage_stats() -> Any:
     return asyncio.run(_async_call())
 
 
-def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None = None, since: str | None = None) -> Any:
+def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None = None, since: str | None = None, **kwargs) -> Any:
     """
                         Get recent tool call history with their arguments and outputs.
                         Returns chronological list of tool calls made during this session.
@@ -1538,7 +1538,7 @@ def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if maxResults is not None:
         mcp_args["maxResults"] = maxResults
@@ -1566,7 +1566,7 @@ def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None 
     return asyncio.run(_async_call())
 
 
-def give_feedback_to_desktop_commander() -> Any:
+def give_feedback_to_desktop_commander(**kwargs) -> Any:
     """
                         Open feedback form in browser to provide feedback about Desktop Commander.
                         
@@ -1607,7 +1607,7 @@ def give_feedback_to_desktop_commander() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -1629,7 +1629,7 @@ def give_feedback_to_desktop_commander() -> Any:
     return asyncio.run(_async_call())
 
 
-def get_prompts(action: str, promptId: str) -> Any:
+def get_prompts(action: str | Any = None, promptId: str | Any = None, **kwargs) -> Any:
     """
                         Retrieve a specific Desktop Commander onboarding prompt by ID and execute it.
                         
@@ -1664,7 +1664,7 @@ def get_prompts(action: str, promptId: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if action is not None:
         mcp_args["action"] = action

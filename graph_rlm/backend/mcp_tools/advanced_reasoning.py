@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def advanced_reasoning(thought: str, nextThoughtNeeded: bool, thoughtNumber: int, totalThoughts: int, confidence: float | None = None, reasoning_quality: str | None = None, meta_thought: str | None = None, goal: str | None = None, progress: float | None = None, hypothesis: str | None = None, test_plan: str | None = None, test_result: str | None = None, evidence: list[str] | None = None, session_id: str | None = None, builds_on: list[str] | None = None, challenges: list[str] | None = None, isRevision: bool | None = None, revisesThought: int | None = None, branchFromThought: int | None = None, branchId: str | None = None, needsMoreThoughts: bool | None = None) -> Any:
+def advanced_reasoning(thought: str | Any = None, nextThoughtNeeded: bool | Any = None, thoughtNumber: int | Any = None, totalThoughts: int | Any = None, confidence: float | None = None, reasoning_quality: str | None = None, meta_thought: str | None = None, goal: str | None = None, progress: float | None = None, hypothesis: str | None = None, test_plan: str | None = None, test_result: str | None = None, evidence: list[str] | None = None, session_id: str | None = None, builds_on: list[str] | None = None, challenges: list[str] | None = None, isRevision: bool | None = None, revisesThought: int | None = None, branchFromThought: int | None = None, branchId: str | None = None, needsMoreThoughts: bool | None = None, **kwargs) -> Any:
     """Advanced cognitive reasoning tool that builds on sequential thinking with meta-cognition, hypothesis testing, and integrated memory.
 
 Key Features:
@@ -75,7 +75,7 @@ Use this tool for complex reasoning that benefits from:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if thought is not None:
         mcp_args["thought"] = thought
@@ -139,7 +139,7 @@ Use this tool for complex reasoning that benefits from:
     return asyncio.run(_async_call())
 
 
-def query_reasoning_memory(session_id: str, query: str) -> Any:
+def query_reasoning_memory(session_id: str | Any = None, query: str | Any = None, **kwargs) -> Any:
     """Query the integrated memory system to find related insights, hypotheses, and evidence.
 
 Useful for:
@@ -164,7 +164,7 @@ Returns related memories with confidence scores and connection information.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if session_id is not None:
         mcp_args["session_id"] = session_id
@@ -190,7 +190,7 @@ Returns related memories with confidence scores and connection information.
     return asyncio.run(_async_call())
 
 
-def create_memory_library(library_name: str) -> Any:
+def create_memory_library(library_name: str | Any = None, **kwargs) -> Any:
     """Create a new named memory library for organized knowledge storage.
 
 Enables you to create separate, named memory libraries for different projects, domains, or contexts.
@@ -210,7 +210,7 @@ Returns success status and message.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if library_name is not None:
         mcp_args["library_name"] = library_name
@@ -234,7 +234,7 @@ Returns success status and message.
     return asyncio.run(_async_call())
 
 
-def list_memory_libraries() -> Any:
+def list_memory_libraries(**kwargs) -> Any:
     """List all available memory libraries with metadata.
 
 Shows all existing memory libraries with information about:
@@ -250,7 +250,7 @@ Returns organized, searchable library information.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -272,7 +272,7 @@ Returns organized, searchable library information.
     return asyncio.run(_async_call())
 
 
-def switch_memory_library(library_name: str) -> Any:
+def switch_memory_library(library_name: str | Any = None, **kwargs) -> Any:
     """Switch to a different memory library.
 
 Allows you to switch between different memory libraries for different contexts or projects.
@@ -292,7 +292,7 @@ Returns success status and message.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if library_name is not None:
         mcp_args["library_name"] = library_name
@@ -316,7 +316,7 @@ Returns success status and message.
     return asyncio.run(_async_call())
 
 
-def get_current_library_info() -> Any:
+def get_current_library_info(**kwargs) -> Any:
     """Get information about the currently active memory library.
 
 Shows current library name, number of nodes, sessions, and other metadata.
@@ -329,7 +329,7 @@ Returns current library information.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -351,7 +351,7 @@ Returns current library information.
     return asyncio.run(_async_call())
 
 
-def create_system_json(name: str, domain: str, description: str, data: dict[str, Any], tags: list[str] | None = None) -> Any:
+def create_system_json(name: str | Any = None, domain: str | Any = None, description: str | Any = None, data: dict[str, Any] | Any = None, tags: list[str] | None = None, **kwargs) -> Any:
     """Create a new system JSON file for storing coherent detailed searchable data or instructions and workflows for any domain or action.
 
 Parameters:
@@ -376,7 +376,7 @@ Returns success status and confirmation message.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if name is not None:
         mcp_args["name"] = name
@@ -408,7 +408,7 @@ Returns success status and confirmation message.
     return asyncio.run(_async_call())
 
 
-def get_system_json(name: str) -> Any:
+def get_system_json(name: str | Any = None, **kwargs) -> Any:
     """Retrieve a system JSON file by name.
 
 Parameters:
@@ -425,7 +425,7 @@ Returns the complete system JSON data including metadata and content.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if name is not None:
         mcp_args["name"] = name
@@ -449,7 +449,7 @@ Returns the complete system JSON data including metadata and content.
     return asyncio.run(_async_call())
 
 
-def search_system_json(query: str) -> Any:
+def search_system_json(query: str | Any = None, **kwargs) -> Any:
     """Search through system JSON files by query.
 
 Parameters:
@@ -466,7 +466,7 @@ Returns matching files with relevance scores.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -490,7 +490,7 @@ Returns matching files with relevance scores.
     return asyncio.run(_async_call())
 
 
-def list_system_json() -> Any:
+def list_system_json(**kwargs) -> Any:
     """List all available system JSON files.
 
 Returns list of all system JSON files with their names, domains, and descriptions.
@@ -501,7 +501,7 @@ Returns list of all system JSON files with their names, domains, and description
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():

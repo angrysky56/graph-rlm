@@ -1,3 +1,5 @@
+import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -54,52 +56,77 @@ async def lifespan(app: FastAPI):
         if config_path.exists():
             output_dir = Path(__file__).parent / "mcp_tools"
 
+            output_dir = Path(__file__).parent / "mcp_tools"
+
             should_regenerate = True
-            if (
-                output_dir.exists()
-                and output_dir.stat().st_mtime > config_path.stat().st_mtime
-            ):
-                if any(output_dir.iterdir()):
-                    # Count cached servers and tools
-                    server_files = list(output_dir.glob("*.py"))
-                    server_count = 0
-                    tool_count = 0
-                    for f in server_files:
-                        if f.stem in ["__init__", "skills"]:
-                            continue
-                        server_count += 1
-                        # Quick count of tools in the module using regex on the auto-generated list_tools
-                        import re
+            if output_dir.exists():
+                # Load config to check if any servers are missing files
+                try:
+                    import json
 
-                        try:
-                            content = f.read_text()
-                            match = re.search(r"return\s+\[(.*?)\]", content)
-                            if match:
-                                tools = [
-                                    t.strip().strip("'").strip('"')
-                                    for t in match.group(1).split(",")
-                                    if t.strip()
-                                ]
-                                tool_count += len(tools)
-                        except Exception as e:
-                            # Log as debug to avoid console noise, but satisfy lint
-                            import logging
+                    with open(config_path) as f:
+                        config_data = json.load(f)
+                    config_servers = config_data.get("mcpServers", {})
 
-                            logging.getLogger(__name__).debug(
-                                f"Could not parse tool count for {f.name}: {e}"
+                    # Map to snake_case filenames
+                    gen = ToolGenerator(output_dir)
+                    expected_modules = {
+                        gen._sanitize_name(name) for name in config_servers
+                    }
+                    existing_modules = {
+                        f.stem
+                        for f in output_dir.glob("*.py")
+                        if f.stem not in ["__init__", "skills"]
+                    }
+
+                    missing = expected_modules - existing_modules
+
+                    # If everything is there and the dir is newer than config, we can skip
+                    if (
+                        not missing
+                        and output_dir.stat().st_mtime > config_path.stat().st_mtime
+                    ):
+                        if any(output_dir.iterdir()):
+                            # Count cached servers and tools for logging
+                            server_files = list(output_dir.glob("*.py"))
+                            server_count = 0
+                            tool_count = 0
+                            for f in server_files:
+                                if f.stem in ["__init__", "skills"]:
+                                    continue
+                                server_count += 1
+                                # Quick count of tools
+                                try:
+                                    content = f.read_text()
+                                    match = re.search(r"return\s+\[(.*?)\]", content)
+                                    if match:
+                                        tools = [
+                                            t.strip().strip("'").strip('"')
+                                            for t in match.group(1).split(",")
+                                            if t.strip()
+                                        ]
+                                        tool_count += len(tools)
+                                except Exception:
+                                    pass
+
+                            print(
+                                f"MCP: Cached - Found {server_count} servers and {tool_count} tools in {output_dir.name}/"
                             )
-
-                    print(
-                        f"MCP: Cached - Found {server_count} servers and {tool_count} tools in {output_dir.name}/"
+                            should_regenerate = False
+                except Exception as e:
+                    logging.getLogger(__name__).error(
+                        f"Failed to verify MCP cache consistency: {e}"
                     )
-                    should_regenerate = False
+                    should_regenerate = True
 
             if should_regenerate:
                 print(f"MCP: Discovering tools from {config_path}...")
                 servers_info = await discover_all_servers(config_path)
                 gen = ToolGenerator(output_dir)
-                count = gen.generate_all(servers_info)
-                print(f"MCP: Generated {count} server modules in {output_dir}")
+                count, t_count = gen.generate_all(servers_info)
+                print(
+                    f"MCP: Generated {count} server modules with {t_count} tools in {output_dir}"
+                )
         else:
             print("MCP: No mcp_servers.json found, skipping tool generation.")
 

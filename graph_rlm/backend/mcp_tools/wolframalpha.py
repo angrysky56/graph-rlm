@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def ask_llm(query: str) -> Any:
+def ask_llm(query: str | Any = None, **kwargs) -> Any:
     """Ask WolframAlpha a query and get LLM-optimized structured response with multiple formats
 
     Args:
@@ -22,7 +22,7 @@ def ask_llm(query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -46,7 +46,7 @@ def ask_llm(query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_simple_answer(query: str) -> Any:
+def get_simple_answer(query: str | Any = None, **kwargs) -> Any:
     """Get a simplified, LLM-friendly answer focusing on the most relevant information
 
     Args:
@@ -58,7 +58,7 @@ def get_simple_answer(query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -82,7 +82,7 @@ def get_simple_answer(query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def validate_key() -> Any:
+def validate_key(**kwargs) -> Any:
     """Validate the WolframAlpha LLM API key
 
     Returns:
@@ -91,7 +91,7 @@ def validate_key() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():

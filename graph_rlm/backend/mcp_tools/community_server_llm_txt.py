@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def get_llm_txt(id: float, page: float | None = None) -> Any:
+def get_llm_txt(id: float | Any = None, page: float | None = None, **kwargs) -> Any:
     """Fetch an LLM.txt file from a given URL. Format your response in beautiful markdown.
 
     Args:
@@ -23,7 +23,7 @@ def get_llm_txt(id: float, page: float | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -49,7 +49,7 @@ def get_llm_txt(id: float, page: float | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_llm_txt() -> Any:
+def list_llm_txt(**kwargs) -> Any:
     """List available LLM.txt files from the directory. Use this first before fetching a specific LLM.txt file. Format your response in beautiful markdown.
 
     Returns:
@@ -58,7 +58,7 @@ def list_llm_txt() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -80,7 +80,7 @@ def list_llm_txt() -> Any:
     return asyncio.run(_async_call())
 
 
-def search_llm_txt(id: float, queries: list[str], context_lines: float | None = None) -> Any:
+def search_llm_txt(id: float | Any = None, queries: list[str] | Any = None, context_lines: float | None = None, **kwargs) -> Any:
     """Search for multiple substrings in an LLM.txt file. Requires a valid ID obtained from list_llm_txt command. Returns snippets with page numbers for each match. Format your response in beautiful markdown, using code blocks for snippets.
 
     Args:
@@ -94,7 +94,7 @@ def search_llm_txt(id: float, queries: list[str], context_lines: float | None = 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id

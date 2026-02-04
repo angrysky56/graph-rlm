@@ -10,9 +10,9 @@ Do not edit manually.
 from typing import Any
 
 
-def propose_thought(type: str, content: str, parentIds: list[str] | None = None, edgeTypes: list[str] | None = None) -> Any:
+def propose_thought(thoughtType: str | Any = None, content: str | Any = None, parentIds: list[str] | None = None, edgeTypes: list[str] | None = None, **kwargs) -> Any:
     """Propose a new thought node to the reasoning graph. The Graph Kernel (∂) will validate constraints before committing.
-        
+
 Node Types:
 - PREMISE: Axiom, fact, or retrieved data (can be root)
 - WARRANT: Intermediate reasoning step
@@ -28,7 +28,7 @@ Constraints enforced:
 - Acyclicity: Graph must remain a DAG
 
     Args:
-        type: The type of thought node
+        thoughtType: The type of thought node
         content: The content/text of the thought
         parentIds: IDs of parent nodes this thought derives from
         edgeTypes: Edge types for each parent (optional, defaults to DERIVED_FROM)
@@ -39,10 +39,12 @@ Constraints enforced:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
-    if type is not None:
-        mcp_args["type"] = type
+    # Resilience: Handle aliases for 'thoughtType'
+    actual_thoughtType = thoughtType or kwargs.get('type') or kwargs.get('node_type') or kwargs.get('thought_type')
+    if actual_thoughtType is not None:
+        mcp_args["thoughtType"] = actual_thoughtType
     if content is not None:
         mcp_args["content"] = content
     if parentIds is not None:
@@ -69,7 +71,7 @@ Constraints enforced:
     return asyncio.run(_async_call())
 
 
-def get_context(nodeId: str, maxDepth: float | None = None) -> Any:
+def get_context(nodeId: str | Any = None, maxDepth: float | None = None, **kwargs) -> Any:
     """Retrieve the causal ancestors of a node - the 'causal light cone' that should be loaded for reasoning about this node.
 
     Args:
@@ -82,7 +84,7 @@ def get_context(nodeId: str, maxDepth: float | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if nodeId is not None:
         mcp_args["nodeId"] = nodeId
@@ -108,7 +110,7 @@ def get_context(nodeId: str, maxDepth: float | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_reasoning_chain(claimId: str) -> Any:
+def get_reasoning_chain(claimId: str | Any = None, **kwargs) -> Any:
     """Get the full provenance path from root to a specific claim. Shows exactly which premises and reasoning led to this conclusion.
 
     Args:
@@ -120,7 +122,7 @@ def get_reasoning_chain(claimId: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if claimId is not None:
         mcp_args["claimId"] = claimId
@@ -144,7 +146,7 @@ def get_reasoning_chain(claimId: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def query_graph(query: str, nodeType: str | None = None) -> Any:
+def query_graph(query: str | Any = None, nodeType: str | None = None, **kwargs) -> Any:
     """Search for nodes by content. Returns matching valid nodes.
 
     Args:
@@ -157,7 +159,7 @@ def query_graph(query: str, nodeType: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -183,7 +185,7 @@ def query_graph(query: str, nodeType: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_graph_state() -> Any:
+def get_graph_state(**kwargs) -> Any:
     """Get the complete current state of the reasoning graph, including all nodes, edges, and metadata.
 
     Returns:
@@ -192,7 +194,7 @@ def get_graph_state() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -214,7 +216,7 @@ def get_graph_state() -> Any:
     return asyncio.run(_async_call())
 
 
-def get_node(nodeId: str) -> Any:
+def get_node(nodeId: str | Any = None, **kwargs) -> Any:
     """Get a specific node by ID.
 
     Args:
@@ -226,7 +228,7 @@ def get_node(nodeId: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if nodeId is not None:
         mcp_args["nodeId"] = nodeId
@@ -250,7 +252,7 @@ def get_node(nodeId: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def clear_graph() -> Any:
+def clear_graph(**kwargs) -> Any:
     """Reset the reasoning graph. Use with caution - all nodes and edges will be deleted.
 
     Returns:
@@ -259,7 +261,7 @@ def clear_graph() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():

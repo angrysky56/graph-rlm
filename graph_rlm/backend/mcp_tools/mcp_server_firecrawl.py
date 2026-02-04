@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def firecrawl_scrape(url: str, formats: list[Any] | None = None, parsers: list[Any] | None = None, onlyMainContent: bool | None = None, includeTags: list[str] | None = None, excludeTags: list[str] | None = None, waitFor: float | None = None, actions: list[dict[str, Any]] | None = None, mobile: bool | None = None, skipTlsVerification: bool | None = None, removeBase64Images: bool | None = None, location: dict[str, Any] | None = None, storeInCache: bool | None = None, zeroDataRetention: bool | None = None, maxAge: float | None = None, proxy: str | None = None) -> Any:
+def firecrawl_scrape(url: str | Any = None, formats: list[Any] | None = None, parsers: list[Any] | None = None, onlyMainContent: bool | None = None, includeTags: list[str] | None = None, excludeTags: list[str] | None = None, waitFor: float | None = None, actions: list[dict[str, Any]] | None = None, mobile: bool | None = None, skipTlsVerification: bool | None = None, removeBase64Images: bool | None = None, location: dict[str, Any] | None = None, storeInCache: bool | None = None, zeroDataRetention: bool | None = None, maxAge: float | None = None, proxy: str | None = None, **kwargs) -> Any:
     """
 Scrape content from a single URL with advanced options. 
 This is the most powerful, fastest and most reliable scraper tool, if available you should always default to using this tool for any web scraping needs.
@@ -60,7 +60,7 @@ This is the most powerful, fastest and most reliable scraper tool, if available 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -114,7 +114,7 @@ This is the most powerful, fastest and most reliable scraper tool, if available 
     return asyncio.run(_async_call())
 
 
-def firecrawl_map(url: str, search: str | None = None, sitemap: str | None = None, includeSubdomains: bool | None = None, limit: float | None = None, ignoreQueryParameters: bool | None = None) -> Any:
+def firecrawl_map(url: str | Any = None, search: str | None = None, sitemap: str | None = None, includeSubdomains: bool | None = None, limit: float | None = None, ignoreQueryParameters: bool | None = None, **kwargs) -> Any:
     """
 Map a website to discover all indexed URLs on the site.
 
@@ -148,7 +148,7 @@ Map a website to discover all indexed URLs on the site.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -182,7 +182,7 @@ Map a website to discover all indexed URLs on the site.
     return asyncio.run(_async_call())
 
 
-def firecrawl_search(query: str, limit: float | None = None, tbs: str | None = None, filter: str | None = None, location: str | None = None, sources: list[dict[str, Any]] | None = None, scrapeOptions: dict[str, Any] | None = None, enterprise: list[str] | None = None) -> Any:
+def firecrawl_search(query: str | Any = None, limit: float | None = None, tbs: str | None = None, filter: str | None = None, location: str | None = None, sources: list[dict[str, Any]] | None = None, scrapeOptions: dict[str, Any] | None = None, enterprise: list[str] | None = None, **kwargs) -> Any:
     """
 Search the web and optionally extract content from search results. This is the most powerful web search tool available, and if available you should always default to using this tool for any web search needs.
 
@@ -261,7 +261,7 @@ The query also supports search operators, that you can use if needed to refine t
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -299,7 +299,7 @@ The query also supports search operators, that you can use if needed to refine t
     return asyncio.run(_async_call())
 
 
-def firecrawl_crawl(url: str, prompt: str | None = None, excludePaths: list[str] | None = None, includePaths: list[str] | None = None, maxDiscoveryDepth: float | None = None, sitemap: str | None = None, limit: float | None = None, allowExternalLinks: bool | None = None, allowSubdomains: bool | None = None, crawlEntireDomain: bool | None = None, delay: float | None = None, maxConcurrency: float | None = None, webhook: Any | None = None, deduplicateSimilarURLs: bool | None = None, ignoreQueryParameters: bool | None = None, scrapeOptions: dict[str, Any] | None = None) -> Any:
+def firecrawl_crawl(url: str | Any = None, prompt: str | None = None, excludePaths: list[str] | None = None, includePaths: list[str] | None = None, maxDiscoveryDepth: float | None = None, sitemap: str | None = None, limit: float | None = None, allowExternalLinks: bool | None = None, allowSubdomains: bool | None = None, crawlEntireDomain: bool | None = None, delay: float | None = None, maxConcurrency: float | None = None, webhook: Any | None = None, deduplicateSimilarURLs: bool | None = None, ignoreQueryParameters: bool | None = None, scrapeOptions: dict[str, Any] | None = None, **kwargs) -> Any:
     """
  Starts a crawl job on a website and extracts content from all pages.
  
@@ -350,7 +350,7 @@ def firecrawl_crawl(url: str, prompt: str | None = None, excludePaths: list[str]
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -404,7 +404,7 @@ def firecrawl_crawl(url: str, prompt: str | None = None, excludePaths: list[str]
     return asyncio.run(_async_call())
 
 
-def firecrawl_check_crawl_status(id: str) -> Any:
+def firecrawl_check_crawl_status(id: str | Any = None, **kwargs) -> Any:
     """
 Check the status of a crawl job.
 
@@ -429,7 +429,7 @@ Check the status of a crawl job.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -453,7 +453,7 @@ Check the status of a crawl job.
     return asyncio.run(_async_call())
 
 
-def firecrawl_extract(urls: list[str], prompt: str | None = None, schema: dict[str, Any] | None = None, allowExternalLinks: bool | None = None, enableWebSearch: bool | None = None, includeSubdomains: bool | None = None) -> Any:
+def firecrawl_extract(urls: list[str] | Any = None, prompt: str | None = None, schema: dict[str, Any] | None = None, allowExternalLinks: bool | None = None, enableWebSearch: bool | None = None, includeSubdomains: bool | None = None, **kwargs) -> Any:
     """
 Extract structured information from web pages using LLM capabilities. Supports both cloud AI and self-hosted LLM extraction.
 
@@ -506,7 +506,7 @@ Extract structured information from web pages using LLM capabilities. Supports b
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if urls is not None:
         mcp_args["urls"] = urls
@@ -540,7 +540,7 @@ Extract structured information from web pages using LLM capabilities. Supports b
     return asyncio.run(_async_call())
 
 
-def firecrawl_agent(prompt: str, urls: list[str] | None = None, schema: dict[str, Any] | None = None) -> Any:
+def firecrawl_agent(prompt: str | Any = None, urls: list[str] | None = None, schema: dict[str, Any] | None = None, **kwargs) -> Any:
     """
 Autonomous web data gathering agent. Describe what data you want, and the agent searches, navigates, and extracts it from anywhere on the web.
 
@@ -607,7 +607,7 @@ Autonomous web data gathering agent. Describe what data you want, and the agent 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if prompt is not None:
         mcp_args["prompt"] = prompt
@@ -635,7 +635,7 @@ Autonomous web data gathering agent. Describe what data you want, and the agent 
     return asyncio.run(_async_call())
 
 
-def firecrawl_agent_status(id: str) -> Any:
+def firecrawl_agent_status(id: str | Any = None, **kwargs) -> Any:
     """
 Check the status of an agent job.
 
@@ -665,7 +665,7 @@ Check the status of an agent job.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id

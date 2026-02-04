@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def prove(premises: list[str], conclusion: str) -> Any:
+def prove(premises: list[str] | Any = None, conclusion: str | Any = None, **kwargs) -> Any:
     """Prove a logical statement using Prover9
 
     Args:
@@ -23,7 +23,7 @@ def prove(premises: list[str], conclusion: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -49,7 +49,7 @@ def prove(premises: list[str], conclusion: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def check_well_formed(statements: list[str]) -> Any:
+def check_well_formed(statements: list[str] | Any = None, **kwargs) -> Any:
     """Check if logical statements are well-formed with detailed syntax validation
 
     Args:
@@ -61,7 +61,7 @@ def check_well_formed(statements: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if statements is not None:
         mcp_args["statements"] = statements
@@ -85,7 +85,7 @@ def check_well_formed(statements: list[str]) -> Any:
     return asyncio.run(_async_call())
 
 
-def find_model(premises: list[str], domain_size: int | None = None) -> Any:
+def find_model(premises: list[str] | Any = None, domain_size: int | None = None, **kwargs) -> Any:
     """Use Mace4 to find a finite model satisfying the given premises
 
     Args:
@@ -98,7 +98,7 @@ def find_model(premises: list[str], domain_size: int | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -124,7 +124,7 @@ def find_model(premises: list[str], domain_size: int | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def find_counterexample(premises: list[str], conclusion: str, domain_size: int | None = None) -> Any:
+def find_counterexample(premises: list[str] | Any = None, conclusion: str | Any = None, domain_size: int | None = None, **kwargs) -> Any:
     """Use Mace4 to find a counterexample showing the conclusion doesn't follow from premises
 
     Args:
@@ -138,7 +138,7 @@ def find_counterexample(premises: list[str], conclusion: str, domain_size: int |
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -166,7 +166,7 @@ def find_counterexample(premises: list[str], conclusion: str, domain_size: int |
     return asyncio.run(_async_call())
 
 
-def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str, object_end: str, with_category_axioms: bool | None = None) -> Any:
+def verify_commutativity(path_a: list[str] | Any = None, path_b: list[str] | Any = None, object_start: str | Any = None, object_end: str | Any = None, with_category_axioms: bool | None = None, **kwargs) -> Any:
     """Verify that a categorical diagram commutes by generating FOL premises and conclusion
 
     Args:
@@ -182,7 +182,7 @@ def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path_a is not None:
         mcp_args["path_a"] = path_a
@@ -214,7 +214,7 @@ def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str
     return asyncio.run(_async_call())
 
 
-def get_category_axioms(concept: str, functor_name: str | None = None) -> Any:
+def get_category_axioms(concept: str | Any = None, functor_name: str | None = None, **kwargs) -> Any:
     """Get FOL axioms for category theory concepts (category, functor, natural transformation)
 
     Args:
@@ -227,7 +227,7 @@ def get_category_axioms(concept: str, functor_name: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if concept is not None:
         mcp_args["concept"] = concept

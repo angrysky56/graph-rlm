@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def load_data(file_path: str, alias: Any | None = None, engine: str | None = None) -> Any:
+def load_data(file_path: str | Any = None, alias: Any | None = None, engine: str | None = None, **kwargs) -> Any:
     """
 Loads a dataset file (CSV/Parquet) into the server's working memory.
 
@@ -34,7 +34,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if file_path is not None:
         mcp_args["file_path"] = file_path
@@ -62,7 +62,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def get_dataset_info(dataset_id: str) -> Any:
+def get_dataset_info(dataset_id: str | Any = None, **kwargs) -> Any:
     """
 Returns the schema and summary (df.info()) of a loaded dataset.
 
@@ -79,7 +79,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -103,7 +103,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def list_active_datasets() -> Any:
+def list_active_datasets(**kwargs) -> Any:
     """
 Lists all currently loaded datasets and their IDs.
 
@@ -114,7 +114,7 @@ Lists all currently loaded datasets and their IDs.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -136,7 +136,7 @@ Lists all currently loaded datasets and their IDs.
     return asyncio.run(_async_call())
 
 
-def validate_dataset(dataset_id: str, schema: dict[str, Any]) -> Any:
+def validate_dataset(dataset_id: str | Any = None, schema: dict[str, Any] | Any = None, **kwargs) -> Any:
     """
 Validates the dataset against a provided schema using Pandera.
 
@@ -156,7 +156,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -182,7 +182,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def clean_dataset(dataset_id: str, operations: list[Any]) -> Any:
+def clean_dataset(dataset_id: str | Any = None, operations: list[Any] | Any = None, **kwargs) -> Any:
     """
 Applies a sequence of Pyjanitor cleaning functions to the dataset.
 
@@ -202,7 +202,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -228,7 +228,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def get_dataset_profile(dataset_id: str) -> Any:
+def get_dataset_profile(dataset_id: str | Any = None, **kwargs) -> Any:
     """
 Generates a statistical profile of the dataset using YData Profiling.
 Returns a JSON summary of key insights (alerts, variable list).
@@ -246,7 +246,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -270,7 +270,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def generate_chart(dataset_id: str, chart_type: str, x: Any | None = None, y: Any | None = None, title: Any | None = None) -> Any:
+def generate_chart(dataset_id: str | Any = None, chart_type: str | Any = None, x: Any | None = None, y: Any | None = None, title: Any | None = None, **kwargs) -> Any:
     """
 Generates a chart from the dataset and saves it as an image.
 
@@ -298,7 +298,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -330,7 +330,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def scan_semantic_voids(dataset_id: str, text_column: str) -> Any:
+def scan_semantic_voids(dataset_id: str | Any = None, text_column: str | Any = None, **kwargs) -> Any:
     """
 Performs Topological Data Analysis to find "semantic voids" or gaps in the dataset's text column.
 Useful for identifying missing research topics, unaddressed customer complaints, or concept holes.
@@ -347,7 +347,7 @@ Generates a persistence barcode and 3D manifold plot.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -373,7 +373,7 @@ Generates a persistence barcode and 3D manifold plot.
     return asyncio.run(_async_call())
 
 
-def run_sql_query(query: str, dataset_id: Any | None = None) -> Any:
+def run_sql_query(query: str | Any = None, dataset_id: Any | None = None, **kwargs) -> Any:
     """
 Executes a SQL query on your datasets using DuckDB.
 Use this to filter, aggregate, join, or reshape data.
@@ -392,7 +392,7 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -418,7 +418,7 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
     return asyncio.run(_async_call())
 
 
-def extract_signals(dataset_id: str, value_column: str, id_column: Any | None = None, sort_column: Any | None = None) -> Any:
+def extract_signals(dataset_id: str | Any = None, value_column: str | Any = None, id_column: Any | None = None, sort_column: Any | None = None, **kwargs) -> Any:
     """
 Extracts time-series signals (features) using tsfresh.
 
@@ -444,7 +444,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -474,7 +474,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def load_hf_dataset(dataset_name: str, split: Any | None = None, config_name: Any | None = None) -> Any:
+def load_hf_dataset(dataset_name: str | Any = None, split: Any | None = None, config_name: Any | None = None, **kwargs) -> Any:
     """
 Loads a dataset from the Hugging Face Hub (requires 'datasets' library).
 
@@ -498,7 +498,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_name is not None:
         mcp_args["dataset_name"] = dataset_name
@@ -526,7 +526,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def extract_tables(url: str) -> Any:
+def extract_tables(url: str | Any = None, **kwargs) -> Any:
     """
 Extracts tables from a web URL using pandas (requires 'lxml' or 'html5lib').
 
@@ -546,7 +546,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -570,7 +570,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def generate_map(dataset_id: str, lat_col: str, lon_col: str) -> Any:
+def generate_map(dataset_id: str | Any = None, lat_col: str | Any = None, lon_col: str | Any = None, **kwargs) -> Any:
     """
 Generates a geospatial map (scatter plot) from a dataset.
 
@@ -594,7 +594,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
@@ -622,7 +622,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def start_explorer(dataset_id: str) -> Any:
+def start_explorer(dataset_id: str | Any = None, **kwargs) -> Any:
     """
 Launches an interactive D-Tale explorer for the dataset.
 
@@ -642,7 +642,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id

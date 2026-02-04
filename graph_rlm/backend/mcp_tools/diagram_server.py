@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def create_diagram(diagram_type: str, content: Any | None = None, name: Any | None = None, use_template: bool | None = None) -> Any:
+def create_diagram(diagram_type: str | Any = None, content: Any | None = None, name: Any | None = None, use_template: bool | None = None, **kwargs) -> Any:
     """
 Create a new Mermaid diagram with AUTOMATIC SAVING.
 
@@ -40,7 +40,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if diagram_type is not None:
         mcp_args["diagram_type"] = diagram_type
@@ -70,7 +70,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def markdown_to_mindmap(markdown_text: str, name: Any | None = None) -> Any:
+def markdown_to_mindmap(markdown_text: str | Any = None, name: Any | None = None, **kwargs) -> Any:
     """
 Convert markdown text to a mind map diagram with AUTOMATIC SAVING.
 
@@ -92,7 +92,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if markdown_text is not None:
         mcp_args["markdown_text"] = markdown_text
@@ -118,7 +118,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def update_diagram(diagram_id: str, content: str) -> Any:
+def update_diagram(diagram_id: str | Any = None, content: str | Any = None, **kwargs) -> Any:
     """
 Update an existing diagram's content with AUTOMATIC SAVING.
 
@@ -140,7 +140,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if diagram_id is not None:
         mcp_args["diagram_id"] = diagram_id
@@ -166,7 +166,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def save_diagram(diagram_id: str, filepath: Any | None = None) -> Any:
+def save_diagram(diagram_id: str | Any = None, filepath: Any | None = None, **kwargs) -> Any:
     """
 Manually save a diagram to a specific file (in addition to auto-save).
 
@@ -191,7 +191,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if diagram_id is not None:
         mcp_args["diagram_id"] = diagram_id
@@ -217,7 +217,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def list_diagrams() -> Any:
+def list_diagrams(**kwargs) -> Any:
     """
 List all diagrams both in memory and on disk.
 
@@ -231,7 +231,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -253,7 +253,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def get_diagram(diagram_id: str) -> Any:
+def get_diagram(diagram_id: str | Any = None, **kwargs) -> Any:
     """
 Get a specific diagram by ID. Loads from disk if not in memory.
 
@@ -273,7 +273,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if diagram_id is not None:
         mcp_args["diagram_id"] = diagram_id
@@ -297,7 +297,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def delete_diagram(diagram_id: str) -> Any:
+def delete_diagram(diagram_id: str | Any = None, **kwargs) -> Any:
     """
 Delete a diagram from memory.
 
@@ -317,7 +317,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if diagram_id is not None:
         mcp_args["diagram_id"] = diagram_id
@@ -341,7 +341,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def list_templates() -> Any:
+def list_templates(**kwargs) -> Any:
     """
 List all available diagram templates.
 
@@ -355,7 +355,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -377,7 +377,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def convert_format_to_diagram(content: str, filename: Any | None = None, target_type: str | None = None, source_format: str | None = None, name: Any | None = None) -> Any:
+def convert_format_to_diagram(content: str | Any = None, filename: Any | None = None, target_type: str | None = None, source_format: str | None = None, name: Any | None = None, **kwargs) -> Any:
     """
 Convert various file formats to Mermaid diagrams with AUTOMATIC SAVING.
 
@@ -407,7 +407,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if content is not None:
         mcp_args["content"] = content
@@ -439,7 +439,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def json_to_flowchart(json_content: str, name: Any | None = None) -> Any:
+def json_to_flowchart(json_content: str | Any = None, name: Any | None = None, **kwargs) -> Any:
     """
 Convert JSON structure to a flowchart diagram with AUTOMATIC SAVING.
 
@@ -463,7 +463,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if json_content is not None:
         mcp_args["json_content"] = json_content
@@ -489,7 +489,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def csv_to_org_chart(csv_content: str, name: Any | None = None, chart_type: str | None = None) -> Any:
+def csv_to_org_chart(csv_content: str | Any = None, name: Any | None = None, chart_type: str | None = None, **kwargs) -> Any:
     """
 Convert CSV data to organizational or relationship chart with AUTOMATIC SAVING.
 
@@ -513,7 +513,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if csv_content is not None:
         mcp_args["csv_content"] = csv_content
@@ -541,7 +541,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def python_to_class_diagram(python_code: str, name: Any | None = None) -> Any:
+def python_to_class_diagram(python_code: str | Any = None, name: Any | None = None, **kwargs) -> Any:
     """
 Convert Python source code to class diagram with AUTOMATIC SAVING.
 
@@ -565,7 +565,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if python_code is not None:
         mcp_args["python_code"] = python_code
@@ -591,7 +591,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def detect_file_format(content: str, filename: Any | None = None) -> Any:
+def detect_file_format(content: str | Any = None, filename: Any | None = None, **kwargs) -> Any:
     """
 Detect the format of input content.
 
@@ -613,7 +613,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if content is not None:
         mcp_args["content"] = content

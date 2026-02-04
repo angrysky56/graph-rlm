@@ -10,6 +10,40 @@ from .logger import get_logger
 logger = get_logger("graph_rlm.sheaf")
 
 
+class MockREPLInterface:
+    """Mock for RLMInterface/MCP during validation to prevent NameError crashes."""
+
+    def __getattr__(self, name):
+        return self
+
+    def __call__(self, *args, **kwargs):
+        return self
+
+    def __getitem__(self, key):
+        return self
+
+    def __str__(self):
+        return "Mock"
+
+    def __repr__(self):
+        return "<Mock>"
+
+    def __bool__(self):
+        return True
+
+    def __await__(self):
+        async def _f():
+            return self
+
+        return _f().__await__()
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        pass
+
+
 class SheafMonitor:
     """
     SheafMonitor v2 (Self-Healing): Topological Field Analyzer.
@@ -203,13 +237,20 @@ class SheafMonitor:
         # 2. Spawn temporary sandbox REPL (Clean Environment)
         repl = PythonREPL()
 
-        # 3. Inject allowed utilities (No Mocks)
+        # 3. Inject allowed utilities (Including Mocks for Tool Use)
         import asyncio
+
+        mock_obj = MockREPLInterface()
 
         repl.namespace.update(
             {
                 "asyncio": asyncio,
                 "np": np,
+                "mcp": mock_obj,
+                "rlm": mock_obj,
+                "session_id": "mock_session",
+                "root_session_id": "mock_root",
+                "task_input": "mock_task",
             }
         )
 

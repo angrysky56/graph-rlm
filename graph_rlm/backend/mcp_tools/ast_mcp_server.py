@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def parse_to_ast(code: Any | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def parse_to_ast(code: Any | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Step 1: Parse code → AST (syntax tree). Use this to validate syntax or get a raw tree dump.
 
     Args:
@@ -24,7 +24,7 @@ def parse_to_ast(code: Any | None = None, language: Any | None = None, filename:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -52,7 +52,7 @@ def parse_to_ast(code: Any | None = None, language: Any | None = None, filename:
     return asyncio.run(_async_call())
 
 
-def generate_asg(code: Any | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def generate_asg(code: Any | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Step 3: Parse code → AST → ASG (graph). Use this to explore basic relationships (edges) between nodes.
 
     Args:
@@ -66,7 +66,7 @@ def generate_asg(code: Any | None = None, language: Any | None = None, filename:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -94,7 +94,7 @@ def generate_asg(code: Any | None = None, language: Any | None = None, filename:
     return asyncio.run(_async_call())
 
 
-def analyze_code(code: Any | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def analyze_code(code: Any | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Step 2: Extract metadata (Functions, Classes, Imports). Use this for high-level file summaries.
 
     Args:
@@ -108,7 +108,7 @@ def analyze_code(code: Any | None = None, language: Any | None = None, filename:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -136,7 +136,7 @@ def analyze_code(code: Any | None = None, language: Any | None = None, filename:
     return asyncio.run(_async_call())
 
 
-def parse_to_ast_incremental(code: Any | None = None, old_code: Any | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def parse_to_ast_incremental(code: Any | None = None, old_code: Any | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Step 1 (Enhanced): Incremental parsing. Use this instead of `parse_to_ast` for large files or edits.
 
     Args:
@@ -151,7 +151,7 @@ def parse_to_ast_incremental(code: Any | None = None, old_code: Any | None = Non
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -181,7 +181,7 @@ def parse_to_ast_incremental(code: Any | None = None, old_code: Any | None = Non
     return asyncio.run(_async_call())
 
 
-def generate_enhanced_asg(code: Any | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def generate_enhanced_asg(code: Any | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Step 3 (Enhanced): Deep semantic analysis (Scope, Data Flow). Use for refactoring or complex queries.
 
     Args:
@@ -195,7 +195,7 @@ def generate_enhanced_asg(code: Any | None = None, language: Any | None = None, 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -223,7 +223,7 @@ def generate_enhanced_asg(code: Any | None = None, language: Any | None = None, 
     return asyncio.run(_async_call())
 
 
-def diff_ast(old_code: str, new_code: str, language: Any | None = None, filename: Any | None = None) -> Any:
+def diff_ast(old_code: str | Any = None, new_code: str | Any = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Compare two code versions semantically. Returns AST differences (nodes added/removed/changed).
 
     Args:
@@ -238,7 +238,7 @@ def diff_ast(old_code: str, new_code: str, language: Any | None = None, filename
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if old_code is not None:
         mcp_args["old_code"] = old_code
@@ -268,7 +268,7 @@ def diff_ast(old_code: str, new_code: str, language: Any | None = None, filename
     return asyncio.run(_async_call())
 
 
-def find_node_at_position(code: Any | None = None, line: int | None = None, column: int | None = None, language: Any | None = None, filename: Any | None = None) -> Any:
+def find_node_at_position(code: Any | None = None, line: int | None = None, column: int | None = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Interactive: Get AST node at a specific cursor line/column. Use for cursor-based context.
 
     Args:
@@ -284,7 +284,7 @@ def find_node_at_position(code: Any | None = None, line: int | None = None, colu
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -316,7 +316,7 @@ def find_node_at_position(code: Any | None = None, line: int | None = None, colu
     return asyncio.run(_async_call())
 
 
-def search_code_patterns(code: str, pattern: str, language: Any | None = None, filename: Any | None = None) -> Any:
+def search_code_patterns(code: str | Any = None, pattern: str | Any = None, language: Any | None = None, filename: Any | None = None, **kwargs) -> Any:
     """Search for structural patterns in code using ast-grep. Returns {matches, count}.
 
     Args:
@@ -331,7 +331,7 @@ def search_code_patterns(code: str, pattern: str, language: Any | None = None, f
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -361,7 +361,7 @@ def search_code_patterns(code: str, pattern: str, language: Any | None = None, f
     return asyncio.run(_async_call())
 
 
-def transform_code_patterns(code: str, pattern: str, replacement: str, language: Any | None = None, filename: Any | None = None, preview_only: bool | None = None) -> Any:
+def transform_code_patterns(code: str | Any = None, pattern: str | Any = None, replacement: str | Any = None, language: Any | None = None, filename: Any | None = None, preview_only: bool | None = None, **kwargs) -> Any:
     """Replace structural patterns in code using ast-grep. Returns {transformed_code, changes_applied}.
 
     Args:
@@ -378,7 +378,7 @@ def transform_code_patterns(code: str, pattern: str, replacement: str, language:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -412,7 +412,7 @@ def transform_code_patterns(code: str, pattern: str, replacement: str, language:
     return asyncio.run(_async_call())
 
 
-def validate_ast_pattern(pattern: str, language: str) -> Any:
+def validate_ast_pattern(pattern: str | Any = None, language: str | Any = None, **kwargs) -> Any:
     """Check if ast-grep pattern syntax is valid for the specified language.
 
     Args:
@@ -425,7 +425,7 @@ def validate_ast_pattern(pattern: str, language: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pattern is not None:
         mcp_args["pattern"] = pattern
@@ -451,7 +451,7 @@ def validate_ast_pattern(pattern: str, language: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_transformation_examples() -> Any:
+def list_transformation_examples(**kwargs) -> Any:
     """Get common ast-grep pattern examples for code modernization and refactoring.
 
     Returns:
@@ -460,7 +460,7 @@ def list_transformation_examples() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -482,7 +482,7 @@ def list_transformation_examples() -> Any:
     return asyncio.run(_async_call())
 
 
-def sync_file_to_graph(code: str, file_path: str, language: Any | None = None) -> Any:
+def sync_file_to_graph(code: str | Any = None, file_path: str | Any = None, language: Any | None = None, **kwargs) -> Any:
     """Parse code → store AST+ASG+metrics in Neo4j. Returns {stored: {ast_id, asg_id, analysis_id}}.
 
     Args:
@@ -496,7 +496,7 @@ def sync_file_to_graph(code: str, file_path: str, language: Any | None = None) -
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -524,7 +524,7 @@ def sync_file_to_graph(code: str, file_path: str, language: Any | None = None) -
     return asyncio.run(_async_call())
 
 
-def query_neo4j_graph(query: str, parameters: Any | None = None) -> Any:
+def query_neo4j_graph(query: str | Any = None, parameters: Any | None = None, **kwargs) -> Any:
     """Execute Cypher query on code graph. Returns {records, count}.
 
     Args:
@@ -537,7 +537,7 @@ def query_neo4j_graph(query: str, parameters: Any | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -563,7 +563,7 @@ def query_neo4j_graph(query: str, parameters: Any | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def ask_uss_agent(query: str) -> Any:
+def ask_uss_agent(query: str | Any = None, **kwargs) -> Any:
     """Graph Query: Ask natural language questions about the codebase (uses Neo4j/ChromaDB).
 
     Args:
@@ -575,7 +575,7 @@ def ask_uss_agent(query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -599,7 +599,7 @@ def ask_uss_agent(query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def uss_agent_status() -> Any:
+def uss_agent_status(**kwargs) -> Any:
     """Check status of the USS Agent services (Neo4j, ChromaDB, LLM).
 
     Returns:
@@ -608,7 +608,7 @@ def uss_agent_status() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -630,7 +630,7 @@ def uss_agent_status() -> Any:
     return asyncio.run(_async_call())
 
 
-def analyze_source_file(project_name: str, code: Any | None = None, language: Any | None = None, filename: Any | None = None, include_summary: bool | None = None) -> Any:
+def analyze_source_file(project_name: str | Any = None, code: Any | None = None, language: Any | None = None, filename: Any | None = None, include_summary: bool | None = None, **kwargs) -> Any:
     """Analyze a single source file, save reports to disk, and optionally generate an AI summary.
 
     Args:
@@ -646,7 +646,7 @@ def analyze_source_file(project_name: str, code: Any | None = None, language: An
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if project_name is not None:
         mcp_args["project_name"] = project_name
@@ -678,7 +678,7 @@ def analyze_source_file(project_name: str, code: Any | None = None, language: An
     return asyncio.run(_async_call())
 
 
-def analyze_project(project_path: str, project_name: str, file_extensions: Any | None = None, sync_to_db: bool | None = None, include_summary: bool | None = None) -> Any:
+def analyze_project(project_path: str | Any = None, project_name: str | Any = None, file_extensions: Any | None = None, sync_to_db: bool | None = None, include_summary: bool | None = None, **kwargs) -> Any:
     """Recursively analyze a project, generate reports, and optionaly sync to Graph DB.
 
 Args:
@@ -702,7 +702,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if project_path is not None:
         mcp_args["project_path"] = project_path

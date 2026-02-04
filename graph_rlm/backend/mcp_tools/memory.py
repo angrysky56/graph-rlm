@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def create_entities(entities: list[dict[str, Any]]) -> Any:
+def create_entities(entities: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Create multiple new entities in the knowledge graph
 
     Args:
@@ -22,7 +22,7 @@ def create_entities(entities: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if entities is not None:
         mcp_args["entities"] = entities
@@ -46,7 +46,7 @@ def create_entities(entities: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def create_relations(relations: list[dict[str, Any]]) -> Any:
+def create_relations(relations: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Create multiple new relations between entities in the knowledge graph. Relations should be in active voice
 
     Args:
@@ -58,7 +58,7 @@ def create_relations(relations: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if relations is not None:
         mcp_args["relations"] = relations
@@ -82,7 +82,7 @@ def create_relations(relations: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def add_observations(observations: list[dict[str, Any]]) -> Any:
+def add_observations(observations: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Add new observations to existing entities in the knowledge graph
 
     Args:
@@ -94,7 +94,7 @@ def add_observations(observations: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if observations is not None:
         mcp_args["observations"] = observations
@@ -118,7 +118,7 @@ def add_observations(observations: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def delete_entities(entityNames: list[str]) -> Any:
+def delete_entities(entityNames: list[str] | Any = None, **kwargs) -> Any:
     """Delete multiple entities and their associated relations from the knowledge graph
 
     Args:
@@ -130,7 +130,7 @@ def delete_entities(entityNames: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if entityNames is not None:
         mcp_args["entityNames"] = entityNames
@@ -154,7 +154,7 @@ def delete_entities(entityNames: list[str]) -> Any:
     return asyncio.run(_async_call())
 
 
-def delete_observations(deletions: list[dict[str, Any]]) -> Any:
+def delete_observations(deletions: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Delete specific observations from entities in the knowledge graph
 
     Args:
@@ -166,7 +166,7 @@ def delete_observations(deletions: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if deletions is not None:
         mcp_args["deletions"] = deletions
@@ -190,7 +190,7 @@ def delete_observations(deletions: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def delete_relations(relations: list[dict[str, Any]]) -> Any:
+def delete_relations(relations: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Delete multiple relations from the knowledge graph
 
     Args:
@@ -202,7 +202,7 @@ def delete_relations(relations: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if relations is not None:
         mcp_args["relations"] = relations
@@ -226,7 +226,7 @@ def delete_relations(relations: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def read_graph() -> Any:
+def read_graph(**kwargs) -> Any:
     """Read the entire knowledge graph
 
     Returns:
@@ -235,7 +235,7 @@ def read_graph() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -257,7 +257,7 @@ def read_graph() -> Any:
     return asyncio.run(_async_call())
 
 
-def search_nodes(query: str) -> Any:
+def search_nodes(query: str | Any = None, **kwargs) -> Any:
     """Search for nodes in the knowledge graph based on a query
 
     Args:
@@ -269,7 +269,7 @@ def search_nodes(query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -293,7 +293,7 @@ def search_nodes(query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def open_nodes(names: list[str]) -> Any:
+def open_nodes(names: list[str] | Any = None, **kwargs) -> Any:
     """Open specific nodes in the knowledge graph by their names
 
     Args:
@@ -305,7 +305,7 @@ def open_nodes(names: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if names is not None:
         mcp_args["names"] = names

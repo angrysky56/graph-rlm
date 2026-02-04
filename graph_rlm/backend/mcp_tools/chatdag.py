@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def search_knowledge(query: str, k: Any | None = None) -> Any:
+def search_knowledge(query: str | Any = None, k: Any | None = None, **kwargs) -> Any:
     """Search the holographic knowledge base for relevant context.
 Returns formatted string of results.
 
@@ -24,7 +24,7 @@ Returns formatted string of results.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -50,7 +50,7 @@ Returns formatted string of results.
     return asyncio.run(_async_call())
 
 
-def crystallize_thought(topic: str) -> Any:
+def crystallize_thought(topic: str | Any = None, **kwargs) -> Any:
     """Perform deep reasoning (Su Hui Crystallization) on a topic using the knowledge base.
 Returns synthesized insight.
 
@@ -63,7 +63,7 @@ Returns synthesized insight.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if topic is not None:
         mcp_args["topic"] = topic
@@ -87,7 +87,7 @@ Returns synthesized insight.
     return asyncio.run(_async_call())
 
 
-def ingest_data(target_path: Any | None = None, recursive: bool | None = None, analyze_images: Any | None = None) -> Any:
+def ingest_data(target_path: Any | None = None, recursive: bool | None = None, analyze_images: Any | None = None, **kwargs) -> Any:
     """Ingest files or directories into the knowledge base.
 Set recursive=True (default) to scan all subdirectories.
 Works with code, docs, PDFs (OCR enabled), and images.
@@ -106,7 +106,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if target_path is not None:
         mcp_args["target_path"] = target_path
@@ -134,7 +134,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def analyze_image(image_path: str, prompt: Any | None = None, detail: str | None = None) -> Any:
+def analyze_image(image_path: str | Any = None, prompt: Any | None = None, detail: str | None = None, **kwargs) -> Any:
     """Analyze an image using the Vision-Language model.
 
 Use this for:
@@ -162,7 +162,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if image_path is not None:
         mcp_args["image_path"] = image_path
@@ -190,7 +190,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def extract_pdf_text(pdf_path: str, analyze_images: Any | None = None) -> Any:
+def extract_pdf_text(pdf_path: str | Any = None, analyze_images: Any | None = None, **kwargs) -> Any:
     """Extract text from a PDF file.
 
 Uses:
@@ -215,7 +215,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if pdf_path is not None:
         mcp_args["pdf_path"] = pdf_path
@@ -241,7 +241,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def feed_data(content: str, source_id: str, metadata: Any | None = None) -> Any:
+def feed_data(content: str | Any = None, source_id: str | Any = None, metadata: Any | None = None, **kwargs) -> Any:
     """Directly ingest text content into the knowledge base.
 
 Perfect for:
@@ -268,7 +268,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if content is not None:
         mcp_args["content"] = content
@@ -296,7 +296,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def clean_corrupted_data(dry_run: bool | None = None, corruption_threshold: Any | None = None, remove_duplicates: Any | None = None, show_diff: Any | None = None) -> Any:
+def clean_corrupted_data(dry_run: bool | None = None, corruption_threshold: Any | None = None, remove_duplicates: Any | None = None, show_diff: Any | None = None, **kwargs) -> Any:
     """Clean corrupted voxels (bad OCR) and remove duplicate sources.
 
 Args:
@@ -320,7 +320,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dry_run is not None:
         mcp_args["dry_run"] = dry_run
@@ -350,7 +350,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def diff_sources(source_a: str, source_b: str) -> Any:
+def diff_sources(source_a: str | Any = None, source_b: str | Any = None, **kwargs) -> Any:
     """Compare content between two source URIs.
 Useful for checking version changes.
 
@@ -371,7 +371,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if source_a is not None:
         mcp_args["source_a"] = source_a
@@ -397,7 +397,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def train_adaptive_model(force: bool | None = None, training_threshold: Any | None = None) -> Any:
+def train_adaptive_model(force: bool | None = None, training_threshold: Any | None = None, **kwargs) -> Any:
     """Train the adaptive neural network to optimize retrieval.
 Use this when retrieval quality is poor.
 
@@ -418,7 +418,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if force is not None:
         mcp_args["force"] = force
@@ -444,7 +444,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def report_search_quality(query: str, was_useful: bool, comments: Any | None = None) -> Any:
+def report_search_quality(query: str | Any = None, was_useful: bool | Any = None, comments: Any | None = None, **kwargs) -> Any:
     """Feedback loop: Rate a recent search to improve future performance.
 
 Args:
@@ -466,7 +466,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query

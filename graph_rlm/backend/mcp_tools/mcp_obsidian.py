@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def obsidian_list_files_in_dir(dirpath: str) -> Any:
+def obsidian_list_files_in_dir(dirpath: str | Any = None, **kwargs) -> Any:
     """Lists all files and directories that exist in a specific Obsidian directory.
 
     Args:
@@ -22,7 +22,7 @@ def obsidian_list_files_in_dir(dirpath: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if dirpath is not None:
         mcp_args["dirpath"] = dirpath
@@ -46,7 +46,7 @@ def obsidian_list_files_in_dir(dirpath: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_list_files_in_vault() -> Any:
+def obsidian_list_files_in_vault(**kwargs) -> Any:
     """Lists all files and directories in the root directory of your Obsidian vault.
 
     Returns:
@@ -55,7 +55,7 @@ def obsidian_list_files_in_vault() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -77,7 +77,7 @@ def obsidian_list_files_in_vault() -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_get_file_contents(filepath: str) -> Any:
+def obsidian_get_file_contents(filepath: str | Any = None, **kwargs) -> Any:
     """Return the content of a single file in your vault.
 
     Args:
@@ -89,7 +89,7 @@ def obsidian_get_file_contents(filepath: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filepath is not None:
         mcp_args["filepath"] = filepath
@@ -113,7 +113,7 @@ def obsidian_get_file_contents(filepath: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_simple_search(query: str, context_length: int | None = None) -> Any:
+def obsidian_simple_search(query: str | Any = None, context_length: int | None = None, **kwargs) -> Any:
     """Simple search for documents matching a specified text query across all files in the vault. 
             Use this tool when you want to do a simple text search
 
@@ -127,7 +127,7 @@ def obsidian_simple_search(query: str, context_length: int | None = None) -> Any
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -153,7 +153,7 @@ def obsidian_simple_search(query: str, context_length: int | None = None) -> Any
     return asyncio.run(_async_call())
 
 
-def obsidian_patch_content(filepath: str, operation: str, target_type: str, target: str, content: str) -> Any:
+def obsidian_patch_content(filepath: str | Any = None, operation: str | Any = None, target_type: str | Any = None, target: str | Any = None, content: str | Any = None, **kwargs) -> Any:
     """Insert content into an existing note relative to a heading, block reference, or frontmatter field.
 
     Args:
@@ -169,7 +169,7 @@ def obsidian_patch_content(filepath: str, operation: str, target_type: str, targ
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filepath is not None:
         mcp_args["filepath"] = filepath
@@ -201,7 +201,7 @@ def obsidian_patch_content(filepath: str, operation: str, target_type: str, targ
     return asyncio.run(_async_call())
 
 
-def obsidian_append_content(filepath: str, content: str) -> Any:
+def obsidian_append_content(filepath: str | Any = None, content: str | Any = None, **kwargs) -> Any:
     """Append content to a new or existing file in the vault.
 
     Args:
@@ -214,7 +214,7 @@ def obsidian_append_content(filepath: str, content: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filepath is not None:
         mcp_args["filepath"] = filepath
@@ -240,7 +240,7 @@ def obsidian_append_content(filepath: str, content: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_delete_file(filepath: str, confirm: bool) -> Any:
+def obsidian_delete_file(filepath: str | Any = None, confirm: bool | Any = None, **kwargs) -> Any:
     """Delete a file or directory from the vault.
 
     Args:
@@ -253,7 +253,7 @@ def obsidian_delete_file(filepath: str, confirm: bool) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filepath is not None:
         mcp_args["filepath"] = filepath
@@ -279,7 +279,7 @@ def obsidian_delete_file(filepath: str, confirm: bool) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_complex_search(query: dict[str, Any]) -> Any:
+def obsidian_complex_search(query: dict[str, Any] | Any = None, **kwargs) -> Any:
     """Complex search for documents using a JsonLogic query. 
            Supports standard JsonLogic operators plus 'glob' and 'regexp' for pattern matching. Results must be non-falsy.
 
@@ -295,7 +295,7 @@ def obsidian_complex_search(query: dict[str, Any]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -319,7 +319,7 @@ def obsidian_complex_search(query: dict[str, Any]) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_batch_get_file_contents(filepaths: list[str]) -> Any:
+def obsidian_batch_get_file_contents(filepaths: list[str] | Any = None, **kwargs) -> Any:
     """Return the contents of multiple files in your vault, concatenated with headers.
 
     Args:
@@ -331,7 +331,7 @@ def obsidian_batch_get_file_contents(filepaths: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filepaths is not None:
         mcp_args["filepaths"] = filepaths
@@ -355,7 +355,7 @@ def obsidian_batch_get_file_contents(filepaths: list[str]) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_get_periodic_note(period: str) -> Any:
+def obsidian_get_periodic_note(period: str | Any = None, **kwargs) -> Any:
     """Get current periodic note for the specified period.
 
     Args:
@@ -367,7 +367,7 @@ def obsidian_get_periodic_note(period: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if period is not None:
         mcp_args["period"] = period
@@ -391,7 +391,7 @@ def obsidian_get_periodic_note(period: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def obsidian_get_recent_periodic_notes(period: str, limit: int | None = None, include_content: bool | None = None) -> Any:
+def obsidian_get_recent_periodic_notes(period: str | Any = None, limit: int | None = None, include_content: bool | None = None, **kwargs) -> Any:
     """Get most recent periodic notes for the specified period type.
 
     Args:
@@ -405,7 +405,7 @@ def obsidian_get_recent_periodic_notes(period: str, limit: int | None = None, in
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if period is not None:
         mcp_args["period"] = period
@@ -433,7 +433,7 @@ def obsidian_get_recent_periodic_notes(period: str, limit: int | None = None, in
     return asyncio.run(_async_call())
 
 
-def obsidian_get_recent_changes(limit: int | None = None, days: int | None = None) -> Any:
+def obsidian_get_recent_changes(limit: int | None = None, days: int | None = None, **kwargs) -> Any:
     """Get recently modified files in the vault.
 
     Args:
@@ -446,7 +446,7 @@ def obsidian_get_recent_changes(limit: int | None = None, days: int | None = Non
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if limit is not None:
         mcp_args["limit"] = limit

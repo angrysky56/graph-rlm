@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def ask_question(question: str, session_id: str | None = None, notebook_id: str | None = None, notebook_url: str | None = None, show_browser: bool | None = None, browser_options: dict[str, Any] | None = None) -> Any:
+def ask_question(question: str | Any = None, session_id: str | None = None, notebook_id: str | None = None, notebook_url: str | None = None, show_browser: bool | None = None, browser_options: dict[str, Any] | None = None, **kwargs) -> Any:
     """# Conversational Research Partner (NotebookLM • Gemini 2.5 • Session RAG)
 
 **Active Notebook:** Enterprise MCP & Docker Orchestration Guide
@@ -110,7 +110,7 @@ A4: [Complete example with full context]
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if question is not None:
         mcp_args["question"] = question
@@ -144,7 +144,7 @@ A4: [Complete example with full context]
     return asyncio.run(_async_call())
 
 
-def add_notebook(url: str, name: str, description: str, topics: list[str], content_types: list[str] | None = None, use_cases: list[str] | None = None, tags: list[str] | None = None) -> Any:
+def add_notebook(url: str | Any = None, name: str | Any = None, description: str | Any = None, topics: list[str] | Any = None, content_types: list[str] | None = None, use_cases: list[str] | None = None, tags: list[str] | None = None, **kwargs) -> Any:
     """PERMISSION REQUIRED — Only when user explicitly asks to add a notebook.
 
 ## Conversation Workflow (Mandatory)
@@ -197,7 +197,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -233,7 +233,7 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
     return asyncio.run(_async_call())
 
 
-def list_notebooks() -> Any:
+def list_notebooks(**kwargs) -> Any:
     """List all library notebooks with metadata (name, topics, use cases, URL). Use this to present options, then ask which notebook to use for the task.
 
     Returns:
@@ -242,7 +242,7 @@ def list_notebooks() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -264,7 +264,7 @@ def list_notebooks() -> Any:
     return asyncio.run(_async_call())
 
 
-def get_notebook(id: str) -> Any:
+def get_notebook(id: str | Any = None, **kwargs) -> Any:
     """Get detailed information about a specific notebook by ID
 
     Args:
@@ -276,7 +276,7 @@ def get_notebook(id: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -300,7 +300,7 @@ def get_notebook(id: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def select_notebook(id: str) -> Any:
+def select_notebook(id: str | Any = None, **kwargs) -> Any:
     """Set a notebook as the active default (used when ask_question has no notebook_id).
 
 ## When To Use
@@ -326,7 +326,7 @@ You: "Switching to React notebook..." (call select_notebook)
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -350,7 +350,7 @@ You: "Switching to React notebook..." (call select_notebook)
     return asyncio.run(_async_call())
 
 
-def update_notebook(id: str, name: str | None = None, description: str | None = None, topics: list[str] | None = None, content_types: list[str] | None = None, use_cases: list[str] | None = None, tags: list[str] | None = None, url: str | None = None) -> Any:
+def update_notebook(id: str | Any = None, name: str | None = None, description: str | None = None, topics: list[str] | None = None, content_types: list[str] | None = None, use_cases: list[str] | None = None, tags: list[str] | None = None, url: str | None = None, **kwargs) -> Any:
     """Update notebook metadata based on user intent.
 
 ## Pattern
@@ -385,7 +385,7 @@ Tip: You may update multiple fields at once if requested.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -423,7 +423,7 @@ Tip: You may update multiple fields at once if requested.
     return asyncio.run(_async_call())
 
 
-def remove_notebook(id: str) -> Any:
+def remove_notebook(id: str | Any = None, **kwargs) -> Any:
     """Dangerous — requires explicit user confirmation.
 
 ## Confirmation Workflow
@@ -448,7 +448,7 @@ User: "Yes" → call remove_notebook
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if id is not None:
         mcp_args["id"] = id
@@ -472,7 +472,7 @@ User: "Yes" → call remove_notebook
     return asyncio.run(_async_call())
 
 
-def search_notebooks(query: str) -> Any:
+def search_notebooks(query: str | Any = None, **kwargs) -> Any:
     """Search library by query (name, description, topics, tags). Use to propose relevant notebooks for the task and then ask which to use.
 
     Args:
@@ -484,7 +484,7 @@ def search_notebooks(query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -508,7 +508,7 @@ def search_notebooks(query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_library_stats() -> Any:
+def get_library_stats(**kwargs) -> Any:
     """Get statistics about your notebook library (total notebooks, usage, etc.)
 
     Returns:
@@ -517,7 +517,7 @@ def get_library_stats() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -539,7 +539,7 @@ def get_library_stats() -> Any:
     return asyncio.run(_async_call())
 
 
-def list_sessions() -> Any:
+def list_sessions(**kwargs) -> Any:
     """List all active sessions with stats (age, message count, last activity). Use to continue the most relevant session instead of starting from scratch.
 
     Returns:
@@ -548,7 +548,7 @@ def list_sessions() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -570,7 +570,7 @@ def list_sessions() -> Any:
     return asyncio.run(_async_call())
 
 
-def close_session(session_id: str) -> Any:
+def close_session(session_id: str | Any = None, **kwargs) -> Any:
     """Close a specific session by session ID. Ask before closing if the user might still need it.
 
     Args:
@@ -582,7 +582,7 @@ def close_session(session_id: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if session_id is not None:
         mcp_args["session_id"] = session_id
@@ -606,7 +606,7 @@ def close_session(session_id: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def reset_session(session_id: str) -> Any:
+def reset_session(session_id: str | Any = None, **kwargs) -> Any:
     """Reset a session's chat history (keep same session ID). Use for a clean slate when the task changes; ask the user before resetting.
 
     Args:
@@ -618,7 +618,7 @@ def reset_session(session_id: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if session_id is not None:
         mcp_args["session_id"] = session_id
@@ -642,7 +642,7 @@ def reset_session(session_id: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_health() -> Any:
+def get_health(**kwargs) -> Any:
     """Get server health status including authentication state, active sessions, and configuration. Use this to verify the server is ready before starting research workflows.
 
 If authenticated=false and having persistent issues:
@@ -654,7 +654,7 @@ Consider running cleanup_data(preserve_library=true) + setup_auth for fresh star
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -676,7 +676,7 @@ Consider running cleanup_data(preserve_library=true) + setup_auth for fresh star
     return asyncio.run(_async_call())
 
 
-def setup_auth(show_browser: bool | None = None, browser_options: dict[str, Any] | None = None) -> Any:
+def setup_auth(show_browser: bool | None = None, browser_options: dict[str, Any] | None = None, **kwargs) -> Any:
     """Google authentication for NotebookLM access - opens a browser window for manual login to your Google account. Returns immediately after opening the browser. You have up to 10 minutes to complete the login. Use 'get_health' tool afterwards to verify authentication was saved successfully. Use this for first-time authentication or when auto-login credentials are not available. For switching accounts or rate-limit workarounds, use 're_auth' tool instead.
 
 TROUBLESHOOTING for persistent auth issues:
@@ -696,7 +696,7 @@ This helps resolve conflicts from old browser sessions and installation data.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if show_browser is not None:
         mcp_args["show_browser"] = show_browser
@@ -722,7 +722,7 @@ This helps resolve conflicts from old browser sessions and installation data.
     return asyncio.run(_async_call())
 
 
-def re_auth(show_browser: bool | None = None, browser_options: dict[str, Any] | None = None) -> Any:
+def re_auth(show_browser: bool | None = None, browser_options: dict[str, Any] | None = None, **kwargs) -> Any:
     """Switch to a different Google account or re-authenticate. Use this when:
 - NotebookLM rate limit is reached (50 queries/day for free accounts)
 - You want to switch to a different Google account
@@ -753,7 +753,7 @@ This removes old installation data and browser sessions that can cause conflicts
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if show_browser is not None:
         mcp_args["show_browser"] = show_browser
@@ -779,7 +779,7 @@ This removes old installation data and browser sessions that can cause conflicts
     return asyncio.run(_async_call())
 
 
-def cleanup_data(confirm: bool, preserve_library: bool | None = None) -> Any:
+def cleanup_data(confirm: bool | Any = None, preserve_library: bool | None = None, **kwargs) -> Any:
     """ULTRATHINK Deep Cleanup - Scans entire system for ALL NotebookLM MCP data files across 8 categories. Always runs in deep mode, shows categorized preview before deletion.
 
 ⚠️ CRITICAL: Close ALL Chrome/Chromium instances BEFORE running this tool! Open browsers can prevent cleanup and cause issues.
@@ -816,7 +816,7 @@ Use cases: Clean reinstall, troubleshooting auth issues, removing all traces bef
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if confirm is not None:
         mcp_args["confirm"] = confirm

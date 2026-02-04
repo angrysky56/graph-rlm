@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def resolve_library_id(query: str, libraryName: str) -> Any:
+def resolve_library_id(query: str | Any = None, libraryName: str | Any = None, **kwargs) -> Any:
     """Resolves a package/product name to a Context7-compatible library ID and returns matching libraries.
 
 You MUST call this function before 'query-docs' to obtain a valid Context7-compatible library ID UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
@@ -44,7 +44,7 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -70,7 +70,7 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
     return asyncio.run(_async_call())
 
 
-def query_docs(libraryId: str, query: str) -> Any:
+def query_docs(libraryId: str | Any = None, query: str | Any = None, **kwargs) -> Any:
     """Retrieves and queries up-to-date documentation and code examples from Context7 for any programming library or framework.
 
 You must call 'resolve-library-id' first to obtain the exact Context7-compatible library ID required to use this tool, UNLESS the user explicitly provides a library ID in the format '/org/project' or '/org/project/version' in their query.
@@ -87,7 +87,7 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if libraryId is not None:
         mcp_args["libraryId"] = libraryId

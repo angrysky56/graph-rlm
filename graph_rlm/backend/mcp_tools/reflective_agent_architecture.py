@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def deconstruct(problem: str, max_depth: int | None = None) -> Any:
+def deconstruct(problem: str | Any = None, max_depth: int | None = None, **kwargs) -> Any:
     """Break a complex problem into component thought-nodes with hierarchical relationships. Creates a reasoning tree similar to Meta's COCONUT but materialized as a queryable graph.
 
     Args:
@@ -23,7 +23,7 @@ def deconstruct(problem: str, max_depth: int | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if problem is not None:
         mcp_args["problem"] = problem
@@ -49,7 +49,7 @@ def deconstruct(problem: str, max_depth: int | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def hypothesize(node_a_id: str, node_b_id: str, context: str | None = None) -> Any:
+def hypothesize(node_a_id: str | Any = None, node_b_id: str | Any = None, context: str | None = None, **kwargs) -> Any:
     """Find novel connections between two concepts using topology tunneling - combines graph paths, vector similarity, and analogical pattern matching to discover 'Aha!' moments between distant concepts.
 
     Args:
@@ -63,7 +63,7 @@ def hypothesize(node_a_id: str, node_b_id: str, context: str | None = None) -> A
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if node_a_id is not None:
         mcp_args["node_a_id"] = node_a_id
@@ -91,7 +91,7 @@ def hypothesize(node_a_id: str, node_b_id: str, context: str | None = None) -> A
     return asyncio.run(_async_call())
 
 
-def synthesize(node_ids: list[str], goal: str | None = None) -> Any:
+def synthesize(node_ids: list[str] | Any = None, goal: str | None = None, **kwargs) -> Any:
     """Merge multiple thought-nodes into a unified insight by operating in latent space. Computes centroids and finds common patterns.
 
     Args:
@@ -104,7 +104,7 @@ def synthesize(node_ids: list[str], goal: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if node_ids is not None:
         mcp_args["node_ids"] = node_ids
@@ -130,7 +130,7 @@ def synthesize(node_ids: list[str], goal: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def evolve_formula(data_points: list[dict[str, Any]], n_generations: int | None = None, hybrid: bool | None = None) -> Any:
+def evolve_formula(data_points: list[dict[str, Any]] | Any = None, n_generations: int | None = None, hybrid: bool | None = None, **kwargs) -> Any:
     """Uses Genetic Programming (Symbolic Regression) to evolve a mathematical formula that fits a given dataset. Use this when the Director detects high entropy/complexity and simple patterns (like linear regression) fail. It discovers the 'hidden instruction set' of the data.
 
     Args:
@@ -144,7 +144,7 @@ def evolve_formula(data_points: list[dict[str, Any]], n_generations: int | None 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if data_points is not None:
         mcp_args["data_points"] = data_points
@@ -172,7 +172,7 @@ def evolve_formula(data_points: list[dict[str, Any]], n_generations: int | None 
     return asyncio.run(_async_call())
 
 
-def constrain(node_id: str, rules: list[str], mode: str | None = None, conclusion: str | None = None, strict: bool | None = None) -> Any:
+def constrain(node_id: str | Any = None, rules: list[str] | Any = None, mode: str | None = None, conclusion: str | None = None, strict: bool | None = None, **kwargs) -> Any:
     """Validate logical constraints using formal logic (Prover9/Mace4).
 
 MODES (based on philosophical logic foundations):
@@ -198,7 +198,7 @@ Syntax: Prover9 FOL format (e.g., "all x (human(x) -> mortal(x))", "human(socrat
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if node_id is not None:
         mcp_args["node_id"] = node_id
@@ -230,7 +230,7 @@ Syntax: Prover9 FOL format (e.g., "all x (human(x) -> mortal(x))", "human(socrat
     return asyncio.run(_async_call())
 
 
-def resolve_meta_paradox(conflict: str, waitForPreviousTools: bool | None = None) -> Any:
+def resolve_meta_paradox(conflict: str | Any = None, waitForPreviousTools: bool | None = None, **kwargs) -> Any:
     """Resolve an internal system conflict (Meta-Paradox) by treating it as a cognitive object. Deconstructs the conflict, hypothesizes a synthesis, and generates a resolution plan.
 
     Args:
@@ -243,7 +243,7 @@ def resolve_meta_paradox(conflict: str, waitForPreviousTools: bool | None = None
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if conflict is not None:
         mcp_args["conflict"] = conflict
@@ -269,7 +269,7 @@ def resolve_meta_paradox(conflict: str, waitForPreviousTools: bool | None = None
     return asyncio.run(_async_call())
 
 
-def get_active_goals() -> Any:
+def get_active_goals(**kwargs) -> Any:
     """Get all currently active goals with their weights and metadata.
 
     Returns:
@@ -278,7 +278,7 @@ def get_active_goals() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -300,7 +300,7 @@ def get_active_goals() -> Any:
     return asyncio.run(_async_call())
 
 
-def diagnose_pointer() -> Any:
+def diagnose_pointer(**kwargs) -> Any:
     """Perform sheaf-theoretic diagnosis of the GoalController (Pointer). Checks for topological obstructions (H^1 > 0) or tension loops that might be causing the agent to get stuck.
 
     Returns:
@@ -309,7 +309,7 @@ def diagnose_pointer() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -331,7 +331,7 @@ def diagnose_pointer() -> Any:
     return asyncio.run(_async_call())
 
 
-def check_cognitive_state() -> Any:
+def check_cognitive_state(**kwargs) -> Any:
     """Get the agent's latest cognitive state (Proprioception). Returns the current 'shape' of thought (e.g., 'Focused', 'Looping') and its stability.
 
     Returns:
@@ -340,7 +340,7 @@ def check_cognitive_state() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -362,7 +362,7 @@ def check_cognitive_state() -> Any:
     return asyncio.run(_async_call())
 
 
-def recall_work(query: str | None = None, operation_type: str | None = None, limit: int | None = None) -> Any:
+def recall_work(query: str | None = None, operation_type: str | None = None, limit: int | None = None, **kwargs) -> Any:
     """Search the agent's past work history to recall previous operations, results, and cognitive states.
 
     Args:
@@ -376,7 +376,7 @@ def recall_work(query: str | None = None, operation_type: str | None = None, lim
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -404,7 +404,7 @@ def recall_work(query: str | None = None, operation_type: str | None = None, lim
     return asyncio.run(_async_call())
 
 
-def teach_cognitive_state(label: str) -> Any:
+def teach_cognitive_state(label: str | Any = None, **kwargs) -> Any:
     """Teach the agent that its *current* thought pattern corresponds to a specific state label (Reinforcement Learning).
 
     Args:
@@ -416,7 +416,7 @@ def teach_cognitive_state(label: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if label is not None:
         mcp_args["label"] = label
@@ -440,7 +440,7 @@ def teach_cognitive_state(label: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_known_archetypes() -> Any:
+def get_known_archetypes(**kwargs) -> Any:
     """List all cognitive states the agent currently recognizes.
 
     Returns:
@@ -449,7 +449,7 @@ def get_known_archetypes() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -471,7 +471,7 @@ def get_known_archetypes() -> Any:
     return asyncio.run(_async_call())
 
 
-def visualize_thought() -> Any:
+def visualize_thought(**kwargs) -> Any:
     """Get an ASCII visualization of the last thought's topology.
 
     Returns:
@@ -480,7 +480,7 @@ def visualize_thought() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -502,7 +502,7 @@ def visualize_thought() -> Any:
     return asyncio.run(_async_call())
 
 
-def run_sleep_cycle(epochs: int | None = None) -> Any:
+def run_sleep_cycle(epochs: int | None = None, **kwargs) -> Any:
     """Trigger a Sleep Cycle (Offline Learning) to consolidate recent memories and potentially crystallize new tools.
 
     Args:
@@ -514,7 +514,7 @@ def run_sleep_cycle(epochs: int | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if epochs is not None:
         mcp_args["epochs"] = epochs
@@ -538,7 +538,7 @@ def run_sleep_cycle(epochs: int | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def diagnose_antifragility() -> Any:
+def diagnose_antifragility(**kwargs) -> Any:
     """Diagnose the system's antifragility by analyzing its topological and learning properties, and suggest adaptation strategies.
 
     Returns:
@@ -547,7 +547,7 @@ def diagnose_antifragility() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -569,7 +569,7 @@ def diagnose_antifragility() -> Any:
     return asyncio.run(_async_call())
 
 
-def orthogonal_dimensions_analyzer(concept_a: str, concept_b: str, context: str | None = None) -> Any:
+def orthogonal_dimensions_analyzer(concept_a: str | Any = None, concept_b: str | Any = None, context: str | None = None, **kwargs) -> Any:
     """Analyze the relationship between two concepts as orthogonal dimensions (Statistical Compression vs Causal Understanding).
 
     Args:
@@ -583,7 +583,7 @@ def orthogonal_dimensions_analyzer(concept_a: str, concept_b: str, context: str 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if concept_a is not None:
         mcp_args["concept_a"] = concept_a
@@ -611,7 +611,7 @@ def orthogonal_dimensions_analyzer(concept_a: str, concept_b: str, context: str 
     return asyncio.run(_async_call())
 
 
-def revise(belief: str, evidence: str, constraints: list[str] | None = None) -> Any:
+def revise(belief: str | Any = None, evidence: str | Any = None, constraints: list[str] | None = None, **kwargs) -> Any:
     """Refine a belief or concept using Hybrid Operator C (LTN + Hopfield). Adjusts a thought-node to better match evidence while respecting logical constraints and energy barriers.
 
     Args:
@@ -625,7 +625,7 @@ def revise(belief: str, evidence: str, constraints: list[str] | None = None) -> 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if belief is not None:
         mcp_args["belief"] = belief
@@ -653,7 +653,7 @@ def revise(belief: str, evidence: str, constraints: list[str] | None = None) -> 
     return asyncio.run(_async_call())
 
 
-def manage_advisor(action: str, params: dict[str, Any]) -> Any:
+def manage_advisor(action: str | Any = None, params: dict[str, Any] | Any = None, **kwargs) -> Any:
     """Consolidated tool for managing Advisors (CRUD + Knowledge) AND user's own cognitive state. Actions: set_goal, propose_goal, explore, set_mode, consult_curiosity, create, update, delete, list, get, link_knowledge, get_knowledge, get_context.
 
     Args:
@@ -666,7 +666,7 @@ def manage_advisor(action: str, params: dict[str, Any]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if action is not None:
         mcp_args["action"] = action
@@ -692,7 +692,7 @@ def manage_advisor(action: str, params: dict[str, Any]) -> Any:
     return asyncio.run(_async_call())
 
 
-def consult_advisor(advisor_id: str, query: str) -> Any:
+def consult_advisor(advisor_id: str | Any = None, query: str | Any = None, **kwargs) -> Any:
     """Consult a specific Advisor as an autonomous agent. They can perform research, use tools, and save insights to The Library.
 
     Args:
@@ -705,7 +705,7 @@ def consult_advisor(advisor_id: str, query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if advisor_id is not None:
         mcp_args["advisor_id"] = advisor_id
@@ -731,7 +731,7 @@ def consult_advisor(advisor_id: str, query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def inspect_graph(mode: str, label: str | None = None, filters: dict[str, Any] | None = None, start_id: str | None = None, rel_type: str | None = None, direction: str | None = None, depth: int | None = None, limit: int | None = None) -> Any:
+def inspect_graph(mode: str | Any = None, label: str | None = None, filters: dict[str, Any] | None = None, start_id: str | None = None, rel_type: str | None = None, direction: str | None = None, depth: int | None = None, limit: int | None = None, **kwargs) -> Any:
     """Inspect the graph using dynamic queries. Search for nodes, traverse relationships, or explore local context.
 
     Args:
@@ -750,7 +750,7 @@ def inspect_graph(mode: str, label: str | None = None, filters: dict[str, Any] |
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if mode is not None:
         mcp_args["mode"] = mode
@@ -788,7 +788,7 @@ def inspect_graph(mode: str, label: str | None = None, filters: dict[str, Any] |
     return asyncio.run(_async_call())
 
 
-def compute_grok_depth(speaker_id: str, listener_id: str, utterance_raw: str, speaker_intent: str | None = None, speaker_affect: dict[str, Any] | None = None, listener_affect: dict[str, Any] | None = None, context: str | None = None) -> Any:
+def compute_grok_depth(speaker_id: str | Any = None, listener_id: str | Any = None, utterance_raw: str | Any = None, speaker_intent: str | None = None, speaker_affect: dict[str, Any] | None = None, listener_affect: dict[str, Any] | None = None, context: str | None = None, **kwargs) -> Any:
     """Compute the Grok-Depth empathetic alignment score between two mind-states across Grok-Lang's six cognitive levels (Signal, Symbol, Syntax, Semantics, Pragmatics, Meta). Returns a total score (0-1) and per-level alignments with a diagnostic interpretation.
 
     Args:
@@ -806,7 +806,7 @@ def compute_grok_depth(speaker_id: str, listener_id: str, utterance_raw: str, sp
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if speaker_id is not None:
         mcp_args["speaker_id"] = speaker_id
@@ -842,7 +842,7 @@ def compute_grok_depth(speaker_id: str, listener_id: str, utterance_raw: str, sp
     return asyncio.run(_async_call())
 
 
-def consult_computational_empathy(query_type: str, query_param: str | None = None) -> Any:
+def consult_computational_empathy(query_type: str | Any = None, query_param: str | None = None, **kwargs) -> Any:
     """Query the Emotion Evolution Framework for evolutionary psychology insights, empathic response templates, and computational empathy architecture.
 
 This tool provides access to:
@@ -866,7 +866,7 @@ This tool provides access to:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query_type is not None:
         mcp_args["query_type"] = query_type
@@ -892,7 +892,7 @@ This tool provides access to:
     return asyncio.run(_async_call())
 
 
-def prove(premises: list[str], conclusion: str) -> Any:
+def prove(premises: list[str] | Any = None, conclusion: str | Any = None, **kwargs) -> Any:
     """Prove a logical statement using Prover9.
 
 Syntax: Prover9 FOL format (e.g., "all x (human(x) -> mortal(x))", "human(socrates)").
@@ -914,7 +914,7 @@ Syntax: Prover9 FOL format (e.g., "all x (human(x) -> mortal(x))", "human(socrat
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -940,7 +940,7 @@ Syntax: Prover9 FOL format (e.g., "all x (human(x) -> mortal(x))", "human(socrat
     return asyncio.run(_async_call())
 
 
-def find_counterexample(premises: list[str], conclusion: str, domain_size: int | None = None) -> Any:
+def find_counterexample(premises: list[str] | Any = None, conclusion: str | Any = None, domain_size: int | None = None, **kwargs) -> Any:
     """Use Mace4 to find a counterexample showing the conclusion doesn't follow from premises.
 
 Syntax: Same as prove tool - use Prover9 FOL format.
@@ -956,7 +956,7 @@ Syntax: Same as prove tool - use Prover9 FOL format.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -984,7 +984,7 @@ Syntax: Same as prove tool - use Prover9 FOL format.
     return asyncio.run(_async_call())
 
 
-def find_model(premises: list[str], domain_size: int | None = None) -> Any:
+def find_model(premises: list[str] | Any = None, domain_size: int | None = None, **kwargs) -> Any:
     """Use Mace4 to find a finite model satisfying the given premises.
 
 Syntax: Same as prove tool - use Prover9 FOL format.
@@ -999,7 +999,7 @@ Syntax: Same as prove tool - use Prover9 FOL format.
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if premises is not None:
         mcp_args["premises"] = premises
@@ -1025,7 +1025,7 @@ Syntax: Same as prove tool - use Prover9 FOL format.
     return asyncio.run(_async_call())
 
 
-def check_well_formed(statements: list[str]) -> Any:
+def check_well_formed(statements: list[str] | Any = None, **kwargs) -> Any:
     """Check if logical statements are well-formed with detailed syntax validation.
 
     Args:
@@ -1037,7 +1037,7 @@ def check_well_formed(statements: list[str]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if statements is not None:
         mcp_args["statements"] = statements
@@ -1061,7 +1061,7 @@ def check_well_formed(statements: list[str]) -> Any:
     return asyncio.run(_async_call())
 
 
-def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str, object_end: str, with_category_axioms: bool | None = None) -> Any:
+def verify_commutativity(path_a: list[str] | Any = None, path_b: list[str] | Any = None, object_start: str | Any = None, object_end: str | Any = None, with_category_axioms: bool | None = None, **kwargs) -> Any:
     """Verify that a categorical diagram commutes by generating FOL premises and conclusion.
 
     Args:
@@ -1077,7 +1077,7 @@ def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if path_a is not None:
         mcp_args["path_a"] = path_a
@@ -1109,7 +1109,7 @@ def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str
     return asyncio.run(_async_call())
 
 
-def get_category_axioms(concept: str, functor_name: str | None = None, functor_f: str | None = None, functor_g: str | None = None, component: str | None = None) -> Any:
+def get_category_axioms(concept: str | Any = None, functor_name: str | None = None, functor_f: str | None = None, functor_g: str | None = None, component: str | None = None, **kwargs) -> Any:
     """Get FOL axioms for category theory concepts (category, functor, natural transformation).
 
     Args:
@@ -1125,7 +1125,7 @@ def get_category_axioms(concept: str, functor_name: str | None = None, functor_f
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if concept is not None:
         mcp_args["concept"] = concept
@@ -1157,7 +1157,7 @@ def get_category_axioms(concept: str, functor_name: str | None = None, functor_f
     return asyncio.run(_async_call())
 
 
-def consult_ruminator(focus_node_id: str | None = None, mode: str | None = None) -> Any:
+def consult_ruminator(focus_node_id: str | None = None, mode: str | None = None, **kwargs) -> Any:
     """Consult the Category-Theoretic Ruminator to perform 'Diagram Chasing' on the knowledge graph.
 
         It identifies 'open triangles' (non-commutative diagrams) starting from a focus node and uses an LLM (acting as a Functor) to propose missing relationships (morphisms) to make the diagram commute.
@@ -1172,7 +1172,7 @@ def consult_ruminator(focus_node_id: str | None = None, mode: str | None = None)
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if focus_node_id is not None:
         mcp_args["focus_node_id"] = focus_node_id

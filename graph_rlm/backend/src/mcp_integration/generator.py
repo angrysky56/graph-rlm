@@ -88,7 +88,6 @@ class ToolGenerator:
         params = []
 
         # Sort properties: required first, then optional
-        # Using lambda x: x[0] not in required -> False (0) for required, True (1) for optional
         sorted_props = sorted(properties.items(), key=lambda x: x[0] not in required)
 
         for param_name, param_info in sorted_props:
@@ -96,11 +95,14 @@ class ToolGenerator:
             is_required = param_name in required
 
             if is_required:
-                params.append(f"{param_name}: {param_type}")
+                # Still make it optional in Python but handle check in body if desired
+                # Actually, making it optional with None allows for kwarg resilience
+                params.append(f"{param_name}: {param_type} | Any = None")
             else:
-                default = "None"
-                params.append(f"{param_name}: {param_type} | None = {default}")
+                params.append(f"{param_name}: {param_type} | None = None")
 
+        # Always add **kwargs for resilience
+        params.append("**kwargs")
         params_str = ", ".join(params)
 
         # Generate docstring
@@ -120,8 +122,20 @@ class ToolGenerator:
         docstring = "\n".join(docstring_lines)
 
         # Generate function body
-        # Sanitize tool name for Python function name
         func_name = self._sanitize_name(tool_name)
+
+        # Build resilience logic for common parameter hallucinations
+        resilience_logic = ""
+
+        # 1. Handle 'type' collisions or aliases
+        if "type" in properties:
+            resilience_logic += (
+                "    # Resilience: Handle 'type' keyword safety and aliases\n"
+            )
+            resilience_logic += "    actual_type = type or kwargs.get('node_type') or kwargs.get('thought_type')\n"
+        elif "thoughtType" in properties:
+            resilience_logic += "    # Resilience: Handle aliases for 'thoughtType'\n"
+            resilience_logic += "    actual_thoughtType = thoughtType or kwargs.get('type') or kwargs.get('node_type') or kwargs.get('thought_type')\n"
 
         function_code = f"""
 def {func_name}({params_str}) -> Any:
@@ -129,16 +143,26 @@ def {func_name}({params_str}) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {{}}
 """
+        if resilience_logic:
+            function_code += resilience_logic
 
         for param_name in properties.keys():
-            function_code += f"""    if {param_name} is not None:
-        mcp_args["{param_name}"] = {param_name}
+            val_name = param_name
+            if param_name == "type" and "actual_type" in resilience_logic:
+                val_name = "actual_type"
+            elif (
+                param_name == "thoughtType" and "actual_thoughtType" in resilience_logic
+            ):
+                val_name = "actual_thoughtType"
+
+            function_code += f"""    if {val_name} is not None:
+        mcp_args["{param_name}"] = {val_name}
 """
 
-        function_code += f"""
+        function_code += """
     async def _async_call():
         return await call_mcp_tool(
             server_name="{server_name}",
@@ -156,7 +180,7 @@ def {func_name}({params_str}) -> Any:
 
     # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
-"""
+""".replace("{server_name}", server_name).replace("{tool_name}", tool_name)
 
         return function_code
 
@@ -370,7 +394,7 @@ Each module provides:
         if not readme_path.exists() or readme_path.read_text() != readme_content:
             readme_path.write_text(readme_content)
 
-    def generate_all(self, servers_info: dict[str, dict[str, Any]]) -> int:
+    def generate_all(self, servers_info: dict[str, dict[str, Any]]) -> tuple[int, int]:
         """
         Generate complete mcp_tools package.
 
@@ -381,6 +405,7 @@ Each module provides:
             Number of servers successfully generated
         """
         server_names = []
+        total_tools = 0
 
         # Generate module for each server
         for server_name, server_info in servers_info.items():
@@ -391,6 +416,7 @@ Each module provides:
             try:
                 self.generate_server_module(server_name, server_info)
                 server_names.append(server_name)
+                total_tools += len(server_info.get("tools", {}))
             except Exception as e:
                 logger.error(f"Failed to generate module for {server_name}: {e}")
                 # Continue generating other servers
@@ -403,9 +429,9 @@ Each module provides:
         self.generate_readme()
 
         logger.info(
-            f"Generated {len(server_names)} server modules in {self.output_dir}"
+            f"Generated {len(server_names)} server modules with {total_tools} tools in {self.output_dir}"
         )
-        return len(server_names)
+        return len(server_names), total_tools
 
 
 def generate_from_config(

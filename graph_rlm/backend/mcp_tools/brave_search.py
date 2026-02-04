@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def brave_web_search(query: str, count: float | None = None, offset: float | None = None) -> Any:
+def brave_web_search(query: str | Any = None, count: float | None = None, offset: float | None = None, **kwargs) -> Any:
     """Performs a web search using the Brave Search API, ideal for general queries, news, articles, and online content. Use this for broad information gathering, recent events, or when you need diverse web sources. Supports pagination, content filtering, and freshness controls. Maximum 20 results per request, with offset for pagination. 
 
     Args:
@@ -24,7 +24,7 @@ def brave_web_search(query: str, count: float | None = None, offset: float | Non
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -52,7 +52,7 @@ def brave_web_search(query: str, count: float | None = None, offset: float | Non
     return asyncio.run(_async_call())
 
 
-def brave_local_search(query: str, count: float | None = None) -> Any:
+def brave_local_search(query: str | Any = None, count: float | None = None, **kwargs) -> Any:
     """Searches for local businesses and places using Brave's Local Search API. Best for queries related to physical locations, businesses, restaurants, services, etc. Returns detailed information including:
 - Business names and addresses
 - Ratings and review counts
@@ -69,7 +69,7 @@ Use this when the query implies 'near me' or mentions specific locations. Automa
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query

@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def chroma_list_collections(limit: Any | None = None, offset: Any | None = None) -> Any:
+def chroma_list_collections(limit: Any | None = None, offset: Any | None = None, **kwargs) -> Any:
     """List all collection names in the Chroma database with pagination support.
 
 Args:
@@ -31,7 +31,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if limit is not None:
         mcp_args["limit"] = limit
@@ -57,7 +57,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def chroma_create_collection(collection_name: str, embedding_function_name: str | None = None, metadata: Any | None = None) -> Any:
+def chroma_create_collection(collection_name: str | Any = None, embedding_function_name: str | None = None, metadata: Any | None = None, **kwargs) -> Any:
     """Create a new Chroma collection with configurable HNSW parameters.
 
 Args:
@@ -77,7 +77,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -105,7 +105,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_peek_collection(collection_name: str, limit: int | None = None) -> Any:
+def chroma_peek_collection(collection_name: str | Any = None, limit: int | None = None, **kwargs) -> Any:
     """Peek at documents in a Chroma collection.
 
 Args:
@@ -123,7 +123,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -149,7 +149,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_get_collection_info(collection_name: str) -> Any:
+def chroma_get_collection_info(collection_name: str | Any = None, **kwargs) -> Any:
     """Get information about a Chroma collection.
 
 Args:
@@ -165,7 +165,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -189,7 +189,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_get_collection_count(collection_name: str) -> Any:
+def chroma_get_collection_count(collection_name: str | Any = None, **kwargs) -> Any:
     """Get the number of documents in a Chroma collection.
 
 Args:
@@ -205,7 +205,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -229,7 +229,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_modify_collection(collection_name: str, new_name: Any | None = None, new_metadata: Any | None = None) -> Any:
+def chroma_modify_collection(collection_name: str | Any = None, new_name: Any | None = None, new_metadata: Any | None = None, **kwargs) -> Any:
     """Modify a Chroma collection's name or metadata.
 
 Args:
@@ -249,7 +249,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -277,7 +277,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_fork_collection(collection_name: str, new_collection_name: str) -> Any:
+def chroma_fork_collection(collection_name: str | Any = None, new_collection_name: str | Any = None, **kwargs) -> Any:
     """Fork a Chroma collection.
 
 Args:
@@ -296,7 +296,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -322,7 +322,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_delete_collection(collection_name: str) -> Any:
+def chroma_delete_collection(collection_name: str | Any = None, **kwargs) -> Any:
     """Delete a Chroma collection.
 
 Args:
@@ -338,7 +338,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -362,7 +362,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_add_documents(collection_name: str, documents: list[str], ids: list[str], metadatas: Any | None = None) -> Any:
+def chroma_add_documents(collection_name: str | Any = None, documents: list[str] | Any = None, ids: list[str] | Any = None, metadatas: Any | None = None, **kwargs) -> Any:
     """Add documents to a Chroma collection.
 
 Args:
@@ -384,7 +384,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -414,7 +414,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_query_documents(collection_name: str, query_texts: list[str], n_results: int | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None) -> Any:
+def chroma_query_documents(collection_name: str | Any = None, query_texts: list[str] | Any = None, n_results: int | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None, **kwargs) -> Any:
     """Query documents from a Chroma collection with advanced filtering.
 
 Args:
@@ -452,7 +452,7 @@ Args:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -486,7 +486,7 @@ Args:
     return asyncio.run(_async_call())
 
 
-def chroma_get_documents(collection_name: str, ids: Any | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None, limit: Any | None = None, offset: Any | None = None) -> Any:
+def chroma_get_documents(collection_name: str | Any = None, ids: Any | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None, limit: Any | None = None, offset: Any | None = None, **kwargs) -> Any:
     """Get documents from a Chroma collection with optional filtering.
 
 Args:
@@ -529,7 +529,7 @@ Returns:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -565,7 +565,7 @@ Returns:
     return asyncio.run(_async_call())
 
 
-def chroma_update_documents(collection_name: str, ids: list[str], embeddings: Any | None = None, metadatas: Any | None = None, documents: Any | None = None) -> Any:
+def chroma_update_documents(collection_name: str | Any = None, ids: list[str] | Any = None, embeddings: Any | None = None, metadatas: Any | None = None, documents: Any | None = None, **kwargs) -> Any:
     """Update documents in a Chroma collection.
 
 Args:
@@ -601,7 +601,7 @@ Raises:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name
@@ -633,7 +633,7 @@ Raises:
     return asyncio.run(_async_call())
 
 
-def chroma_delete_documents(collection_name: str, ids: list[str]) -> Any:
+def chroma_delete_documents(collection_name: str | Any = None, ids: list[str] | Any = None, **kwargs) -> Any:
     """Delete documents from a Chroma collection.
 
 Args:
@@ -658,7 +658,7 @@ Raises:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if collection_name is not None:
         mcp_args["collection_name"] = collection_name

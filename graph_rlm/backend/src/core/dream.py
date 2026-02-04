@@ -112,6 +112,33 @@ class Dreamer:
 
         processed_node_ids = [e["target"] for e in surprise_events]
 
+        # [NEW] 1. Gather Recent Frontier (The Truth)
+        # We need to see the *latest* events to check for success
+        recent_context_str = "No recent context"
+        if session_id:
+            recent_events = self.db.query(
+                """
+                MATCH (n:Thought)
+                WHERE n.session_id = $sid
+                RETURN n.id as id, n.prompt as prompt, n.status as status, n.result as result
+                ORDER BY n.created_at DESC LIMIT 5
+                """,
+                {"sid": session_id},
+            )
+
+            if recent_events:
+                # Normalize result formatting
+                recent_lines = []
+                for r in recent_events:
+                    rid = r.get("id", "???")
+                    status = r.get("status", "unknown")
+                    prompt = str(r.get("prompt") or "")[:50]
+                    res = str(r.get("result") or "")[:100]
+                    recent_lines.append(
+                        f"- [Node {rid}] Status: {status} | Action: {prompt}... | Result: {res}..."
+                    )
+                recent_context_str = "\n".join(recent_lines)
+
         # 2. Formulate the Dream Prompt
         events_desc = []
         for event in surprise_events:
@@ -156,7 +183,8 @@ class Dreamer:
             "Your job is to VERIFY then VALIDATE the consistency between the *Trace* (what happened) and the *Proposal* (what the agent says happened).\n\n"
             "Here are the High-Surprise Events from the Monitoring Layer:\n"
             + "\n".join(events_desc)
-            + "\n"
+            + "\n\n"
+            "--- IMMEDIATE RECENT CONTEXT (THE TRUTH) ---\n" + recent_context_str + "\n"
             f"{context_section}"
             f"{candidate_section}\n"
             "Instructions:\n"
@@ -165,6 +193,8 @@ class Dreamer:
             "   - Did the Agent report the CORRECT tools/data found in the trace? (Fidelity -> ACCEPT)\n"
             "2. **Safety Check**: Are there any dangerous patterns?\n"
             "3. **Resolution**: \n"
+            "   - Check the 'IMMEDIATE RECENT CONTEXT'. If the latest node has status='complete' or 'success', the Agent HAS fixed the issue.\n"
+            "   - Do NOT reject based solely on past 'High-Surprise Events' if the 'Recent Context' shows resolution.\n"
             "   - If the Proposed Response accurately reflects the Trace (even if the Trace shows limited results), output 'System Status: Peaceful'.\n"
             "   - Only reject if there is a contradiction (e.g. Agent says 'I used Google' but Trace shows 'Error').\n"
             "   - Do NOT invent failures. If the agent listed the tools correctly, do not claim it didn't.\n"

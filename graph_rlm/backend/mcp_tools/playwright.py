@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def browser_close() -> Any:
+def browser_close(**kwargs) -> Any:
     """Close the page
 
     Returns:
@@ -19,7 +19,7 @@ def browser_close() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -41,7 +41,7 @@ def browser_close() -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_resize(width: float, height: float) -> Any:
+def browser_resize(width: float | Any = None, height: float | Any = None, **kwargs) -> Any:
     """Resize the browser window
 
     Args:
@@ -54,7 +54,7 @@ def browser_resize(width: float, height: float) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if width is not None:
         mcp_args["width"] = width
@@ -80,7 +80,7 @@ def browser_resize(width: float, height: float) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_console_messages(level: str, filename: str | None = None) -> Any:
+def browser_console_messages(level: str | Any = None, filename: str | None = None, **kwargs) -> Any:
     """Returns all console messages
 
     Args:
@@ -93,7 +93,7 @@ def browser_console_messages(level: str, filename: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if level is not None:
         mcp_args["level"] = level
@@ -119,7 +119,7 @@ def browser_console_messages(level: str, filename: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_handle_dialog(accept: bool, promptText: str | None = None) -> Any:
+def browser_handle_dialog(accept: bool | Any = None, promptText: str | None = None, **kwargs) -> Any:
     """Handle a dialog
 
     Args:
@@ -132,7 +132,7 @@ def browser_handle_dialog(accept: bool, promptText: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if accept is not None:
         mcp_args["accept"] = accept
@@ -158,7 +158,7 @@ def browser_handle_dialog(accept: bool, promptText: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_evaluate(function: str, element: str | None = None, ref: str | None = None) -> Any:
+def browser_evaluate(function: str | Any = None, element: str | None = None, ref: str | None = None, **kwargs) -> Any:
     """Evaluate JavaScript expression on page or element
 
     Args:
@@ -172,7 +172,7 @@ def browser_evaluate(function: str, element: str | None = None, ref: str | None 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if function is not None:
         mcp_args["function"] = function
@@ -200,7 +200,7 @@ def browser_evaluate(function: str, element: str | None = None, ref: str | None 
     return asyncio.run(_async_call())
 
 
-def browser_file_upload(paths: list[str] | None = None) -> Any:
+def browser_file_upload(paths: list[str] | None = None, **kwargs) -> Any:
     """Upload one or multiple files
 
     Args:
@@ -212,7 +212,7 @@ def browser_file_upload(paths: list[str] | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if paths is not None:
         mcp_args["paths"] = paths
@@ -236,7 +236,7 @@ def browser_file_upload(paths: list[str] | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_fill_form(fields: list[dict[str, Any]]) -> Any:
+def browser_fill_form(fields: list[dict[str, Any]] | Any = None, **kwargs) -> Any:
     """Fill multiple form fields
 
     Args:
@@ -248,7 +248,7 @@ def browser_fill_form(fields: list[dict[str, Any]]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if fields is not None:
         mcp_args["fields"] = fields
@@ -272,7 +272,7 @@ def browser_fill_form(fields: list[dict[str, Any]]) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_install() -> Any:
+def browser_install(**kwargs) -> Any:
     """Install the browser specified in the config. Call this if you get an error about the browser not being installed.
 
     Returns:
@@ -281,7 +281,7 @@ def browser_install() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -303,7 +303,7 @@ def browser_install() -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_press_key(key: str) -> Any:
+def browser_press_key(key: str | Any = None, **kwargs) -> Any:
     """Press a key on the keyboard
 
     Args:
@@ -315,7 +315,7 @@ def browser_press_key(key: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if key is not None:
         mcp_args["key"] = key
@@ -339,7 +339,7 @@ def browser_press_key(key: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_type(ref: str, text: str, element: str | None = None, submit: bool | None = None, slowly: bool | None = None) -> Any:
+def browser_type(ref: str | Any = None, text: str | Any = None, element: str | None = None, submit: bool | None = None, slowly: bool | None = None, **kwargs) -> Any:
     """Type text into editable element
 
     Args:
@@ -355,7 +355,7 @@ def browser_type(ref: str, text: str, element: str | None = None, submit: bool |
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if element is not None:
         mcp_args["element"] = element
@@ -387,7 +387,7 @@ def browser_type(ref: str, text: str, element: str | None = None, submit: bool |
     return asyncio.run(_async_call())
 
 
-def browser_navigate(url: str) -> Any:
+def browser_navigate(url: str | Any = None, **kwargs) -> Any:
     """Navigate to a URL
 
     Args:
@@ -399,7 +399,7 @@ def browser_navigate(url: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
@@ -423,7 +423,7 @@ def browser_navigate(url: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_navigate_back() -> Any:
+def browser_navigate_back(**kwargs) -> Any:
     """Go back to the previous page in the history
 
     Returns:
@@ -432,7 +432,7 @@ def browser_navigate_back() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -454,7 +454,7 @@ def browser_navigate_back() -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_network_requests(includeStatic: bool, filename: str | None = None) -> Any:
+def browser_network_requests(includeStatic: bool | Any = None, filename: str | None = None, **kwargs) -> Any:
     """Returns all network requests since loading the page
 
     Args:
@@ -467,7 +467,7 @@ def browser_network_requests(includeStatic: bool, filename: str | None = None) -
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if includeStatic is not None:
         mcp_args["includeStatic"] = includeStatic
@@ -493,7 +493,7 @@ def browser_network_requests(includeStatic: bool, filename: str | None = None) -
     return asyncio.run(_async_call())
 
 
-def browser_run_code(code: str) -> Any:
+def browser_run_code(code: str | Any = None, **kwargs) -> Any:
     """Run Playwright code snippet
 
     Args:
@@ -505,7 +505,7 @@ def browser_run_code(code: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if code is not None:
         mcp_args["code"] = code
@@ -529,7 +529,7 @@ def browser_run_code(code: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_take_screenshot(type: str, filename: str | None = None, element: str | None = None, ref: str | None = None, fullPage: bool | None = None) -> Any:
+def browser_take_screenshot(type: str | Any = None, filename: str | None = None, element: str | None = None, ref: str | None = None, fullPage: bool | None = None, **kwargs) -> Any:
     """Take a screenshot of the current page. You can't perform actions based on the screenshot, use browser_snapshot for actions.
 
     Args:
@@ -545,10 +545,12 @@ def browser_take_screenshot(type: str, filename: str | None = None, element: str
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
-    if type is not None:
-        mcp_args["type"] = type
+    # Resilience: Handle 'type' keyword safety and aliases
+    actual_type = type or kwargs.get('node_type') or kwargs.get('thought_type')
+    if actual_type is not None:
+        mcp_args["type"] = actual_type
     if filename is not None:
         mcp_args["filename"] = filename
     if element is not None:
@@ -577,7 +579,7 @@ def browser_take_screenshot(type: str, filename: str | None = None, element: str
     return asyncio.run(_async_call())
 
 
-def browser_snapshot(filename: str | None = None) -> Any:
+def browser_snapshot(filename: str | None = None, **kwargs) -> Any:
     """Capture accessibility snapshot of the current page, this is better than screenshot
 
     Args:
@@ -589,7 +591,7 @@ def browser_snapshot(filename: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if filename is not None:
         mcp_args["filename"] = filename
@@ -613,7 +615,7 @@ def browser_snapshot(filename: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_click(ref: str, element: str | None = None, doubleClick: bool | None = None, button: str | None = None, modifiers: list[str] | None = None) -> Any:
+def browser_click(ref: str | Any = None, element: str | None = None, doubleClick: bool | None = None, button: str | None = None, modifiers: list[str] | None = None, **kwargs) -> Any:
     """Perform click on a web page
 
     Args:
@@ -629,7 +631,7 @@ def browser_click(ref: str, element: str | None = None, doubleClick: bool | None
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if element is not None:
         mcp_args["element"] = element
@@ -661,7 +663,7 @@ def browser_click(ref: str, element: str | None = None, doubleClick: bool | None
     return asyncio.run(_async_call())
 
 
-def browser_drag(startElement: str, startRef: str, endElement: str, endRef: str) -> Any:
+def browser_drag(startElement: str | Any = None, startRef: str | Any = None, endElement: str | Any = None, endRef: str | Any = None, **kwargs) -> Any:
     """Perform drag and drop between two elements
 
     Args:
@@ -676,7 +678,7 @@ def browser_drag(startElement: str, startRef: str, endElement: str, endRef: str)
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if startElement is not None:
         mcp_args["startElement"] = startElement
@@ -706,7 +708,7 @@ def browser_drag(startElement: str, startRef: str, endElement: str, endRef: str)
     return asyncio.run(_async_call())
 
 
-def browser_hover(ref: str, element: str | None = None) -> Any:
+def browser_hover(ref: str | Any = None, element: str | None = None, **kwargs) -> Any:
     """Hover over element on page
 
     Args:
@@ -719,7 +721,7 @@ def browser_hover(ref: str, element: str | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if element is not None:
         mcp_args["element"] = element
@@ -745,7 +747,7 @@ def browser_hover(ref: str, element: str | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_select_option(ref: str, values: list[str], element: str | None = None) -> Any:
+def browser_select_option(ref: str | Any = None, values: list[str] | Any = None, element: str | None = None, **kwargs) -> Any:
     """Select an option in a dropdown
 
     Args:
@@ -759,7 +761,7 @@ def browser_select_option(ref: str, values: list[str], element: str | None = Non
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if element is not None:
         mcp_args["element"] = element
@@ -787,7 +789,7 @@ def browser_select_option(ref: str, values: list[str], element: str | None = Non
     return asyncio.run(_async_call())
 
 
-def browser_tabs(action: str, index: float | None = None) -> Any:
+def browser_tabs(action: str | Any = None, index: float | None = None, **kwargs) -> Any:
     """List, create, close, or select a browser tab.
 
     Args:
@@ -800,7 +802,7 @@ def browser_tabs(action: str, index: float | None = None) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if action is not None:
         mcp_args["action"] = action
@@ -826,7 +828,7 @@ def browser_tabs(action: str, index: float | None = None) -> Any:
     return asyncio.run(_async_call())
 
 
-def browser_wait_for(time: float | None = None, text: str | None = None, textGone: str | None = None) -> Any:
+def browser_wait_for(time: float | None = None, text: str | None = None, textGone: str | None = None, **kwargs) -> Any:
     """Wait for text to appear or disappear or a specified time to pass
 
     Args:
@@ -840,7 +842,7 @@ def browser_wait_for(time: float | None = None, text: str | None = None, textGon
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if time is not None:
         mcp_args["time"] = time

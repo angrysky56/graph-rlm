@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def get_schema() -> Any:
+def get_schema(**kwargs) -> Any:
     """
 		Retrieve the schema information from the Neo4j database, including node labels, relationship types, and property keys.
 		If the database contains no data, no schema information is returned.
@@ -21,7 +21,7 @@ def get_schema() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -43,7 +43,7 @@ def get_schema() -> Any:
     return asyncio.run(_async_call())
 
 
-def list_gds_procedures() -> Any:
+def list_gds_procedures(**kwargs) -> Any:
     """Use this tool to discover what graph science and analytics functions are available in the current Neo4j environment. It returns a structured list describing each function — what it does, how to use it, the inputs it needs, and what kind of results it produces. Do this before any reasoning, query generation, or analysis so you know what capabilities exist. Graph science and analytics functions help you with centrality, community detection, similarity, path finding, and identifying dependencies between nodes. The tool helps you understand the analytical capabilities of the system so that you can plan or compose the right graph science operations automatically. An empty response indicates that GDS is not installed and the user should be told to install it. Remember to use unique names for graph data science projections to avoid collisions and to drop them afterwards to save memory. You must always tell the user the function you will use.
 
     Returns:
@@ -52,7 +52,7 @@ def list_gds_procedures() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():
@@ -74,7 +74,7 @@ def list_gds_procedures() -> Any:
     return asyncio.run(_async_call())
 
 
-def read_cypher(query: str, params: dict[str, Any]) -> Any:
+def read_cypher(query: str | Any = None, params: dict[str, Any] | Any = None, **kwargs) -> Any:
     """read-cypher can run only read-only Cypher statements. For write operations (CREATE, MERGE, DELETE, SET, etc...), schema/admin commands, or PROFILE queries, use write-cypher instead.
 
     Args:
@@ -87,7 +87,7 @@ def read_cypher(query: str, params: dict[str, Any]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query
@@ -113,7 +113,7 @@ def read_cypher(query: str, params: dict[str, Any]) -> Any:
     return asyncio.run(_async_call())
 
 
-def write_cypher(query: str, params: dict[str, Any]) -> Any:
+def write_cypher(query: str | Any = None, params: dict[str, Any] | Any = None, **kwargs) -> Any:
     """write-cypher executes any arbitrary Cypher query, with write access, against the user-configured Neo4j database.
 
     Args:
@@ -126,7 +126,7 @@ def write_cypher(query: str, params: dict[str, Any]) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if query is not None:
         mcp_args["query"] = query

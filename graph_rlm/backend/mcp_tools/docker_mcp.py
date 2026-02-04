@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def create_container(image: str, name: str | None = None, ports: dict[str, Any] | None = None, environment: dict[str, Any] | None = None) -> Any:
+def create_container(image: str | Any = None, name: str | None = None, ports: dict[str, Any] | None = None, environment: dict[str, Any] | None = None, **kwargs) -> Any:
     """Create a new standalone Docker container
 
     Args:
@@ -25,7 +25,7 @@ def create_container(image: str, name: str | None = None, ports: dict[str, Any] 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if image is not None:
         mcp_args["image"] = image
@@ -55,7 +55,7 @@ def create_container(image: str, name: str | None = None, ports: dict[str, Any] 
     return asyncio.run(_async_call())
 
 
-def deploy_compose(compose_yaml: str, project_name: str) -> Any:
+def deploy_compose(compose_yaml: str | Any = None, project_name: str | Any = None, **kwargs) -> Any:
     """Deploy a Docker Compose stack
 
     Args:
@@ -68,7 +68,7 @@ def deploy_compose(compose_yaml: str, project_name: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if compose_yaml is not None:
         mcp_args["compose_yaml"] = compose_yaml
@@ -94,7 +94,7 @@ def deploy_compose(compose_yaml: str, project_name: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def get_logs(container_name: str) -> Any:
+def get_logs(container_name: str | Any = None, **kwargs) -> Any:
     """Retrieve the latest logs for a specified Docker container
 
     Args:
@@ -106,7 +106,7 @@ def get_logs(container_name: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if container_name is not None:
         mcp_args["container_name"] = container_name
@@ -130,7 +130,7 @@ def get_logs(container_name: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def list_containers() -> Any:
+def list_containers(**kwargs) -> Any:
     """List all Docker containers
 
     Returns:
@@ -139,7 +139,7 @@ def list_containers() -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
 
     async def _async_call():

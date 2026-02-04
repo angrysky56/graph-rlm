@@ -10,7 +10,7 @@ Do not edit manually.
 from typing import Any
 
 
-def match_common_libs_owner_repo_mapping(library: str) -> Any:
+def match_common_libs_owner_repo_mapping(library: str | Any = None, **kwargs) -> Any:
     """Match a library name to an owner/repo. Don't use it if you have an owner and repo already. Use this first if only a library name was provided. If found - you can use owner and repo to call other tools. If not found - try to use the library name directly in other tools.
 
     Args:
@@ -22,7 +22,7 @@ def match_common_libs_owner_repo_mapping(library: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if library is not None:
         mcp_args["library"] = library
@@ -46,7 +46,7 @@ def match_common_libs_owner_repo_mapping(library: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def fetch_generic_documentation(owner: str, repo: str) -> Any:
+def fetch_generic_documentation(owner: str | Any = None, repo: str | Any = None, **kwargs) -> Any:
     """Fetch documentation for any GitHub repository by providing owner and project name
 
     Args:
@@ -59,7 +59,7 @@ def fetch_generic_documentation(owner: str, repo: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if owner is not None:
         mcp_args["owner"] = owner
@@ -85,7 +85,7 @@ def fetch_generic_documentation(owner: str, repo: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def search_generic_documentation(owner: str, repo: str, query: str) -> Any:
+def search_generic_documentation(owner: str | Any = None, repo: str | Any = None, query: str | Any = None, **kwargs) -> Any:
     """Semantically search in documentation for any GitHub repository by providing owner, project name, and search query. Useful for specific queries.
 
     Args:
@@ -99,7 +99,7 @@ def search_generic_documentation(owner: str, repo: str, query: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if owner is not None:
         mcp_args["owner"] = owner
@@ -127,7 +127,7 @@ def search_generic_documentation(owner: str, repo: str, query: str) -> Any:
     return asyncio.run(_async_call())
 
 
-def search_generic_code(owner: str, repo: str, query: str, page: float | None = None) -> Any:
+def search_generic_code(owner: str | Any = None, repo: str | Any = None, query: str | Any = None, page: float | None = None, **kwargs) -> Any:
     """Search for code in any GitHub repository by providing owner, project name, and search query. Returns matching files. Supports pagination with 30 results per page.
 
     Args:
@@ -142,7 +142,7 @@ def search_generic_code(owner: str, repo: str, query: str, page: float | None = 
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if owner is not None:
         mcp_args["owner"] = owner
@@ -172,7 +172,7 @@ def search_generic_code(owner: str, repo: str, query: str, page: float | None = 
     return asyncio.run(_async_call())
 
 
-def fetch_generic_url_content(url: str) -> Any:
+def fetch_generic_url_content(url: str | Any = None, **kwargs) -> Any:
     """Generic tool to fetch content from any absolute URL, respecting robots.txt rules. Use this to retrieve referenced urls (absolute urls) that were mentioned in previously fetched documentation.
 
     Args:
@@ -184,7 +184,7 @@ def fetch_generic_url_content(url: str) -> Any:
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
     import asyncio
 
-    # Build parameters dict, excluding None values
+    # Build parameters dict
     mcp_args = {}
     if url is not None:
         mcp_args["url"] = url
