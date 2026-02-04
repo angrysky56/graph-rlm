@@ -8,9 +8,10 @@ an explicit state machine.
 import asyncio
 import logging
 import os
+import threading
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.sse import sse_client
@@ -413,7 +414,11 @@ class McpClientManager:
         )
 
     async def call_tool(
-        self, server_name: str, tool_name: str, arguments: dict[str, Any] | None = None
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: dict[str, Any] | None = None,
+        stop_event: Optional[threading.Event] = None,
     ) -> Any:
         """Call an MCP tool with lazy server connection and auto-reconnect."""
         # Custom dispatch for internal 'skills' server
@@ -440,16 +445,51 @@ class McpClientManager:
         # Connect with auto-reconnect
         session = await self._ensure_connection(server_name, server_config)
 
+        # We use a helper to allow interrupting the tool call if the stop event is set
+        async def _call_with_interrupt(target_session: ClientSession):
+            # Wrap the actual tool call in a task so we can cancel it
+            tool_task = asyncio.create_task(
+                target_session.call_tool(tool_name, arguments or {})
+            )
+
+            # Poll stop event while waiting for tool
+            while not tool_task.done():
+                if stop_event and stop_event.is_set():
+                    logger.warning(
+                        f"Stop signal received during tool call: {server_name}.{tool_name}. Cancelling."
+                    )
+                    tool_task.cancel()
+                    # Wait a moment for cancellation to propagate
+                    try:
+                        await asyncio.wait_for(tool_task, timeout=1.0)
+                    except (asyncio.CancelledError, asyncio.TimeoutError):
+                        pass
+                    raise InterruptedError(
+                        f"Tool call '{tool_name}' on '{server_name}' cancelled by user stop signal."
+                    )
+                await asyncio.sleep(0.1)  # Responsive check every 100ms
+
+            return await tool_task
+
         # Call tool with timeout and reconnect on connection errors
         try:
             result = await asyncio.wait_for(
-                session.call_tool(tool_name, arguments or {}), timeout=self.read_timeout
+                _call_with_interrupt(session), timeout=self.read_timeout
             )
         except TimeoutError:
             raise TimeoutError(
                 f"Tool call {tool_name} on {server_name} timed out after {self.read_timeout}s"
             ) from None
-        except (ConnectionError, BrokenPipeError, EOFError) as e:
+        except InterruptedError:
+            raise
+        except (
+            ConnectionError,
+            BrokenPipeError,
+            EOFError,
+            asyncio.CancelledError,
+        ) as e:
+            if isinstance(e, asyncio.CancelledError):
+                raise
             # Connection died during call - try to reconnect once
             logger.warning(
                 f"Connection error during tool call, attempting reconnect: {e}"
@@ -457,7 +497,7 @@ class McpClientManager:
             await self._cleanup_server(server_name)
             session = await self._ensure_connection(server_name, server_config)
             result = await asyncio.wait_for(
-                session.call_tool(tool_name, arguments or {}), timeout=self.read_timeout
+                _call_with_interrupt(session), timeout=self.read_timeout
             )
 
         # Unwrap result similar to reference implementation

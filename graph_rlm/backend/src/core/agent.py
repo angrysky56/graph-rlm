@@ -213,6 +213,14 @@ class RLMInterface:
         self.root_session_id = root_session_id
 
     def _record_tool_use(self, name: str):
+        # FAST STOP CHECK: If the user hit stop, we must abort immediately.
+        if getattr(self.agent, "_stop_requested", False) or (
+            hasattr(self.agent, "_global_stop_event")
+            and self.agent._global_stop_event.is_set()
+        ):
+            logger.warning(f"Stop signal detected. Aborting tool call: {name}")
+            raise InterruptedError(f"Execution stopped by user (Attempted: {name})")
+
         if self.session_id not in self.agent.execution_logs:
             self.agent.execution_logs[self.session_id] = []
         self.agent.execution_logs[self.session_id].append(name)
@@ -918,6 +926,12 @@ class Agent:
         if session_id not in self.active_repls:
             self.active_repls[session_id] = self.repl_manager.create_repl()
 
+        # MCP STOP SIGNAL REGISTRATION
+        if is_mcp_available():
+            from graph_rlm.backend.src.mcp_integration.runtime import set_stop_event
+
+            set_stop_event(self._global_stop_event)
+
         # 0. Initial "Task" Node (Root of this query)
         # Wrap everything in try/except to prevent DB crashes from killing the agent
         # Generate Round ID for this execution cycle (compress context)
@@ -984,7 +998,13 @@ class Agent:
         previous_thought_status = None
 
         while step < max_steps:
-            if getattr(self, "_stop_requested", False):
+            # 0.5 CHECK STOP SIGNAL
+            if getattr(self, "_stop_requested", False) or (
+                hasattr(self, "_global_stop_event") and self._global_stop_event.is_set()
+            ):
+                logger.info("Agent loop breaking due to stop request.")
+                # Ensure the flag is set if the event was
+                self._stop_requested = True
                 break
             step += 1
             thought_id = str(uuid.uuid4())
@@ -1125,12 +1145,22 @@ class Agent:
                     content=f"... Sending request to LLM (Size: {len(current_context)} chars) ...",
                 )
 
+                # Pre-gen stop check
+                if self._stop_requested or self._global_stop_event.is_set():
+                    self._stop_requested = True
+                    break
+
                 response_text = await self.llm.generate(
                     current_context,
                     system=system_prompt,
                     stream=False,
                     on_usage=on_token_usage,
                 )
+
+                # Post-gen stop check
+                if self._stop_requested or self._global_stop_event.is_set():
+                    self._stop_requested = True
+                    break
                 # self.emit_event("token", content=response_text) # Redundant with thinking output
             except Exception as e:
                 response_text = f"LLM Error: {e}"
@@ -1408,6 +1438,11 @@ class Agent:
                     thought_status = "failed"
                     execution_failed = True
                 else:
+                    # Pre-execution stop check
+                    if self._stop_requested or self._global_stop_event.is_set():
+                        self._stop_requested = True
+                        break
+
                     # Check code safety?
                     output, execution_failed = await self._execute_code(
                         code,
@@ -1416,6 +1451,11 @@ class Agent:
                         root_session_id=final_root_id,
                         task_input=prompt,
                     )
+
+                    # Post-execution stop check
+                    if self._stop_requested or self._global_stop_event.is_set():
+                        self._stop_requested = True
+                        break
 
                 if repl_id:
                     self.repl_manager.get_repl(repl_id)
@@ -1561,6 +1601,14 @@ class Agent:
                 if integrity_check["status"] == "RETRY" and not getattr(
                     self, "_final_result", None
                 ):
+                    # SAFETY: Don't reset if the user hit STOP
+                    if self._global_stop_event.is_set() or self._stop_requested:
+                        logger.info(
+                            "Integrity failure observed, but stop requested. Breaking."
+                        )
+                        self._stop_requested = True
+                        break
+
                     logger.warning(
                         f"🛡️ Epistemic Failure detected: {integrity_check['flags']}"
                     )
@@ -2187,7 +2235,7 @@ class Agent:
 
     def stop_generation(self):
         """Signal the agent to stop processing."""
-        logger.info("Stop signal received.")
+        logger.info("STOP SIGNAL RECEIVED: Setting stop flags.")
         if hasattr(self, "_global_stop_event"):
             self._global_stop_event.set()
         self._stop_requested = True

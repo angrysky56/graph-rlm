@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { GraphCanvas } from '../chat/GraphCanvas';
 import { InspectorPanel } from '../mcp/InspectorPanel';
-import { Activity, ChevronRight, ChevronLeft, Maximize2, Minimize2 } from 'lucide-react';
+import { Activity, ChevronRight, ChevronLeft, Maximize2, Minimize2, Cpu } from 'lucide-react';
 
 
 // Add Scratchpad import (need to update imports first) and props
@@ -16,7 +16,8 @@ interface RightSidebarProps {
 export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent, scratchpadText }) => {
     const [collapsed, setCollapsed] = useState(false);
     const [graphExpanded, setGraphExpanded] = useState(true);
-    const [scratchpadExpanded, setScratchpadExpanded] = useState(true); // New toggle for scratchpad
+    const [scratchpadExpanded, setScratchpadExpanded] = useState(true);
+    const [toolsExpanded, setToolsExpanded] = useState(true);
 
     if (collapsed) {
         return (
@@ -36,30 +37,31 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
     }
 
     return (
-        <div className="w-[450px] bg-slate-950 border-l border-slate-800 flex flex-col h-screen transition-all">
-            {/* Header */}
+        <div className="w-[450px] bg-slate-950 border-l border-slate-800 flex flex-col h-screen transition-all shadow-2xl">
+            {/* Main Header */}
             <div className="p-3 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
-                <span className="text-xs font-bold text-slate-400">CONTEXT & TOOLS</span>
+                <span className="text-[10px] font-black text-slate-500 tracking-[0.2em] uppercase">CONTEXT & TOOLS</span>
                 <button
                     onClick={() => setCollapsed(true)}
-                    className="text-slate-600 hover:text-white transition-colors"
+                    className="text-slate-600 hover:text-white transition-colors p-1"
                 >
                     <ChevronRight size={14} />
                 </button>
             </div>
 
-            {/* Scratchpad Section (Top) */}
-            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 ${scratchpadExpanded ? 'h-[250px]' : 'h-[40px]'}`}>
-                <div className="flex items-center justify-between p-2 bg-slate-900/20">
+            {/* Scratchpad Section (Primary) */}
+            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 min-h-0 ${scratchpadExpanded ? 'flex-1 overflow-hidden' : 'h-[40px] flex-none'}`}>
+                <div
+                    className="flex items-center justify-between p-2 bg-slate-900/40 cursor-pointer hover:bg-slate-900/60 transition-colors"
+                    onClick={() => setScratchpadExpanded(!scratchpadExpanded)}
+                    title={scratchpadExpanded ? "Click to collapse" : "Click to expand"}
+                >
                      <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-500 uppercase tracking-wider px-2">
-                        <span>🧠 Agent Scratchpad <span className="text-slate-600 font-normal normal-case ml-1">(Exact Context)</span></span>
+                        <span>🧠 Agent Scratchpad <span className="text-slate-600 font-normal normal-case ml-1 font-mono">(Context)</span></span>
                     </div>
-                     <button
-                        onClick={() => setScratchpadExpanded(!scratchpadExpanded)}
-                        className="p-1 text-slate-600 hover:text-white"
-                    >
+                     <div className="p-1 text-slate-600">
                         {scratchpadExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                    </button>
+                    </div>
                 </div>
                 {scratchpadExpanded && (
                      <div className="flex-1 overflow-hidden">
@@ -68,19 +70,21 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
                 )}
             </div>
 
-            {/* Graph Section */}
-            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 ${graphExpanded ? 'h-[300px]' : 'h-[40px]'}`}>
-                <div className="flex items-center justify-between p-2 bg-slate-900/20">
+            {/* Live Graph Section */}
+            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 min-h-0 ${graphExpanded ? 'flex-1 overflow-hidden' : 'h-[40px] flex-none'}`}>
+                <div
+                    className="flex items-center justify-between p-2 bg-slate-900/40 cursor-pointer hover:bg-slate-900/60 transition-colors"
+                    onClick={() => setGraphExpanded(!graphExpanded)}
+                    title={graphExpanded ? "Click to collapse" : "Click to expand"}
+                >
                     <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2">
-                        <Activity size={12} /> Live Graph
-                        <span className="text-slate-700">| {graphData.nodes.length} Nodes</span>
+                        <Activity size={12} className="text-blue-500" />
+                        <span>Live Graph</span>
+                        <span className="text-slate-700 font-mono">| {graphData.nodes.length} Nodes</span>
                     </div>
-                    <button
-                        onClick={() => setGraphExpanded(!graphExpanded)}
-                        className="p-1 text-slate-600 hover:text-white"
-                    >
+                    <div className="p-1 text-slate-600">
                         {graphExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                    </button>
+                    </div>
                 </div>
 
                 {graphExpanded && (
@@ -88,10 +92,6 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
                         <GraphCanvas
                             data={graphData}
                             onNodeClick={(node) => {
-                                // For now, just inject node info into chat or console
-                                // Ideally, we open a detail view.
-                                // Let's log to console for M1
-                                console.log("Node Clicked:", node);
                                 if (onInjectContent) onInjectContent(`@[GraphNode:${node.id}] `);
                             }}
                         />
@@ -99,9 +99,26 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
                 )}
             </div>
 
-            {/* MCP Inspector Section */}
-            <div className="flex-1 flex flex-col min-h-0">
-                <InspectorPanel onInjectContent={onInjectContent} />
+            {/* Tools & Skills (MCP Inspector) Section */}
+            <div className={`flex flex-col transition-all duration-300 min-h-0 ${toolsExpanded ? 'flex-1 overflow-hidden' : 'h-[40px] flex-none'}`}>
+                <div
+                    className="flex items-center justify-between p-2 bg-slate-900/40 cursor-pointer hover:bg-slate-900/60 transition-colors"
+                    onClick={() => setToolsExpanded(!toolsExpanded)}
+                    title={toolsExpanded ? "Click to collapse" : "Click to expand"}
+                >
+                    <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2">
+                        <Cpu size={12} className="text-purple-500" />
+                        <span>MCP Servers & Skills</span>
+                    </div>
+                    <div className="p-1 text-slate-600">
+                        {toolsExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                    </div>
+                </div>
+                {toolsExpanded && (
+                    <div className="flex-1 flex flex-col min-h-0">
+                        <InspectorPanel onInjectContent={onInjectContent} />
+                    </div>
+                )}
             </div>
         </div>
     );

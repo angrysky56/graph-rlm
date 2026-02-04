@@ -48,7 +48,12 @@ class CoordinatorClient:
         Returns:
             Tool execution result
         """
-        return await self.manager.call_tool(server_name, tool_name, arguments)
+        from .runtime import get_stop_event
+
+        stop_event = get_stop_event()
+        return await self.manager.call_tool(
+            server_name, tool_name, arguments, stop_event=stop_event
+        )
 
     async def close(self) -> None:
         """Close all connections."""

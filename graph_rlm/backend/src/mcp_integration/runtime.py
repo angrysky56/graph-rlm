@@ -6,6 +6,7 @@ concurrent async sessions without race conditions.
 """
 
 import contextvars
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,9 @@ _client_var: contextvars.ContextVar[CoordinatorClient | None] = contextvars.Cont
 )
 _config_path_var: contextvars.ContextVar[str | Path | None] = contextvars.ContextVar(
     "mcp_config_path", default=None
+)
+_stop_event_var: contextvars.ContextVar[threading.Event | None] = (
+    contextvars.ContextVar("mcp_stop_event", default=None)
 )
 
 # Backwards compatibility: keep module-level default config
@@ -41,6 +45,16 @@ def initialize_runtime(config_path: str | Path | None = None) -> None:
     # Create client for current context
     client = CoordinatorClient(config_path)
     _client_var.set(client)
+
+
+def set_stop_event(event: threading.Event | None) -> None:
+    """Set a stop event for the current execution context."""
+    _stop_event_var.set(event)
+
+
+def get_stop_event() -> threading.Event | None:
+    """Get the stop event for the current context."""
+    return _stop_event_var.get()
 
 
 def get_client() -> CoordinatorClient:
