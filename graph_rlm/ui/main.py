@@ -25,6 +25,22 @@ def main():
     window = MainWindow()
     window.show()
 
+    # Screenshot support for verification
+    if "--screenshot" in sys.argv:
+        try:
+            idx = sys.argv.index("--screenshot")
+            if idx + 1 < len(sys.argv):
+                path = sys.argv[idx + 1]
+                from PyQt6.QtCore import QTimer
+                def take_shot():
+                    app.processEvents()
+                    window.grab().save(path)
+                    print(f"Screenshot saved to {path}")
+                    app.quit()
+                QTimer.singleShot(3000, take_shot)
+        except Exception as e:
+            print(f"Screenshot failed: {e}")
+
     sys.exit(app.exec())
 
 if __name__ == "__main__":

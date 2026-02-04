@@ -12,6 +12,10 @@ def find_similar_thoughts(
     """
     Finds thoughts with similar embeddings to the query and returns structured results.
     """
+    if not client.use_falkor:
+        # NetworkX backend does not support vector search yet.
+        return []
+
     # Ensure embedding is the correct length
     if len(query_embedding) != 3072:
         logger.warning(
@@ -24,16 +28,6 @@ def find_similar_thoughts(
     cypher = f"CALL db.idx.vector.queryNodes('Thought', 'embedding', {limit}, vecf32($vec)) YIELD node, score RETURN node.id, node.prompt, node.result, score"
 
     try:
-        # We need to access the raw_graph from the client wrapper if we want to bypass the wrapper query
-        # But our client.query() handles result parsing. Let's try client.query first?
-        # The client.query uses raw_graph.query but parses differently.
-        # Let's use client.raw_graph directly for this specific call if needed, OR fix client.query to handle this.
-        # But client.query expects headers. queryNodes call returns headers.
-
-        # NOTE: db.idx.vector.queryNodes returns specific structure.
-        # The wrapper might be cleaner if we just use client.query logic if it works.
-        # However, the previous code used self.raw_graph.query directly.
-
         res = client.raw_graph.query(cypher, params)
         results = []
         for row in res.result_set:
@@ -49,6 +43,9 @@ def create_vector_indexes():
     """
     Creates vector indexes on Thought.embedding and Skill.embedding.
     """
+    if not client.use_falkor:
+        return
+
     dim = 3072  # Gemini default
 
     # 1. Thought Index
@@ -82,6 +79,9 @@ def drop_vector_index():
     """
     Drops the vector index on Thought.embedding.
     """
+    if not client.use_falkor:
+        return
+
     try:
         client.query("DROP INDEX FOR (t:Thought) ON (t.embedding)")
         logger.info("Dropped Vector Index on Thought.embedding")
@@ -89,6 +89,9 @@ def drop_vector_index():
         logger.info(f"Vector index drop skipped: {e}")
 
 def wait_for_index(label: str):
+    if not client.use_falkor:
+        return
+
     # Poll db.indexes() until status is OPERATIONAL
     for _ in range(20):
         try:
@@ -117,6 +120,10 @@ def reembed_all_thoughts(llm_service: Any):
     Iterates through all Thought nodes and refreshes their embeddings.
     Useful when switching embedding models.
     """
+    if not client.use_falkor:
+        logger.warning("Re-embedding skipped: Not using FalkorDB")
+        return 0
+
     from .operations import update_thought_result
 
     logger.info("Starting graph-wide re-embedding process...")

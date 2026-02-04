@@ -1,37 +1,28 @@
-from .db import GraphClient, db
+from typing import List, Dict, Any, Optional
+from .database import client
 
 
 class ContextIndex:
     """
     Constructs a 'Scratchpad' of active contexts (Thoughts/REPLs)
     to prevent context rot in the unified RLM graph.
+    Delegates data fetching to the GraphRepository.
     """
 
     def __init__(self):
-        self.db: GraphClient = db
+        # We access client.repo dynamically to ensure init
+        pass
 
     def get_context_scratchpad(self, root_session_id: str) -> str:
         """
-        Query FalkorDB for a topological summary of active contexts.
+        Query Graph for a topological summary of active contexts.
         Provides a condensed 'Sheaf' to prevent context rot.
         """
         try:
-            # Match recent session summaries and the overall structure
-            q = """
-            MATCH (n:Thought)
-            WHERE n.root_session_id = $root_id OR n.session_id = $root_id
-            WITH n.session_id as sid, n, n.created_at as ts
-            ORDER BY ts ASC
-            WITH sid, count(n) as thought_count,
-                 collect(n.prompt)[0] as initial_prompt,
-                 max(ts) as last_activity
-            RETURN sid, thought_count, initial_prompt, last_activity
-            ORDER BY last_activity DESC
-            LIMIT 10
-            """
-            res = self.db.query(q, {"root_id": root_session_id})
+            # Get structured data from repo
+            data = client.repo.get_context_scratchpad_data(root_session_id, limit=10)
 
-            if not res:
+            if not data:
                 return "No active session history."
 
             lines = ["## Active Session Index (The Sheaf)"]
@@ -42,16 +33,10 @@ class ContextIndex:
                 "Below are the most active REPL sub-sessions in this workspace:"
             )
 
-            for row in res:
-                # Handle row formats
-                if isinstance(row, dict):
-                    sid = row.get("sid", "unknown")
-                    count = row.get("thought_count", 0)
-                    prompt = row.get("initial_prompt", "")
-                else:
-                    sid = row[0]
-                    count = row[1]
-                    prompt = row[2]
+            for row in data:
+                sid = row.get("sid", "unknown")
+                count = row.get("count", 0)
+                prompt = row.get("prompt", "")
 
                 short_sid = str(sid)
                 short_prompt = str(prompt).replace("\n", " ")
@@ -77,68 +62,14 @@ class ContextIndex:
         Returns structured data for the UI Scratchpad.
         """
         try:
-            # Same query as get_context_scratchpad but returns raw list
-            q = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $root_id OR n.session_id = $root_id)
-            WITH n.session_id as sid, n, n.created_at as ts
-            ORDER BY ts ASC
-            WITH sid, count(n) as thought_count,
-                 collect(n.prompt)[0] as initial_prompt,
-                 max(ts) as last_activity
-            RETURN sid, thought_count, initial_prompt, last_activity
-            ORDER BY last_activity DESC
-            LIMIT 20
-            """
-            res = self.db.query(q, {"root_id": root_session_id})
-
-            data = []
-            if res:
-                for row in res:
-                    if isinstance(row, dict):
-                        data.append(
-                            {
-                                "sid": row.get("sid"),
-                                "count": row.get("thought_count"),
-                                "prompt": row.get("initial_prompt"),
-                                "last_activity": row.get("last_activity"),
-                            }
-                        )
-                    else:
-                        data.append(
-                            {
-                                "sid": row[0],
-                                "count": row[1],
-                                "prompt": row[2],
-                                "last_activity": row[3],
-                            }
-                        )
-            return data
+            return client.repo.get_context_scratchpad_data(root_session_id, limit=20)
         except Exception:
             return []
 
     def get_current_running_thought(self, root_session_id: str) -> dict | None:
         """Returns the single thought currently being processed (status='running')."""
         try:
-            q = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $root_id OR n.session_id = $root_id)
-              AND n.status = 'running'
-            RETURN n.id as id, n.prompt as prompt, n.status as status, n.created_at as created_at
-            ORDER BY n.created_at DESC LIMIT 1
-            """
-            res = self.db.query(q, {"root_id": root_session_id})
-            if res:
-                row = res[0]
-                if isinstance(row, dict):
-                    return row
-                return {
-                    "id": row[0],
-                    "prompt": row[1],
-                    "status": row[2],
-                    "created_at": row[3],
-                }
-            return None
+            return client.repo.get_current_running_thought(root_session_id)
         except Exception:
             return None
 
@@ -152,85 +83,56 @@ class ContextIndex:
         This prevents mixing thoughts from unrelated sessions.
         """
         try:
-            # First, determine if this session_id is a root or child
-            # by checking if any thought has this as root_session_id
-            check_q = """
-            MATCH (n:Thought)
-            WHERE n.root_session_id = $sid
-            RETURN count(n) as cnt
-            """
-            check_res = self.db.query(check_q, {"sid": session_id})
+            # We delegate the check to the repository?
+            # Or implement the check here using repo?
+            # Repo implementation of get_session_thoughts takes is_root param.
+            # We need to determine is_root here.
+
+            # Check if this session is a root session
+            # We can use a simple check via repo?
+            # Repo doesn't have "is_root_session" method but we can query counts.
+            # We can use get_session_trace to see if it returns anything for root_session_id=session_id?
+            # Or query directly.
+            # Let's add a helper to repo or just try.
+
+            # Since get_session_trace returns thoughts where root_session_id = arg,
+            # If we call it and get results, it IS a root session (or has children).
+            # But wait, get_session_trace is specific to root.
+
+            # Let's just use get_session_thoughts logic from repo, but we need to know is_root.
+            # We can assume it is NOT root if we don't know, or try to infer.
+            # Original code did a count query.
+            # Let's implement that check using repo primitives?
+            # Or just assume the repo handles it? No, repo needs `is_root` flag.
+
+            # I can rely on `get_session_trace` if session_id == root_session_id.
+            # But session_id passed here is just a string.
+
+            # HACK: If session_id has thoughts where root_session_id == session_id, it is a root.
+            # We can get one thought from this session and check its root_session_id?
+            # `get_context_frontier` returns thoughts by session_id.
+
+            frontier = client.repo.get_context_frontier(session_id, limit=1)
             is_root = False
-            if check_res:
-                row = check_res[0]
-                cnt = (
-                    row.get("cnt", 0)
-                    if isinstance(row, dict)
-                    else (row[0] if row else 0)
-                )
-                is_root = cnt > 0
+            if frontier:
+                thought = frontier[0]
+                # If root_session_id equals session_id, it's a root session thought
+                if thought.get("root_session_id") == session_id:
+                     is_root = True
+                # Or if the session_id passed matches?
 
-            if is_root:
-                # This IS a root session - get all thoughts in this chain
-                q = """
-                MATCH (n:Thought)
-                WHERE n.root_session_id = $sid
-                RETURN n.id as id,
-                       n.prompt as prompt,
-                       n.status as status,
-                       n.result as result,
-                       n.created_at as created_at,
-                       n.execution_summary as execution_summary,
-                       n.next_action as next_action,
-                       n.dreamer_analysis as dreamer_analysis,
-                       n.final_response as final_response,
-                       n.repl_id as repl_id,
-                       n.session_id as session_id
-                ORDER BY n.created_at ASC
-                """
-            else:
-                # This is likely a new/current session - get only its direct thoughts
-                q = """
-                MATCH (n:Thought)
-                WHERE n.session_id = $sid
-                RETURN n.id as id,
-                       n.prompt as prompt,
-                       n.status as status,
-                       n.result as result,
-                       n.created_at as created_at,
-                       n.execution_summary as execution_summary,
-                       n.next_action as next_action,
-                       n.dreamer_analysis as dreamer_analysis,
-                       n.final_response as final_response,
-                       n.repl_id as repl_id,
-                       n.session_id as session_id
-                ORDER BY n.created_at ASC
-                """
+            # Original logic:
+            # check_q = "MATCH (n:Thought) WHERE n.root_session_id = $sid RETURN count(n)"
+            # If count > 0, it is a root session (it is the root for some thoughts).
 
-            res = self.db.query(q, {"sid": session_id})
-            data = []
-            for row in res:
-                if row is None:
-                    continue
-                if isinstance(row, dict):
-                    data.append(row)
-                else:
-                    # Handle tuple format
-                    data.append(
-                        {
-                            "id": row[0] if len(row) > 0 else None,
-                            "prompt": row[1] if len(row) > 1 else "",
-                            "status": row[2] if len(row) > 2 else "unknown",
-                            "result": row[3] if len(row) > 3 else None,
-                            "created_at": row[4] if len(row) > 4 else None,
-                            "execution_summary": row[5] if len(row) > 5 else None,
-                            "next_action": row[6] if len(row) > 6 else None,
-                            "dreamer_analysis": row[7] if len(row) > 7 else None,
-                            "final_response": row[8] if len(row) > 8 else None,
-                            "repl_id": row[9] if len(row) > 9 else None,
-                        }
-                    )
-            return data
+            # NetworkX repo doesn't support generic count query.
+            # But we can use `get_session_trace(session_id)` -> if it returns list, it is a root session!
+            trace = client.repo.get_session_trace(session_id)
+            if trace:
+                is_root = True
+
+            return client.repo.get_session_thoughts(session_id, is_root)
+
         except Exception:
             return []
 
