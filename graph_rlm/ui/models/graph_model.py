@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import QGraphicsScene, QGraphicsItem, QGraphicsPathItem, QGraphicsDropShadowEffect
 from PyQt6.QtCore import Qt, QRectF, QPointF, QTimer
-from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath, QFont, QPainter
+from PyQt6.QtGui import QBrush, QPen, QColor, QPainterPath, QFont, QPainter, QLinearGradient
 
 from .layout_engine import ForceDirectedLayout
 
@@ -28,9 +28,13 @@ class GraphScene(QGraphicsScene):
             self.physics_timer.stop()
 
     def tick(self):
-        """Simple Force-Directed Layout Step"""
+        """Simple Force-Directed Layout Step & Animation Tick"""
         if self.physics_enabled:
             self.layout_engine.compute(self.nodes, self.edges)
+
+        # Animate nodes (pulsing effects)
+        for node in self.nodes.values():
+            node.tick()
 
     def add_node(self, node_data: dict):
         nid = node_data.get("id")
@@ -46,8 +50,8 @@ class GraphScene(QGraphicsScene):
         else:
             # Fallback layout
             count = len(self.nodes)
-            x = (count % 10) * 250
-            y = (count // 10) * 200
+            x = (count % 10) * 350 # Increased spacing
+            y = (count // 10) * 250
             item.setPos(x, y)
 
         self.addItem(item)
@@ -69,12 +73,6 @@ class GraphScene(QGraphicsScene):
             source_item = self.nodes[source_id]
             target_item = self.nodes[target_id]
 
-            # Improved Layout Heuristic: Place child relative to parent if at 0,0
-            # Only do this if target didn't have explicit coords (which we check via pos)
-            # But pos defaults to 0,0 only if we didn't set it.
-            # If we set x,y in add_node, pos is not 0,0 (unless explicitly 0,0)
-            # We skip this heuristic if physics is handling it, or trust seed data.
-
             edge = EdgeItem(source_item, target_item)
             self.addItem(edge)
             self.edges.append(edge)
@@ -89,9 +87,13 @@ class NodeItem(QGraphicsItem):
         super().__init__()
         self.node_data = node_data
         self.setFlags(QGraphicsItem.GraphicsItemFlag.ItemIsMovable | QGraphicsItem.GraphicsItemFlag.ItemIsSelectable | QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges)
-        self.width = 240
-        self.height = 140
+        self.width = 300 # Increased width
+        self.height = 180 # Increased height
         self._edges = []
+
+        # Animation State
+        self.pulse_phase = 0.0
+        self.animating = False
 
         # Cyberpunk / Neon Palette
         self.color_map = {
@@ -119,7 +121,7 @@ class NodeItem(QGraphicsItem):
         self.glow.setBlurRadius(20)
         self.glow.setOffset(0, 0)
         self.setGraphicsEffect(self.glow)
-        self.update_glow()
+        self.update_visual_state()
 
     def add_edge(self, edge):
         self._edges.append(edge)
@@ -132,15 +134,17 @@ class NodeItem(QGraphicsItem):
 
     def update_data(self, data: dict):
         self.node_data.update(data)
-        self.update_glow()
+        self.update_visual_state()
         self.update()
 
-    def update_glow(self):
+    def update_visual_state(self):
         status = self.node_data.get("status", "pending")
         color = self.color_map.get(status, QColor("#444444"))
         priority = self.node_data.get("priority", "medium")
 
-        if status in ["running", "active"]:
+        self.animating = status in ["running", "active", "reflexion"]
+
+        if self.animating:
             self.glow.setColor(color)
             self.glow.setBlurRadius(30 if priority == "high" else 20)
             self.glow.setEnabled(True)
@@ -155,60 +159,122 @@ class NodeItem(QGraphicsItem):
         else:
             self.glow.setEnabled(False)
 
+    def tick(self):
+        if self.animating:
+            self.pulse_phase += 0.1
+            if self.pulse_phase > 6.28: # 2*PI
+                self.pulse_phase = 0.0
+            self.update() # Trigger repaint for animation
+
     def boundingRect(self) -> QRectF:
         return QRectF(-5, -5, self.width + 10, self.height + 10)
 
     def paint(self, painter: QPainter, option, widget):
-        # Default paint logic without strict LOD blocking to ensure visibility
         status = self.node_data.get("status", "pending")
         base_color = self.color_map.get(status, QColor("#444444"))
 
-        # Background
-        painter.setBrush(QBrush(QColor(20, 20, 20, 220)))
+        # Calculate Pulse Alpha
+        alpha_pulse = 0
+        if self.animating:
+             # Sine wave oscillation for alpha: 20 to 60
+             import math
+             alpha_pulse = int(40 + 20 * math.sin(self.pulse_phase))
 
-        # Border
+        # --- Background (Gradient) ---
+        grad = QLinearGradient(0, 0, 0, self.height)
+        bg_color = QColor(20, 20, 20, 230)
+        grad.setColorAt(0, bg_color)
+        grad.setColorAt(1, QColor(10, 10, 10, 250))
+        painter.setBrush(QBrush(grad))
+
+        # --- Border ---
         pen = QPen(base_color, 2)
         if self.isSelected():
             pen.setColor(QColor("#ffffff"))
             pen.setWidth(3)
+        elif self.animating:
+            # Pulsing border color
+            pulse_color = QColor(base_color)
+            pulse_color.setAlpha(150 + alpha_pulse)
+            pen.setColor(pulse_color)
+
         painter.setPen(pen)
+        painter.drawRoundedRect(0, 0, self.width, self.height, 8, 8)
 
-        # Box
-        painter.drawRoundedRect(0, 0, self.width, self.height, 10, 10)
-
-        # Header
-        header_height = 30
+        # --- Header ---
+        header_height = 35
         header_path = QPainterPath()
-        header_path.addRoundedRect(0, 0, self.width, header_height, 10, 10)
-        painter.setClipRect(0, 0, self.width, header_height)
-        painter.fillPath(header_path, QBrush(base_color.darker(150)))
-        painter.setClipping(False)
+        header_path.addRoundedRect(0, 0, self.width, header_height, 8, 8)
+        # Clip to top corners only for rounded rect feel?
+        # Actually standard rounded rect fill is fine but we need to clip bottom to be flat if we want distinct header
+        # Let's just draw a separate rounded rect for header and clip it
 
-        # Content
-        # We try to determine detail level, but default to showing something
+        painter.save()
+        painter.setClipRect(0, 0, self.width, header_height)
+        header_color = base_color.darker(150)
+        header_color.setAlpha(200)
+        painter.fillPath(header_path, QBrush(header_color))
+        painter.restore()
+
+        # Separator Line
+        painter.setPen(QPen(base_color, 1))
+        painter.drawLine(0, header_height, self.width, header_height)
+
+        # --- Content Rendering with LOD ---
         lod = option.levelOfDetailFromTransform(painter.worldTransform())
 
-        # Emoji
-        painter.setFont(QFont("Segoe UI Emoji", 14))
-        emoji = self.emoji_map.get(status, "")
-        painter.setPen(QPen(QColor("#eeeeee")))
-        painter.drawText(QRectF(10, 0, 30, header_height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, emoji)
+        # 1. Header Text (ID & Emoji) - Always visible if LOD > 0.2
+        if lod > 0.2:
+            painter.setFont(QFont("Segoe UI Emoji", 12))
+            emoji = self.emoji_map.get(status, "")
 
-        # ID / Title
-        if lod > 0.4:
+            # Draw Status Icon
+            icon_rect = QRectF(10, 0, 30, header_height)
+            painter.setPen(QPen(QColor("#eeeeee")))
+            painter.drawText(icon_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, emoji)
+
+            # Draw ID
             font_title = QFont("Segoe UI", 10, QFont.Weight.Bold)
             painter.setFont(font_title)
             nid = self.node_data.get("id", "Unknown")
-            painter.drawText(QRectF(40, 0, self.width-50, header_height), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{nid}")
+            title_rect = QRectF(40, 0, self.width - 50, header_height)
+            painter.drawText(title_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{nid}")
 
-        # Body
-        if lod > 0.6:
+        # 2. Body (Prompt/Label) - Visible if LOD > 0.4
+        if lod > 0.4:
             painter.setPen(QPen(QColor("#dddddd")))
-            font_body = QFont("Segoe UI", 9)
+            font_body = QFont("Segoe UI", 10)
             painter.setFont(font_body)
+
             label = self.node_data.get("label", "") or self.node_data.get("prompt", "")
-            rect = QRectF(10, header_height + 5, self.width - 20, self.height - header_height - 10)
-            painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, label)
+            # Truncate if too long? TextWordWrap handles wrapping.
+
+            # Area for Body
+            body_rect = QRectF(10, header_height + 10, self.width - 20, 60)
+            painter.drawText(body_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, label)
+
+        # 3. Footer (Result/Status Detail) - Visible if LOD > 0.5
+        if lod > 0.5:
+            result = self.node_data.get("result", "")
+            if result:
+                # Separator
+                painter.setPen(QPen(QColor("#444444"), 1, Qt.PenStyle.DashLine))
+                painter.drawLine(10, header_height + 75, self.width - 10, header_height + 75)
+
+                # Result Text
+                painter.setPen(QPen(QColor("#aaaaaa")))
+                font_footer = QFont("Consolas", 9)
+                painter.setFont(font_footer)
+
+                footer_rect = QRectF(10, header_height + 80, self.width - 20, self.height - header_height - 90)
+                painter.drawText(footer_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, result)
+
+            # If active, draw a small "Processing..." indicator
+            elif self.animating:
+                painter.setPen(QPen(self.color_map["active"]))
+                font_mini = QFont("Segoe UI", 8, QFont.Weight.Bold)
+                painter.setFont(font_mini)
+                painter.drawText(QRectF(10, self.height - 20, self.width-20, 20), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "PROCESSING >>")
 
 class EdgeItem(QGraphicsPathItem):
     def __init__(self, source: NodeItem, target: NodeItem):

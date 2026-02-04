@@ -22,9 +22,20 @@ class GraphWidget(QWidget):
         self.agent_worker.thoughtCreated.connect(self.scene.add_node)
         self.agent_worker.linkCreated.connect(self.scene.add_edge)
         self.agent_worker.thoughtUpdated.connect(self.scene.update_node)
+        self.agent_worker.thoughtUpdated.connect(self._on_node_updated)
 
         # Selection
         self.scene.selectionChanged.connect(self._on_selection_change)
+
+    def _on_node_updated(self, node_data):
+        """If the updated node is currently selected, re-emit selection to update inspector."""
+        selected_items = self.scene.selectedItems()
+        if not selected_items:
+            return
+
+        selected_item = selected_items[0]
+        if hasattr(selected_item, "node_data") and selected_item.node_data.get("id") == node_data.get("id"):
+             self.nodeSelected.emit(selected_item.node_data)
 
     def _on_selection_change(self):
         items = self.scene.selectedItems()
