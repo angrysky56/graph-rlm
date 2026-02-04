@@ -6,6 +6,7 @@ from typing import Optional
 
 # Import Backend Core
 from graph_rlm.backend.src.core.agent import Agent
+from graph_rlm.backend.src.core.database import db
 
 class AgentWorker(QThread):
     # Signals to UI
@@ -37,6 +38,10 @@ class AgentWorker(QThread):
             asyncio.run(self.agent.initialize_system())
 
             self.statusChanged.emit("Agent Ready")
+
+            # Load initial state from DB
+            self._load_initial_state()
+
         except Exception as e:
             self.logMessage.emit("ERROR", f"Failed to initialize Agent: {e}")
             return
@@ -62,6 +67,60 @@ class AgentWorker(QThread):
 
             # Idle sleep
             time.sleep(0.05)
+
+    def _load_initial_state(self):
+        """Loads existing graph state from the database and emits signals."""
+        try:
+            self.statusChanged.emit("Loading Graph...")
+            nodes = db.get_graph_state() # Returns list of node dicts
+
+            count = 0
+            # 1. Emit Nodes
+            for node in nodes:
+                # Ensure minimal data
+                if "id" in node:
+                    self.thoughtCreated.emit(node)
+                    count += 1
+
+                    # 2. Check for implicit edges via 'parent_id' or graph structure
+                    # Ideally get_graph_state should return edges too, but for now
+                    # we can use get_parent_id logic if available or just rely on physics
+                    # linking if we had edge data.
+                    # NetworkXRepository.get_graph_state currently returns nodes only.
+                    # We might need to fetch edges separately if we want lines.
+
+                    # Hack: The NetworkX seed data logic creates DECOMPOSES_INTO edges.
+                    # We need to retrieve them.
+                    # Let's iterate edges for this node if possible.
+                    # Since get_graph_state returns nodes only, we miss edges.
+
+                    # But wait, NetworkXRepo implementation:
+                    # def get_graph_state(self) -> List[Dict[str, Any]]:
+                    #    nodes = []
+                    #    for n, attr in self.graph.nodes(data=True):
+                    #        nodes.append(attr)
+                    #    return nodes
+
+                    # It misses edges!
+                    # For visualization, we need links.
+                    # Let's try to infer from 'parent_id' if stored in attributes?
+                    # Seed data calls `create_thought_node(..., parent_id=...)`.
+                    # NetworkXRepo `create_thought_node` adds edge but does NOT store parent_id in node attrs explicitly
+                    # unless passed in data. The seed script DOES pass parent_id in data?
+                    # No, it passes it as arg: `repo.create_thought_node({..., parent_id='...'}, parent_id='...')`?
+                    # Checking seed_data.py: `parent_id` is passed as kwarg to create_thought_node, NOT inside dict.
+
+                    # So we need to fetch edges.
+                    # Let's implement `db.get_parent_id(node['id'])` loop here? Slow but works.
+                    pid = db.get_parent_id(node["id"])
+                    if pid:
+                        self.linkCreated.emit({"source": pid, "target": node["id"]})
+
+            self.logMessage.emit("INFO", f"Loaded {count} nodes from persistent memory.")
+            self.statusChanged.emit("Ready")
+
+        except Exception as e:
+            self.logMessage.emit("ERROR", f"Failed to load initial graph: {e}")
 
     def _handle_query(self, prompt: str):
         """

@@ -4,7 +4,6 @@
   "graph": {},
   "nodes": [
     {
-      "id": "root_thought",
       "prompt": "Designing a Self-Healing Neural Interface for Autonomous Agents",
       "status": "success",
       "priority": "high",
@@ -12,44 +11,44 @@
       "root_session_id": "session_alpha_001",
       "label": "PROJECT ROOT: Neural Interface",
       "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
-      "created_at": 1770235720667,
-      "type": "Thought"
+      "created_at": 1770237967156,
+      "type": "Thought",
+      "id": "root_thought"
     },
     {
-      "id": "node_domain_cag",
       "prompt": "Constraint Augmented Generation (CAG) Layer",
       "status": "active",
       "priority": "high",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Constraint Augmented Generation (CAG) Layer",
-      "created_at": 1770235720672,
-      "type": "Thought"
+      "created_at": 1770237967159,
+      "type": "Thought",
+      "id": "node_domain_cag"
     },
     {
-      "id": "node_domain_dream",
       "prompt": "Dreamer / Sleep Phase Logic",
       "status": "running",
       "priority": "high",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Dreamer / Sleep Phase Logic",
-      "created_at": 1770235720672,
-      "type": "Thought"
+      "created_at": 1770237967160,
+      "type": "Thought",
+      "id": "node_domain_dream"
     },
     {
-      "id": "node_domain_repe",
       "prompt": "Representation Engineering (RepE) Safety",
       "status": "failed",
       "priority": "high",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Representation Engineering (RepE) Safety",
-      "created_at": 1770235720674,
-      "type": "Thought"
+      "created_at": 1770237967162,
+      "type": "Thought",
+      "id": "node_domain_repe"
     },
     {
-      "id": "cag_step_0",
       "prompt": "Ingesting Document: cyber_security_protocols_v0.pdf",
       "status": "success",
       "priority": "medium",
@@ -57,11 +56,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 1",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770235720675,
-      "type": "Thought"
+      "created_at": 1770237967163,
+      "type": "Thought",
+      "id": "cag_step_0"
     },
     {
-      "id": "cag_step_1",
       "prompt": "Ingesting Document: cyber_security_protocols_v1.pdf",
       "status": "success",
       "priority": "medium",
@@ -69,11 +68,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 2",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770235720676,
-      "type": "Thought"
+      "created_at": 1770237967165,
+      "type": "Thought",
+      "id": "cag_step_1"
     },
     {
-      "id": "cag_step_2",
       "prompt": "Ingesting Document: cyber_security_protocols_v2.pdf",
       "status": "success",
       "priority": "medium",
@@ -81,11 +80,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 3",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770235720677,
-      "type": "Thought"
+      "created_at": 1770237967166,
+      "type": "Thought",
+      "id": "cag_step_2"
     },
     {
-      "id": "cag_step_3",
       "prompt": "Ingesting Document: cyber_security_protocols_v3.pdf",
       "status": "success",
       "priority": "medium",
@@ -93,11 +92,11 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 4",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770235720678,
-      "type": "Thought"
+      "created_at": 1770237967168,
+      "type": "Thought",
+      "id": "cag_step_3"
     },
     {
-      "id": "cag_step_4",
       "prompt": "Ingesting Document: cyber_security_protocols_v4.pdf",
       "status": "success",
       "priority": "medium",
@@ -105,33 +104,33 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 5",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770235720679,
-      "type": "Thought"
+      "created_at": 1770237967169,
+      "type": "Thought",
+      "id": "cag_step_4"
     },
     {
-      "id": "dream_sleep_cycle",
       "prompt": "Initiating NREM Sleep Cycle...",
       "status": "running",
       "priority": "high",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Sleep Cycle (Active)",
-      "created_at": 1770235720681,
-      "type": "Thought"
+      "created_at": 1770237967170,
+      "type": "Thought",
+      "id": "dream_sleep_cycle"
     },
     {
-      "id": "dream_hallucination",
       "prompt": "Scanning for Hallucinations in recent traces",
       "status": "pending",
       "priority": "medium",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Hallucination Scanner",
-      "created_at": 1770235720683,
-      "type": "Thought"
+      "created_at": 1770237967171,
+      "type": "Thought",
+      "id": "dream_hallucination"
     },
     {
-      "id": "repe_fail_01",
       "prompt": "Extracting 'Deception' Vector from Embedding Layer 12",
       "status": "failed",
       "priority": "high",
@@ -139,195 +138,196 @@
       "root_session_id": "session_alpha_001",
       "label": "Vector Extraction FAILED",
       "result": "Error: Dimension Mismatch (4096 vs 3072)",
-      "created_at": 1770235720684,
-      "type": "Thought"
+      "created_at": 1770237967172,
+      "type": "Thought",
+      "id": "repe_fail_01"
     },
     {
-      "id": "repe_reflexion",
       "prompt": "SYSTEM INTERVENTION: Reflexion Triggered. Adjusting dimensions.",
       "status": "reflexion",
       "priority": "high",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "\ud83d\udca1 REFLEXION: Fix Dimensions",
-      "created_at": 1770235720686,
-      "type": "Thought"
+      "created_at": 1770237967174,
+      "type": "Thought",
+      "id": "repe_reflexion"
     },
     {
-      "id": "repe_retry",
       "prompt": "Retrying Vector Extraction with dim=3072",
       "status": "running",
       "priority": "medium",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Retry Extraction",
-      "created_at": 1770235720690,
-      "type": "Thought"
+      "created_at": 1770237967175,
+      "type": "Thought",
+      "id": "repe_retry"
     },
     {
-      "id": "bg_thought_0",
       "prompt": "Background processing task 0...",
       "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 0",
-      "created_at": 1770235720692,
-      "type": "Thought"
+      "created_at": 1770237967177,
+      "type": "Thought",
+      "id": "bg_thought_0"
     },
     {
-      "id": "bg_thought_1",
       "prompt": "Background processing task 1...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 1",
-      "created_at": 1770235720694,
-      "type": "Thought"
+      "created_at": 1770237967178,
+      "type": "Thought",
+      "id": "bg_thought_1"
     },
     {
-      "id": "bg_thought_2",
       "prompt": "Background processing task 2...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 2",
-      "created_at": 1770235720696,
-      "type": "Thought"
+      "created_at": 1770237967179,
+      "type": "Thought",
+      "id": "bg_thought_2"
     },
     {
-      "id": "bg_thought_3",
       "prompt": "Background processing task 3...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 3",
-      "created_at": 1770235720697,
-      "type": "Thought"
+      "created_at": 1770237967181,
+      "type": "Thought",
+      "id": "bg_thought_3"
     },
     {
-      "id": "bg_thought_4",
       "prompt": "Background processing task 4...",
       "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 4",
-      "created_at": 1770235720699,
-      "type": "Thought"
+      "created_at": 1770237967182,
+      "type": "Thought",
+      "id": "bg_thought_4"
     },
     {
-      "id": "bg_thought_5",
       "prompt": "Background processing task 5...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 5",
-      "created_at": 1770235720700,
-      "type": "Thought"
+      "created_at": 1770237967183,
+      "type": "Thought",
+      "id": "bg_thought_5"
     },
     {
-      "id": "bg_thought_6",
       "prompt": "Background processing task 6...",
       "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 6",
-      "created_at": 1770235720702,
-      "type": "Thought"
+      "created_at": 1770237967185,
+      "type": "Thought",
+      "id": "bg_thought_6"
     },
     {
-      "id": "bg_thought_7",
       "prompt": "Background processing task 7...",
-      "status": "success",
+      "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 7",
-      "created_at": 1770235720703,
-      "type": "Thought"
+      "created_at": 1770237967186,
+      "type": "Thought",
+      "id": "bg_thought_7"
     },
     {
-      "id": "bg_thought_8",
       "prompt": "Background processing task 8...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 8",
-      "created_at": 1770235720704,
-      "type": "Thought"
+      "created_at": 1770237967187,
+      "type": "Thought",
+      "id": "bg_thought_8"
     },
     {
-      "id": "bg_thought_9",
       "prompt": "Background processing task 9...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 9",
-      "created_at": 1770235720708,
-      "type": "Thought"
+      "created_at": 1770237967188,
+      "type": "Thought",
+      "id": "bg_thought_9"
     },
     {
-      "id": "bg_thought_10",
       "prompt": "Background processing task 10...",
-      "status": "success",
-      "priority": "low",
-      "session_id": "session_alpha_001",
-      "root_session_id": "session_alpha_001",
-      "label": "Bg Task 10",
-      "created_at": 1770235720712,
-      "type": "Thought"
-    },
-    {
-      "id": "bg_thought_11",
-      "prompt": "Background processing task 11...",
       "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
-      "label": "Bg Task 11",
-      "created_at": 1770235720715,
-      "type": "Thought"
+      "label": "Bg Task 10",
+      "created_at": 1770237967189,
+      "type": "Thought",
+      "id": "bg_thought_10"
     },
     {
-      "id": "bg_thought_12",
-      "prompt": "Background processing task 12...",
+      "prompt": "Background processing task 11...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
-      "label": "Bg Task 12",
-      "created_at": 1770235720717,
-      "type": "Thought"
+      "label": "Bg Task 11",
+      "created_at": 1770237967191,
+      "type": "Thought",
+      "id": "bg_thought_11"
     },
     {
-      "id": "bg_thought_13",
+      "prompt": "Background processing task 12...",
+      "status": "pending",
+      "priority": "low",
+      "session_id": "session_alpha_001",
+      "root_session_id": "session_alpha_001",
+      "label": "Bg Task 12",
+      "created_at": 1770237967192,
+      "type": "Thought",
+      "id": "bg_thought_12"
+    },
+    {
       "prompt": "Background processing task 13...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 13",
-      "created_at": 1770235720719,
-      "type": "Thought"
+      "created_at": 1770237967194,
+      "type": "Thought",
+      "id": "bg_thought_13"
     },
     {
-      "id": "bg_thought_14",
       "prompt": "Background processing task 14...",
       "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 14",
-      "created_at": 1770235720720,
-      "type": "Thought"
+      "created_at": 1770237967195,
+      "type": "Thought",
+      "id": "bg_thought_14"
     }
   ],
   "edges": [
@@ -398,6 +398,11 @@
     },
     {
       "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_5"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
       "source": "node_domain_dream",
       "target": "dream_sleep_cycle"
     },
@@ -428,6 +433,26 @@
     },
     {
       "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_7"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_9"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_10"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_13"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
       "source": "node_domain_repe",
       "target": "repe_fail_01"
     },
@@ -440,6 +465,31 @@
       "type": "DECOMPOSES_INTO",
       "source": "node_domain_repe",
       "target": "bg_thought_13"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_3"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_4"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_8"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_11"
     },
     {
       "type": "DECOMPOSES_INTO",
