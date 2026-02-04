@@ -49,6 +49,9 @@ class GraphScene(QGraphicsScene):
         self.addItem(item)
         self.nodes[nid] = item
 
+        # Explicit update to trigger redraw
+        self.update()
+
     def update_node(self, node_data: dict):
         nid = node_data.get("id")
         if nid in self.nodes:
@@ -75,6 +78,9 @@ class GraphScene(QGraphicsScene):
             # Register edge with nodes for efficient updates
             source_item.add_edge(edge)
             target_item.add_edge(edge)
+
+            # Explicit update
+            self.update()
 
 class NodeItem(QGraphicsItem):
     def __init__(self, node_data: dict):
@@ -150,6 +156,7 @@ class NodeItem(QGraphicsItem):
             self.glow.setEnabled(False)
 
     def boundingRect(self) -> QRectF:
+        # Important: Bounding Rect must be accurate for View Fitting
         return QRectF(-5, -5, self.width + 10, self.height + 10)
 
     def paint(self, painter: QPainter, option, widget):
@@ -221,9 +228,6 @@ class NodeItem(QGraphicsItem):
             # Content Area
             rect = QRectF(10, header_height + 5, self.width - 20, self.height - header_height - 10)
             painter.drawText(rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap, label)
-
-            # Draw "Recency" bar at bottom if very recent?
-            # (Skipped for now to keep it clean)
 
 class EdgeItem(QGraphicsPathItem):
     def __init__(self, source: NodeItem, target: NodeItem):

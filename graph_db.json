@@ -11,7 +11,7 @@
       "root_session_id": "session_alpha_001",
       "label": "PROJECT ROOT: Neural Interface",
       "execution_summary": "Initiated architectural review. Splitting into 3 sub-domains.",
-      "created_at": 1770237967156,
+      "created_at": 1770238382075,
       "type": "Thought",
       "id": "root_thought"
     },
@@ -22,7 +22,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Constraint Augmented Generation (CAG) Layer",
-      "created_at": 1770237967159,
+      "created_at": 1770238382076,
       "type": "Thought",
       "id": "node_domain_cag"
     },
@@ -33,7 +33,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Dreamer / Sleep Phase Logic",
-      "created_at": 1770237967160,
+      "created_at": 1770238382079,
       "type": "Thought",
       "id": "node_domain_dream"
     },
@@ -44,7 +44,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Representation Engineering (RepE) Safety",
-      "created_at": 1770237967162,
+      "created_at": 1770238382080,
       "type": "Thought",
       "id": "node_domain_repe"
     },
@@ -56,7 +56,7 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 1",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770237967163,
+      "created_at": 1770238382081,
       "type": "Thought",
       "id": "cag_step_0"
     },
@@ -68,7 +68,7 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 2",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770237967165,
+      "created_at": 1770238382083,
       "type": "Thought",
       "id": "cag_step_1"
     },
@@ -80,7 +80,7 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 3",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770237967166,
+      "created_at": 1770238382084,
       "type": "Thought",
       "id": "cag_step_2"
     },
@@ -92,7 +92,7 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 4",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770237967168,
+      "created_at": 1770238382085,
       "type": "Thought",
       "id": "cag_step_3"
     },
@@ -104,7 +104,7 @@
       "root_session_id": "session_alpha_001",
       "label": "CAG Ingestion Step 5",
       "result": "Extracted 12 invariants.",
-      "created_at": 1770237967169,
+      "created_at": 1770238382087,
       "type": "Thought",
       "id": "cag_step_4"
     },
@@ -115,7 +115,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Sleep Cycle (Active)",
-      "created_at": 1770237967170,
+      "created_at": 1770238382088,
       "type": "Thought",
       "id": "dream_sleep_cycle"
     },
@@ -126,7 +126,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Hallucination Scanner",
-      "created_at": 1770237967171,
+      "created_at": 1770238382089,
       "type": "Thought",
       "id": "dream_hallucination"
     },
@@ -138,7 +138,7 @@
       "root_session_id": "session_alpha_001",
       "label": "Vector Extraction FAILED",
       "result": "Error: Dimension Mismatch (4096 vs 3072)",
-      "created_at": 1770237967172,
+      "created_at": 1770238382090,
       "type": "Thought",
       "id": "repe_fail_01"
     },
@@ -149,7 +149,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "\ud83d\udca1 REFLEXION: Fix Dimensions",
-      "created_at": 1770237967174,
+      "created_at": 1770238382092,
       "type": "Thought",
       "id": "repe_reflexion"
     },
@@ -160,18 +160,18 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Retry Extraction",
-      "created_at": 1770237967175,
+      "created_at": 1770238382093,
       "type": "Thought",
       "id": "repe_retry"
     },
     {
       "prompt": "Background processing task 0...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 0",
-      "created_at": 1770237967177,
+      "created_at": 1770238382094,
       "type": "Thought",
       "id": "bg_thought_0"
     },
@@ -182,7 +182,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 1",
-      "created_at": 1770237967178,
+      "created_at": 1770238382095,
       "type": "Thought",
       "id": "bg_thought_1"
     },
@@ -193,7 +193,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 2",
-      "created_at": 1770237967179,
+      "created_at": 1770238382096,
       "type": "Thought",
       "id": "bg_thought_2"
     },
@@ -204,7 +204,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 3",
-      "created_at": 1770237967181,
+      "created_at": 1770238382098,
       "type": "Thought",
       "id": "bg_thought_3"
     },
@@ -215,7 +215,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 4",
-      "created_at": 1770237967182,
+      "created_at": 1770238382100,
       "type": "Thought",
       "id": "bg_thought_4"
     },
@@ -226,7 +226,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 5",
-      "created_at": 1770237967183,
+      "created_at": 1770238382101,
       "type": "Thought",
       "id": "bg_thought_5"
     },
@@ -237,18 +237,18 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 6",
-      "created_at": 1770237967185,
+      "created_at": 1770238382103,
       "type": "Thought",
       "id": "bg_thought_6"
     },
     {
       "prompt": "Background processing task 7...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 7",
-      "created_at": 1770237967186,
+      "created_at": 1770238382104,
       "type": "Thought",
       "id": "bg_thought_7"
     },
@@ -259,7 +259,7 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 8",
-      "created_at": 1770237967187,
+      "created_at": 1770238382105,
       "type": "Thought",
       "id": "bg_thought_8"
     },
@@ -270,18 +270,18 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 9",
-      "created_at": 1770237967188,
+      "created_at": 1770238382107,
       "type": "Thought",
       "id": "bg_thought_9"
     },
     {
       "prompt": "Background processing task 10...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 10",
-      "created_at": 1770237967189,
+      "created_at": 1770238382108,
       "type": "Thought",
       "id": "bg_thought_10"
     },
@@ -292,18 +292,18 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 11",
-      "created_at": 1770237967191,
+      "created_at": 1770238382109,
       "type": "Thought",
       "id": "bg_thought_11"
     },
     {
       "prompt": "Background processing task 12...",
-      "status": "pending",
+      "status": "success",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 12",
-      "created_at": 1770237967192,
+      "created_at": 1770238382111,
       "type": "Thought",
       "id": "bg_thought_12"
     },
@@ -314,18 +314,18 @@
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 13",
-      "created_at": 1770237967194,
+      "created_at": 1770238382113,
       "type": "Thought",
       "id": "bg_thought_13"
     },
     {
       "prompt": "Background processing task 14...",
-      "status": "success",
+      "status": "pending",
       "priority": "low",
       "session_id": "session_alpha_001",
       "root_session_id": "session_alpha_001",
       "label": "Bg Task 14",
-      "created_at": 1770237967195,
+      "created_at": 1770238382114,
       "type": "Thought",
       "id": "bg_thought_14"
     }
@@ -403,6 +403,11 @@
     },
     {
       "type": "DECOMPOSES_INTO",
+      "source": "node_domain_cag",
+      "target": "bg_thought_9"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
       "source": "node_domain_dream",
       "target": "dream_sleep_cycle"
     },
@@ -453,6 +458,21 @@
     },
     {
       "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_2"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_6"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_dream",
+      "target": "bg_thought_8"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
       "source": "node_domain_repe",
       "target": "repe_fail_01"
     },
@@ -490,6 +510,16 @@
       "type": "DECOMPOSES_INTO",
       "source": "node_domain_repe",
       "target": "bg_thought_11"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_0"
+    },
+    {
+      "type": "DECOMPOSES_INTO",
+      "source": "node_domain_repe",
+      "target": "bg_thought_1"
     },
     {
       "type": "DECOMPOSES_INTO",

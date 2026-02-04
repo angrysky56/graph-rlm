@@ -33,7 +33,8 @@ class MainWindow(QMainWindow):
         # --- Status Bar ---
         self.statusBar().showMessage("System Ready")
 
-        # Start the Agent Thread
+        # Start the Agent Thread AFTER all connections are guaranteed
+        # We rely on connections made above.
         self.agent_worker.start()
 
     def _create_docks(self):
@@ -110,6 +111,9 @@ class MainWindow(QMainWindow):
 
         # Agent Status -> Status Bar
         self.agent_worker.statusChanged.connect(self.statusBar().showMessage)
+
+        # Load Complete -> Auto Fit
+        self.agent_worker.initialLoadComplete.connect(self.graph_widget.on_loading_finished)
 
         # Agent Errors -> Log Widget (already handled via worker connection in LogWidget)
 

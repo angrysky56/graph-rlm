@@ -34,6 +34,23 @@ class GraphWidget(QWidget):
             if hasattr(item, "node_data"):
                 self.nodeSelected.emit(item.node_data)
 
+    def on_loading_finished(self):
+        """Called when initial bulk load is complete."""
+        # Fit view to content so nodes are visible
+        # Ensure scene rect covers items
+        rect = self.scene.itemsBoundingRect()
+        if rect.isValid():
+            self.scene.setSceneRect(rect.adjusted(-500, -500, 500, 500))
+            self.view.fitInView(rect, Qt.AspectRatioMode.KeepAspectRatio)
+            # Zoom out slightly if too close
+            self.view.scale(0.9, 0.9)
+        else:
+            # Fallback
+            self.view.centerOn(0,0)
+
+    def fit_view_to_content(self):
+        self.on_loading_finished()
+
 
 class ZoomableGraphicsView(QGraphicsView):
     def __init__(self, scene):
