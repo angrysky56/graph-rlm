@@ -19,18 +19,27 @@ def get_schema() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="neo4j-mcp",
             tool_name="get-schema",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -41,18 +50,27 @@ def list_gds_procedures() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="neo4j-mcp",
             tool_name="list-gds-procedures",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -67,22 +85,31 @@ def read_cypher(query: str, params: dict[str, Any]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if params is not None:
-        params["params"] = params
+        mcp_args["params"] = params
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="neo4j-mcp",
             tool_name="read-cypher",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -97,22 +124,31 @@ def write_cypher(query: str, params: dict[str, Any]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if params is not None:
-        params["params"] = params
+        mcp_args["params"] = params
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="neo4j-mcp",
             tool_name="write-cypher",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

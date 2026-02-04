@@ -2,7 +2,7 @@ import logging
 import sys
 
 
-def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
+def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
     """
     Returns a structured logger.
     """
@@ -10,8 +10,25 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
 
     if not logger.handlers:
         handler = logging.StreamHandler(sys.stdout)
+
+        # ANSI Colors
+        class ColorFormatter(logging.Formatter):
+            LEVEL_COLORS = {
+                logging.DEBUG: "\033[90m",  # Grey
+                logging.INFO: "\033[94m",  # Blue
+                logging.WARNING: "\033[93m",  # Yellow
+                logging.ERROR: "\033[91m",  # Red
+                logging.CRITICAL: "\033[91m\033[1m",  # Bold Red
+            }
+            RESET = "\033[0m"
+
+            def format(self, record):
+                color = self.LEVEL_COLORS.get(record.levelno, "")
+                record.levelname = f"{color}{record.levelname}{self.RESET}"
+                return super().format(record)
+
         # Format: Timestamp - Level - LoggerName - Message
-        formatter = logging.Formatter(
+        formatter = ColorFormatter(
             "%(asctime)s - %(levelname)s - [%(name)s] - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )

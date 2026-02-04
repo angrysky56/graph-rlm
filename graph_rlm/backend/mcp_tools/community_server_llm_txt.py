@@ -21,22 +21,31 @@ def get_llm_txt(id: float, page: float | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
     if page is not None:
-        params["page"] = page
+        mcp_args["page"] = page
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="community-server-llm-txt",
             tool_name="get_llm_txt",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -47,18 +56,27 @@ def list_llm_txt() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="community-server-llm-txt",
             tool_name="list_llm_txt",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -74,24 +92,33 @@ def search_llm_txt(id: float, queries: list[str], context_lines: float | None = 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
     if queries is not None:
-        params["queries"] = queries
+        mcp_args["queries"] = queries
     if context_lines is not None:
-        params["context_lines"] = context_lines
+        mcp_args["context_lines"] = context_lines
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="community-server-llm-txt",
             tool_name="search_llm_txt",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

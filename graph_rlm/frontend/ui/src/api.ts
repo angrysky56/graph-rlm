@@ -138,9 +138,56 @@ export const api = {
         return res.data;
     },
 
+    getSessionThoughts: async (sessionId: string) => {
+        const res = await apiClient.get(`/sessions/${sessionId}/thoughts`);
+        return res.data;
+    },
+
     reembedGraph: async () => {
         const res = await apiClient.post('/system/reembed');
         return res.data;
+    },
+
+    getSystemStatus: async (sessionId?: string) => {
+        try {
+            const res = await apiClient.get('/system/status', { params: { session_id: sessionId } });
+            return res.data;
+        } catch (e) {
+            console.error("Failed to fetch system status", e);
+            return { scratchpad: [] };
+        }
+    },
+
+    deleteSession: async (sessionId: string) => {
+        try {
+            const res = await apiClient.delete(`/sessions/${sessionId}`);
+            return res.data;
+        } catch (e) {
+            console.error("Failed to delete session", e);
+            throw e;
+        }
+    },
+
+    pruneOrphans: async (hours: number = 1) => {
+         try {
+             // using params for query params if GET, but here POST with query params is fine or body.
+             // FastAPI handles argument as query param by default for simpler types if not in Pydantic model.
+             const res = await apiClient.post(`/system/prune?hours=${hours}`);
+             return res.data;
+         } catch (e) {
+             console.error("Failed to prune orphans", e);
+             throw e;
+         }
+    },
+
+    resetDatabase: async () => {
+         try {
+             const res = await apiClient.post(`/system/reset`);
+             return res.data;
+         } catch (e) {
+             console.error("Failed to reset database", e);
+             throw e;
+         }
     },
 
     streamChat: (payload: any, onEvent: (event: any) => void) => {

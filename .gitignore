@@ -56,6 +56,9 @@ logs/
 falkordb.so
 graph_rlm/frontend/ui/dist/
 coverage/
+knowledge_base/
+graph_rlm/backend/axioms_dir/
 
-# MCP Generated
+
+# MCP Configs have keys
 mcp_servers.json

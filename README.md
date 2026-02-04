@@ -2,7 +2,7 @@
 
 > **"Unshackled" Reasoning**: A system that replaces linear context windows with a persistent, recursive, and self-correcting Graph of Thoughts. Implements the **Ralph Protocol** (Wake -> Sleep -> Wake).
 
-![Graph Visualization](docs/screenshot.png)
+![Graph Visualization](image.png)
 
 ## Overview
 
@@ -10,8 +10,9 @@
 
 It solves "Context Rot" through three core mechanisms:
 1.  **Recursive Decomposition**: Complex tasks are broken down into sub-queries (`rlm.query()`) that execute in their own scopes but share a persistent **Graph Memory**.
-2.  **Sheaf Topology Monitor**: A background process that uses **In-Database GraphBLAS** to detect "Logical Knots" (High Surprise/Inconsistency) in real-time.
-3.  **The Dreamer (Sleep Phase)**: An offline consolidation cycle that converts high-surprise events (failed tests, logical contradictions) into **Wisdom** (Rules) for the next Wake cycle.
+2.  **Constraint Augmented Generation (CAG)**: A deterministic pivot from RAG. The system proactively **Ingests** documents, **Mines** logical invariants, and **Codifies** them into executable Python **Axioms** (Guardrails).
+3.  **Sheaf Axiomatic Monitor**: A real-time verification process that runs all proposed actions against the **Axiom Library**. Violations trigger immediate Reflexion before code execution.
+4.  **The Dreamer (Sleep Phase)**: An offline consolidation cycle that converts high-surprise events (failed tests, axiomatic violations) into long-term **Wisdom**.
 
 ---
 
@@ -22,11 +23,17 @@ Variables define state. In Graph-RLM, every session processes thoughts within a 
 - **State Sharing**: Recursive calls (`rlm.query`) inherit the session ID, allowing sub-agents to access and modify the shared state.
 - **GraphDB**: We use **FalkorDB** to store the **Graph of Thoughts (GoT)**. Every thought is a timestamped node, allowing us to query the "Topological Frontier" of context rather than just a linear list.
 
-### 2. Sheaf Topology (The "Immune System")
-We measure the **Surprise Score** (Consistency Energy) of every thought against its neighbors.
-- **Metric**: `Surprise = (1 - CosineSimilarity) + (1.0 if ExecutionFailed else 0.0)`.
-- **Optimization**: All calculations are pushed to FalkorDB via Cypher/GraphBLAS, handling 10k+ nodes with <10ms overhead.
-- **Action**: If "Surprise" spikes, the Agent is warned of a **Logical Knot** and forced to Reflexion.
+### 2. Constraint Augmented Generation (CAG)
+A deterministic alternative to RAG for high-stakes domains:
+- **The Miner**: Extracts absolute logical invariants (e.g., "Velocity < 300") from raw text.
+- **The Coder**: Converts invariants into verified Python validator functions (Axioms).
+- **The Verifier**: Automatically runs validators against proposed agent actions in a sandbox.
+- **Result**: Hallucination-free execution in safety-critical environments.
+
+### 3. Axiomatic Sheaf (The "Immune System")
+- **Guardrails**: Before any code is executed, the Sheaf Monitor runs it through all relevant **Axiom Skills**.
+- **Reflexion**: If an axiom is violated, the system injects a `SYSTEM REFLEXION (AXIOMATIC)` node, forcing the agent to refactor its thought.
+- **Metric**: `Surprise = (1 - CosineSimilarity) + (1.0 if AxiomViolated else 0.0)`.
 
 ### 3. The Dreamer Agent (Sleep Phase)
 Inspired by the **Ralph Protocol** ("Die and Repeat"):
@@ -43,8 +50,9 @@ Inspired by the **Ralph Protocol** ("Die and Repeat"):
 ## Feature Highlights
 
 - **MCP Integration**: Fully supports the **Model Context Protocol**. Tools and "Skills" are dynamically loaded.
+- **Constraint Augmented Generation (CAG)**: Built-in `ingest_document()` and `codify()` tools for automated ontology building.
 - **Infinite Recursion**: Depth limits are "unshackled". The Agent can drill down indefinitely.
-- **Self-Healing**: `Traceback` in the REPL = `High Surprise`. The system treats runtime errors as semantic signals to change capability.
+- **Self-Healing**: `Traceback` in the REPL or `AxiomViolation` = `High Surprise`. The system treats runtime/logic errors as semantic signals to self-correct.
 
 ---
 

@@ -23,26 +23,35 @@ def create_container(image: str, name: str | None = None, ports: dict[str, Any] 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if image is not None:
-        params["image"] = image
+        mcp_args["image"] = image
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if ports is not None:
-        params["ports"] = ports
+        mcp_args["ports"] = ports
     if environment is not None:
-        params["environment"] = environment
+        mcp_args["environment"] = environment
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="docker-mcp",
             tool_name="create-container",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -57,22 +66,31 @@ def deploy_compose(compose_yaml: str, project_name: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if compose_yaml is not None:
-        params["compose_yaml"] = compose_yaml
+        mcp_args["compose_yaml"] = compose_yaml
     if project_name is not None:
-        params["project_name"] = project_name
+        mcp_args["project_name"] = project_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="docker-mcp",
             tool_name="deploy-compose",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -86,20 +104,29 @@ def get_logs(container_name: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if container_name is not None:
-        params["container_name"] = container_name
+        mcp_args["container_name"] = container_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="docker-mcp",
             tool_name="get-logs",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -110,18 +137,27 @@ def list_containers() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="docker-mcp",
             tool_name="list-containers",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

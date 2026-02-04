@@ -5,7 +5,6 @@ generated tool wrappers and real MCP servers, using the robust
 McpClientManager for connection management.
 """
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -97,10 +96,10 @@ async def call_mcp_tool(
     return await _global_client.call_tool(server_name, tool_name, arguments)
 
 
-def cleanup_global_client() -> None:
-    """Clean up global client. Call this when shutting down."""
+async def cleanup_global_client_async() -> None:
+    """Clean up global client asynchronously."""
     global _global_client
 
     if _global_client is not None:
-        asyncio.run(_global_client.close())
+        await _global_client.close()
         _global_client = None

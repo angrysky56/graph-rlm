@@ -20,20 +20,29 @@ def create_entities(entities: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if entities is not None:
-        params["entities"] = entities
+        mcp_args["entities"] = entities
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="create_entities",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -47,20 +56,29 @@ def create_relations(relations: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if relations is not None:
-        params["relations"] = relations
+        mcp_args["relations"] = relations
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="create_relations",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -74,20 +92,29 @@ def add_observations(observations: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if observations is not None:
-        params["observations"] = observations
+        mcp_args["observations"] = observations
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="add_observations",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -101,20 +128,29 @@ def delete_entities(entityNames: list[str]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if entityNames is not None:
-        params["entityNames"] = entityNames
+        mcp_args["entityNames"] = entityNames
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="delete_entities",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -128,20 +164,29 @@ def delete_observations(deletions: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if deletions is not None:
-        params["deletions"] = deletions
+        mcp_args["deletions"] = deletions
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="delete_observations",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -155,20 +200,29 @@ def delete_relations(relations: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if relations is not None:
-        params["relations"] = relations
+        mcp_args["relations"] = relations
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="delete_relations",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -179,18 +233,27 @@ def read_graph() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="read_graph",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -204,20 +267,29 @@ def search_nodes(query: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="search_nodes",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -231,20 +303,29 @@ def open_nodes(names: list[str]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if names is not None:
-        params["names"] = names
+        mcp_args["names"] = names
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="memory",
             tool_name="open_nodes",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

@@ -108,30 +108,39 @@ A4: [Complete example with full context]
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if question is not None:
-        params["question"] = question
+        mcp_args["question"] = question
     if session_id is not None:
-        params["session_id"] = session_id
+        mcp_args["session_id"] = session_id
     if notebook_id is not None:
-        params["notebook_id"] = notebook_id
+        mcp_args["notebook_id"] = notebook_id
     if notebook_url is not None:
-        params["notebook_url"] = notebook_url
+        mcp_args["notebook_url"] = notebook_url
     if show_browser is not None:
-        params["show_browser"] = show_browser
+        mcp_args["show_browser"] = show_browser
     if browser_options is not None:
-        params["browser_options"] = browser_options
+        mcp_args["browser_options"] = browser_options
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="ask_question",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -186,32 +195,41 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if description is not None:
-        params["description"] = description
+        mcp_args["description"] = description
     if topics is not None:
-        params["topics"] = topics
+        mcp_args["topics"] = topics
     if content_types is not None:
-        params["content_types"] = content_types
+        mcp_args["content_types"] = content_types
     if use_cases is not None:
-        params["use_cases"] = use_cases
+        mcp_args["use_cases"] = use_cases
     if tags is not None:
-        params["tags"] = tags
+        mcp_args["tags"] = tags
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="add_notebook",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -222,18 +240,27 @@ def list_notebooks() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="list_notebooks",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -247,20 +274,29 @@ def get_notebook(id: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="get_notebook",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -288,20 +324,29 @@ You: "Switching to React notebook..." (call select_notebook)
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="select_notebook",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -338,34 +383,43 @@ Tip: You may update multiple fields at once if requested.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if description is not None:
-        params["description"] = description
+        mcp_args["description"] = description
     if topics is not None:
-        params["topics"] = topics
+        mcp_args["topics"] = topics
     if content_types is not None:
-        params["content_types"] = content_types
+        mcp_args["content_types"] = content_types
     if use_cases is not None:
-        params["use_cases"] = use_cases
+        mcp_args["use_cases"] = use_cases
     if tags is not None:
-        params["tags"] = tags
+        mcp_args["tags"] = tags
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="update_notebook",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -392,20 +446,29 @@ User: "Yes" → call remove_notebook
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="remove_notebook",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -419,20 +482,29 @@ def search_notebooks(query: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="search_notebooks",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -443,18 +515,27 @@ def get_library_stats() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="get_library_stats",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -465,18 +546,27 @@ def list_sessions() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="list_sessions",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -490,20 +580,29 @@ def close_session(session_id: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if session_id is not None:
-        params["session_id"] = session_id
+        mcp_args["session_id"] = session_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="close_session",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -517,20 +616,29 @@ def reset_session(session_id: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if session_id is not None:
-        params["session_id"] = session_id
+        mcp_args["session_id"] = session_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="reset_session",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -544,18 +652,27 @@ Consider running cleanup_data(preserve_library=true) + setup_auth for fresh star
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="get_health",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -577,22 +694,31 @@ This helps resolve conflicts from old browser sessions and installation data.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if show_browser is not None:
-        params["show_browser"] = show_browser
+        mcp_args["show_browser"] = show_browser
     if browser_options is not None:
-        params["browser_options"] = browser_options
+        mcp_args["browser_options"] = browser_options
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="setup_auth",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -625,22 +751,31 @@ This removes old installation data and browser sessions that can cause conflicts
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if show_browser is not None:
-        params["show_browser"] = show_browser
+        mcp_args["show_browser"] = show_browser
     if browser_options is not None:
-        params["browser_options"] = browser_options
+        mcp_args["browser_options"] = browser_options
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="re_auth",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -679,22 +814,31 @@ Use cases: Clean reinstall, troubleshooting auth issues, removing all traces bef
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if confirm is not None:
-        params["confirm"] = confirm
+        mcp_args["confirm"] = confirm
     if preserve_library is not None:
-        params["preserve_library"] = preserve_library
+        mcp_args["preserve_library"] = preserve_library
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="notebooklm",
             tool_name="cleanup_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

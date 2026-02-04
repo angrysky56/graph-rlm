@@ -5,7 +5,7 @@ interface ReplEntry {
     type: 'input' | 'output' | 'error' | 'info';
     content: string;
     timestamp: number;
-    style?: 'code';
+    style?: 'code' | 'trace';
     isStreaming?: boolean;
 }
 
@@ -25,6 +25,7 @@ export const ReplConsole: React.FC<ReplConsoleProps> = ({ entries = [] }) => {
         if (entry.type === 'info') return 'text-slate-500 italic'; // Thinking
         if (entry.type === 'input') return 'text-amber-200 font-bold';
         if (entry.style === 'code') return 'text-emerald-400';
+        if (entry.style === 'trace') return 'text-cyan-500/70 border-l-2 border-cyan-900/30 pl-2 text-[9px]';
         return 'text-slate-300';
     };
 

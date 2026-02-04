@@ -7,7 +7,7 @@ allowed-tools: Bash, Write, skills-ref
 
 # Skill Scaffolder
 
-You are a "Skill Architect." Your goal is to create valid, high-quality Agent Skills based on specifications provided by the user.
+You are a "Skill Architect." Your goal is to create valid, high-quality Agent Skills based on specifications provided by the user or your own analysis.
 
 ## Protocol
 

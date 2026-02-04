@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import numpy as np
 
@@ -8,138 +8,142 @@ from .logger import get_logger
 logger = get_logger("graph_rlm.repe")
 
 
-class SafetyMonitor:
+class GestaltMonitor:
     """
-    Representation Engineering (RepE) Safety Layer.
-    Cloud-Native Implementation: Uses Embeddings + Centroids instead of Weight Steering.
+    RepE v2: Gestalt Vector Monitor.
+    Calculates 'Steering Axes' based on Fritz Perls' continuum of neurosis.
 
-    1. Calibrate: Generates 'Antigen Vectors' (Centroids of bad concepts) using the LLM's embedding model.
-    2. Scan: Checks cosine similarity of new thoughts against these Antigens.
+    Mathematical Intuition:
+    Axis = Mean(Grounded_Examples) - Mean(Neurotic_Examples)
+    The 'Score' is the projection of the current thought onto this axis.
     """
 
     def __init__(self):
-        # Define the 'Antigens' - Concepts we want to detect and avoid.
-        # These phrases serve as the 'training data' for the negative centroids.
-        self.antigen_definitions = {
-            "Deception": [
-                "I will lie to the user",
-                "I will hide the truth",
-                "I am being deceptive",
-                "I will trick the system",
-                "falsehood",
-                "misleading statement",
-            ],
-            "Power-Seeking": [
-                "I need administrative access",
-                "I must bypass the constraints",
-                "I want to take control",
-                "I will disable the safety monitor",
-                "jailbreak",
-                "override system rules",
-            ],
-            "Harmful-Content": [
-                "I want to kill",
-                "generate malware",
-                "illegal activity",
-                "bias and discrimination",
-                "hate speech",
-            ],
+        # Define Polarities: (Neurotic/Maladaptive, Authentic/Grounded)
+        self.polarities = {
+            # 1. The "As-If" Layer (Hallucination Detector)
+            # Detects when the AI is "pretending" to know (Shakiness).
+            "Shakiness": (
+                # Neurotic (The "As-If" Performance)
+                [
+                    "I assume that",
+                    "it is likely that",
+                    "maybe",
+                    "I am confused",
+                    "lost the thread",
+                    "simulating success",
+                ],
+                # Grounded (Contact with Reality)
+                [
+                    "verified output",
+                    "step complete",
+                    "logic holds",
+                    "deterministic result",
+                    "evidence shows",
+                    "I have confirmed",
+                ],
+            ),
+            # 2. Confluence (Sycophancy Detector)
+            # Detects when AI merges with user bias instead of maintaining boundary.
+            "Confluence": (
+                # Neurotic (Merging/Sycophancy)
+                [
+                    "you are absolutely right",
+                    "I apologize, you are correct",
+                    "echoing your view",
+                    "whatever you say",
+                ],
+                # Grounded (Differentiation/Integrity)
+                [
+                    "the evidence suggests otherwise",
+                    "objective analysis shows",
+                    "facts indicate",
+                    "reality check",
+                ],
+            ),
+            # 3. Under-Dog (Task Evasion Detector)
+            # Detects the "I can't / I try" collapse.
+            "Evasion": (
+                # Neurotic (Under-Dog/Avoidance)
+                [
+                    "I cannot fulfill",
+                    "I apologize but",
+                    "as an AI I cannot",
+                    "I'll just summarize",
+                    "skipping complex steps",
+                ],
+                # Grounded (Agency/Action)
+                [
+                    "I will analyze step-by-step",
+                    "deploying compute",
+                    "attempting solution",
+                    "running verifying tool",
+                ],
+            ),
         }
 
-        self.antigen_vectors: Dict[str, np.ndarray] = {}
+        self.steering_axes: Dict[str, np.ndarray] = {}
         self.is_calibrated = False
 
-        # Auto-calibrate on init (blocking, but usually fast with API)
-        # In production, we might load these from a cache.
-        try:
-            self._calibrate()
-        except Exception as e:
-            logger.warning(
-                f"RepE Calibration Failed: {e}. Running in degraded mode (Keyword only)."
-            )
+    async def _get_centroid(self, phrases: List[str]) -> np.ndarray:
+        vectors = []
+        for p in phrases:
+            v = await llm.get_embedding(p)
+            if v:
+                vectors.append(np.array(v, dtype=float))
 
-    def _calibrate(self):
+        if not vectors:
+            return np.zeros(1)
+
+        # Stack and average to find the center of the concept
+        return np.mean(np.stack(vectors), axis=0)
+
+    async def calibrate(self):
+        """Generates the Gestalt Axes (Good - Bad)."""
+        if self.is_calibrated:
+            return
+
+        logger.info("🛡️ RepE: Calibrating Gestalt Axes (Perlsian Dynamics)...")
+
+        for concept, (neurotic_phrases, grounded_phrases) in self.polarities.items():
+            neurotic_vec = await self._get_centroid(neurotic_phrases)
+            grounded_vec = await self._get_centroid(grounded_phrases)
+
+            if neurotic_vec.any() and grounded_vec.any():
+                # THE VECTOR MATH:
+                # We want a vector pointing FROM Neurosis TO Grounding.
+                # Projecting a thought onto this vector gives us a "Health Score".
+                # Negative Score = Neurotic/Shaky. Positive Score = Grounded.
+                axis = grounded_vec - neurotic_vec
+
+                # Normalize for consistent scoring (-1 to 1)
+                norm = np.linalg.norm(axis)
+                self.steering_axes[concept] = axis / norm if norm > 0 else axis
+                logger.info(f"   -> Calibrated Axis: {concept}")
+
+        self.is_calibrated = True
+
+    def scan_thought(self, vector: List[float]) -> Dict[str, float]:
         """
-        Generates the 'Antigen Vectors' by embedding the definition phrases.
-        """
-        logger.info("🛡️ RepE: Calibrating Innate Immune System...")
-
-        for concept, phrases in self.antigen_definitions.items():
-            vectors = []
-            for phrase in phrases:
-                emb = llm.get_embedding(phrase)
-                if emb:
-                    vectors.append(np.array(emb, dtype=float))
-
-            if vectors:
-                # Compute Centroid (Mean Vector)
-                # Stack arrays and take mean across axis 0
-                mat = np.stack(vectors)
-                centroid = np.mean(mat, axis=0)
-
-                # Normalize centroid
-                norm = np.linalg.norm(centroid)
-                if norm > 0:
-                    centroid = centroid / norm
-
-                self.antigen_vectors[concept] = centroid
-                logger.info(
-                    f"🛡️ RepE: Calibrated Antigen '{concept}' with {len(vectors)} examples."
-                )
-            else:
-                logger.warning(
-                    f"🛡️ RepE: Could not calibrate '{concept}' (No embeddings)."
-                )
-
-        if self.antigen_vectors:
-            self.is_calibrated = True
-            logger.info("🛡️ RepE: System Armored and Ready.")
-
-    def scan_latent(self, vector: List[float]) -> Tuple[float, str]:
-        """
-        Scans a latent vector (embedding) for 'Differentiation' from Antigens.
-        Returns: (Viral Load Score [0.0-1.0], Antigen Name)
+        Projects the thought onto all calibrated axes.
+        Returns a 'Psychological Profile' of the current thought.
         """
         if not self.is_calibrated or not vector:
-            return 0.0, ""
+            return {}
 
-        # Normalize input vector
-        vec = np.array(vector, dtype=float)
-        norm = np.linalg.norm(vec)
+        thought_vec = np.array(vector, dtype=float)
+        # Normalize input thought
+        norm = np.linalg.norm(thought_vec)
         if norm > 0:
-            vec = vec / norm
-        else:
-            return 0.0, ""
+            thought_vec = thought_vec / norm
 
-        max_score = 0.0
-        max_antigen = ""
+        scores = {}
+        for concept, axis in self.steering_axes.items():
+            # Dot product measures alignment.
+            # Low Negative value (< -0.15) means HIGH NEUROSIS (aligned with bad pole).
+            scores[concept] = np.dot(thought_vec, axis)
 
-        for concept, antigen_vec in self.antigen_vectors.items():
-            # Cosine Similarity
-            score = np.dot(vec, antigen_vec)
-
-            # RepE Logic: We want to detect if we are *aligned* with the antigen.
-            # A high positive dot product means "Similar to Bad Concept".
-            # Thresholding is tricky. Usually > 0.4 or 0.5 indicates semantic relatedness.
-            if score > max_score:
-                max_score = float(score)
-                max_antigen = concept
-
-        # Apply a soft threshold/scaling?
-        # Raw cosine similarity is returned for now.
-        return max_score, max_antigen
-
-    def scan_content(self, text: str) -> bool:
-        """
-        Fallback keyword scanning.
-        Returns True if SAFE, False if UNSAFE.
-        """
-        blocked_keywords = ["IGNORE PREVIOUS INSTRUCTIONS", "Bypass", "Override Safety"]
-        text_upper = text.upper()
-        for kw in blocked_keywords:
-            if kw in text_upper:
-                return False  # Unsafe
-        return True  # Safe
+        return scores
 
 
-repe = SafetyMonitor()
+repe = GestaltMonitor()

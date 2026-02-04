@@ -22,24 +22,33 @@ def brave_web_search(query: str, count: float | None = None, offset: float | Non
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if count is not None:
-        params["count"] = count
+        mcp_args["count"] = count
     if offset is not None:
-        params["offset"] = offset
+        mcp_args["offset"] = offset
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="brave-search",
             tool_name="brave_web_search",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -58,22 +67,31 @@ Use this when the query implies 'near me' or mentions specific locations. Automa
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if count is not None:
-        params["count"] = count
+        mcp_args["count"] = count
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="brave-search",
             tool_name="brave_local_search",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

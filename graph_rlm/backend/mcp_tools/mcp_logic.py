@@ -21,22 +21,31 @@ def prove(premises: list[str], conclusion: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if premises is not None:
-        params["premises"] = premises
+        mcp_args["premises"] = premises
     if conclusion is not None:
-        params["conclusion"] = conclusion
+        mcp_args["conclusion"] = conclusion
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="prove",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -50,20 +59,29 @@ def check_well_formed(statements: list[str]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if statements is not None:
-        params["statements"] = statements
+        mcp_args["statements"] = statements
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="check-well-formed",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -78,22 +96,31 @@ def find_model(premises: list[str], domain_size: int | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if premises is not None:
-        params["premises"] = premises
+        mcp_args["premises"] = premises
     if domain_size is not None:
-        params["domain_size"] = domain_size
+        mcp_args["domain_size"] = domain_size
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="find-model",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -109,24 +136,33 @@ def find_counterexample(premises: list[str], conclusion: str, domain_size: int |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if premises is not None:
-        params["premises"] = premises
+        mcp_args["premises"] = premises
     if conclusion is not None:
-        params["conclusion"] = conclusion
+        mcp_args["conclusion"] = conclusion
     if domain_size is not None:
-        params["domain_size"] = domain_size
+        mcp_args["domain_size"] = domain_size
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="find-counterexample",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -144,28 +180,37 @@ def verify_commutativity(path_a: list[str], path_b: list[str], object_start: str
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if path_a is not None:
-        params["path_a"] = path_a
+        mcp_args["path_a"] = path_a
     if path_b is not None:
-        params["path_b"] = path_b
+        mcp_args["path_b"] = path_b
     if object_start is not None:
-        params["object_start"] = object_start
+        mcp_args["object_start"] = object_start
     if object_end is not None:
-        params["object_end"] = object_end
+        mcp_args["object_end"] = object_end
     if with_category_axioms is not None:
-        params["with_category_axioms"] = with_category_axioms
+        mcp_args["with_category_axioms"] = with_category_axioms
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="verify-commutativity",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -180,22 +225,31 @@ def get_category_axioms(concept: str, functor_name: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if concept is not None:
-        params["concept"] = concept
+        mcp_args["concept"] = concept
     if functor_name is not None:
-        params["functor_name"] = functor_name
+        mcp_args["functor_name"] = functor_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-logic",
             tool_name="get-category-axioms",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

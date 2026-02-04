@@ -108,6 +108,8 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
 
     if process.returncode != 0:
         error_msg = stderr.decode()
+        if "429" in error_msg:
+            error_msg = f"[TERMINAL ERROR: RATE LIMITED] {error_msg}"
         logger.error(f"Skill execution failed (RC {process.returncode}): {error_msg}")
         raise RuntimeError(f"Skill subprocess failed: {error_msg}")
 
@@ -116,11 +118,14 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
     try:
         # We look for the last line, assuming it contains the JSON result
         lines = output.splitlines()
-        # Filter out log lines if any (though we configured logging to stderr mostly?)
-        # For now, blindly try to parse the whole output or the last line
+
         if not lines:
+            logger.warning(f"Skill '{skill_name}' produced no output.")
             return None
+
+        # Attempt to parse the last line as the JSON result
         return json.loads(lines[-1])
+
     except json.JSONDecodeError:
         logger.error(f"Failed to parse skill output: {output}")
         raise RuntimeError(f"Skill returned invalid JSON: {output}") from None
@@ -131,7 +136,7 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
     Internal execution logic (runs INSIDE the venv).
     Imports and runs the skill function.
     """
-    from .client import cleanup_global_client
+    from .client import cleanup_global_client_async
     from .skills import get_skills_manager
 
     # Get skill code
@@ -201,7 +206,7 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
     except Exception as e:
         raise RuntimeError(f"Skill execution failed: {e}") from e
     finally:
-        cleanup_global_client()
+        await cleanup_global_client_async()
 
 
 async def execute_skill(skill_name: str, kwargs: dict[str, Any]) -> Any:

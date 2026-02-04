@@ -462,7 +462,20 @@ class McpClientManager:
 
         # Unwrap result similar to reference implementation
         if hasattr(result, "content"):
-            return "\n".join([c.text for c in result.content if c.type == "text"])
+            text = "\n".join([c.text for c in result.content if c.type == "text"])
+            # Attempt to parse as JSON for structured return handling
+            try:
+                import json
+
+                # If it looks like a JSON object or array, try parsing
+                stripped = text.strip()
+                if (stripped.startswith("{") and stripped.endswith("}")) or (
+                    stripped.startswith("[") and stripped.endswith("]")
+                ):
+                    return json.loads(stripped)
+            except Exception:
+                pass
+            return text
         return result
 
     async def list_tools(self, server_name: str) -> list[Tool]:

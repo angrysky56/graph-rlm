@@ -28,36 +28,45 @@ def mpl_mcp_plot_barchart(values: list[float], labels: Any | None = None, title:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if values is not None:
-        params["values"] = values
+        mcp_args["values"] = values
     if labels is not None:
-        params["labels"] = labels
+        mcp_args["labels"] = labels
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if color is not None:
-        params["color"] = color
+        mcp_args["color"] = color
     if save is not None:
-        params["save"] = save
+        mcp_args["save"] = save
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if orientation is not None:
-        params["orientation"] = orientation
+        mcp_args["orientation"] = orientation
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_plot_barchart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -87,52 +96,61 @@ def mpl_mcp_plot_scatter(x_data: list[float], y_data: list[float], labels: Any |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if x_data is not None:
-        params["x_data"] = x_data
+        mcp_args["x_data"] = x_data
     if y_data is not None:
-        params["y_data"] = y_data
+        mcp_args["y_data"] = y_data
     if labels is not None:
-        params["labels"] = labels
+        mcp_args["labels"] = labels
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if color is not None:
-        params["color"] = color
+        mcp_args["color"] = color
     if size is not None:
-        params["size"] = size
+        mcp_args["size"] = size
     if alpha is not None:
-        params["alpha"] = alpha
+        mcp_args["alpha"] = alpha
     if marker is not None:
-        params["marker"] = marker
+        mcp_args["marker"] = marker
     if edgecolors is not None:
-        params["edgecolors"] = edgecolors
+        mcp_args["edgecolors"] = edgecolors
     if linewidths is not None:
-        params["linewidths"] = linewidths
+        mcp_args["linewidths"] = linewidths
     if save is not None:
-        params["save"] = save
+        mcp_args["save"] = save
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if figsize is not None:
-        params["figsize"] = figsize
+        mcp_args["figsize"] = figsize
     if grid is not None:
-        params["grid"] = grid
+        mcp_args["grid"] = grid
     if legend is not None:
-        params["legend"] = legend
+        mcp_args["legend"] = legend
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_plot_scatter",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -158,44 +176,53 @@ def mpl_mcp_plot_chart(x_data: list[float], y_data: Any, plot_type: str | None =
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if x_data is not None:
-        params["x_data"] = x_data
+        mcp_args["x_data"] = x_data
     if y_data is not None:
-        params["y_data"] = y_data
+        mcp_args["y_data"] = y_data
     if plot_type is not None:
-        params["plot_type"] = plot_type
+        mcp_args["plot_type"] = plot_type
     if labels is not None:
-        params["labels"] = labels
+        mcp_args["labels"] = labels
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if color is not None:
-        params["color"] = color
+        mcp_args["color"] = color
     if save is not None:
-        params["save"] = save
+        mcp_args["save"] = save
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if figsize is not None:
-        params["figsize"] = figsize
+        mcp_args["figsize"] = figsize
     if grid is not None:
-        params["grid"] = grid
+        mcp_args["grid"] = grid
     if legend is not None:
-        params["legend"] = legend
+        mcp_args["legend"] = legend
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_plot_chart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -224,50 +251,59 @@ def mpl_mcp_plot_stem(x_data: Any, y_data: Any, labels: Any | None = None, title
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if x_data is not None:
-        params["x_data"] = x_data
+        mcp_args["x_data"] = x_data
     if y_data is not None:
-        params["y_data"] = y_data
+        mcp_args["y_data"] = y_data
     if labels is not None:
-        params["labels"] = labels
+        mcp_args["labels"] = labels
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if colors is not None:
-        params["colors"] = colors
+        mcp_args["colors"] = colors
     if linefmt is not None:
-        params["linefmt"] = linefmt
+        mcp_args["linefmt"] = linefmt
     if markerfmt is not None:
-        params["markerfmt"] = markerfmt
+        mcp_args["markerfmt"] = markerfmt
     if basefmt is not None:
-        params["basefmt"] = basefmt
+        mcp_args["basefmt"] = basefmt
     if bottom is not None:
-        params["bottom"] = bottom
+        mcp_args["bottom"] = bottom
     if orientation is not None:
-        params["orientation"] = orientation
+        mcp_args["orientation"] = orientation
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if figsize is not None:
-        params["figsize"] = figsize
+        mcp_args["figsize"] = figsize
     if grid is not None:
-        params["grid"] = grid
+        mcp_args["grid"] = grid
     if legend is not None:
-        params["legend"] = legend
+        mcp_args["legend"] = legend
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_plot_stem",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -293,44 +329,53 @@ def mpl_mcp_plot_stack(x_data: Any, y_data: Any, chart_type: str | None = None, 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if x_data is not None:
-        params["x_data"] = x_data
+        mcp_args["x_data"] = x_data
     if y_data is not None:
-        params["y_data"] = y_data
+        mcp_args["y_data"] = y_data
     if chart_type is not None:
-        params["chart_type"] = chart_type
+        mcp_args["chart_type"] = chart_type
     if labels is not None:
-        params["labels"] = labels
+        mcp_args["labels"] = labels
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if colors is not None:
-        params["colors"] = colors
+        mcp_args["colors"] = colors
     if alpha is not None:
-        params["alpha"] = alpha
+        mcp_args["alpha"] = alpha
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if figsize is not None:
-        params["figsize"] = figsize
+        mcp_args["figsize"] = figsize
     if grid is not None:
-        params["grid"] = grid
+        mcp_args["grid"] = grid
     if legend is not None:
-        params["legend"] = legend
+        mcp_args["legend"] = legend
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_plot_stack",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -358,48 +403,57 @@ def mpl_mcp_eqn_chart(equations: Any, x_min: float | None = None, x_max: float |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if equations is not None:
-        params["equations"] = equations
+        mcp_args["equations"] = equations
     if x_min is not None:
-        params["x_min"] = x_min
+        mcp_args["x_min"] = x_min
     if x_max is not None:
-        params["x_max"] = x_max
+        mcp_args["x_max"] = x_max
     if num_points is not None:
-        params["num_points"] = num_points
+        mcp_args["num_points"] = num_points
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
     if xlabel is not None:
-        params["xlabel"] = xlabel
+        mcp_args["xlabel"] = xlabel
     if ylabel is not None:
-        params["ylabel"] = ylabel
+        mcp_args["ylabel"] = ylabel
     if grid is not None:
-        params["grid"] = grid
+        mcp_args["grid"] = grid
     if legend is not None:
-        params["legend"] = legend
+        mcp_args["legend"] = legend
     if figsize is not None:
-        params["figsize"] = figsize
+        mcp_args["figsize"] = figsize
     if linewidth is not None:
-        params["linewidth"] = linewidth
+        mcp_args["linewidth"] = linewidth
     if linestyle is not None:
-        params["linestyle"] = linestyle
+        mcp_args["linestyle"] = linestyle
     if alpha is not None:
-        params["alpha"] = alpha
+        mcp_args["alpha"] = alpha
     if dpi is not None:
-        params["dpi"] = dpi
+        mcp_args["dpi"] = dpi
     if save is not None:
-        params["save"] = save
+        mcp_args["save"] = save
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="mpl_mcp_eqn_chart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -424,42 +478,51 @@ def numpy_mcp_numerical_operation(operation: str, a: Any | None = None, b: Any |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if a is not None:
-        params["a"] = a
+        mcp_args["a"] = a
     if b is not None:
-        params["b"] = b
+        mcp_args["b"] = b
     if shape is not None:
-        params["shape"] = shape
+        mcp_args["shape"] = shape
     if new_shape is not None:
-        params["new_shape"] = new_shape
+        mcp_args["new_shape"] = new_shape
     if axis is not None:
-        params["axis"] = axis
+        mcp_args["axis"] = axis
     if q is not None:
-        params["q"] = q
+        mcp_args["q"] = q
     if start is not None:
-        params["start"] = start
+        mcp_args["start"] = start
     if stop is not None:
-        params["stop"] = stop
+        mcp_args["stop"] = stop
     if step is not None:
-        params["step"] = step
+        mcp_args["step"] = step
     if num is not None:
-        params["num"] = num
+        mcp_args["num"] = num
     if fill_value is not None:
-        params["fill_value"] = fill_value
+        mcp_args["fill_value"] = fill_value
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="numpy_mcp_numerical_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -483,40 +546,49 @@ def numpy_mcp_matlib_operation(operation: str, data: Any | None = None, shape: A
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if data is not None:
-        params["data"] = data
+        mcp_args["data"] = data
     if shape is not None:
-        params["shape"] = shape
+        mcp_args["shape"] = shape
     if m is not None:
-        params["m"] = m
+        mcp_args["m"] = m
     if n is not None:
-        params["n"] = n
+        mcp_args["n"] = n
     if k is not None:
-        params["k"] = k
+        mcp_args["k"] = k
     if start is not None:
-        params["start"] = start
+        mcp_args["start"] = start
     if stop is not None:
-        params["stop"] = stop
+        mcp_args["stop"] = stop
     if step is not None:
-        params["step"] = step
+        mcp_args["step"] = step
     if num is not None:
-        params["num"] = num
+        mcp_args["num"] = num
     if axis is not None:
-        params["axis"] = axis
+        mcp_args["axis"] = axis
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="numpy_mcp_matlib_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -547,54 +619,63 @@ def sympy_mcp_algebra_operation(operation: str, expr: str, syms: Any | None = No
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if expr is not None:
-        params["expr"] = expr
+        mcp_args["expr"] = expr
     if syms is not None:
-        params["syms"] = syms
+        mcp_args["syms"] = syms
     if rational is not None:
-        params["rational"] = rational
+        mcp_args["rational"] = rational
     if ratio is not None:
-        params["ratio"] = ratio
+        mcp_args["ratio"] = ratio
     if measure is not None:
-        params["measure"] = measure
+        mcp_args["measure"] = measure
     if deep is not None:
-        params["deep"] = deep
+        mcp_args["deep"] = deep
     if modulus is not None:
-        params["modulus"] = modulus
+        mcp_args["modulus"] = modulus
     if power_base is not None:
-        params["power_base"] = power_base
+        mcp_args["power_base"] = power_base
     if power_exp is not None:
-        params["power_exp"] = power_exp
+        mcp_args["power_exp"] = power_exp
     if mul is not None:
-        params["mul"] = mul
+        mcp_args["mul"] = mul
     if log is not None:
-        params["log"] = log
+        mcp_args["log"] = log
     if multinomial is not None:
-        params["multinomial"] = multinomial
+        mcp_args["multinomial"] = multinomial
     if basic is not None:
-        params["basic"] = basic
+        mcp_args["basic"] = basic
     if frac is not None:
-        params["frac"] = frac
+        mcp_args["frac"] = frac
     if sign is not None:
-        params["sign"] = sign
+        mcp_args["sign"] = sign
     if evaluate is not None:
-        params["evaluate"] = evaluate
+        mcp_args["evaluate"] = evaluate
     if exact is not None:
-        params["exact"] = exact
+        mcp_args["exact"] = exact
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="sympy_mcp_algebra_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -616,36 +697,45 @@ def sympy_mcp_calculus_operation(operation: str, expr: str, sym: Any | None = No
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if expr is not None:
-        params["expr"] = expr
+        mcp_args["expr"] = expr
     if sym is not None:
-        params["sym"] = sym
+        mcp_args["sym"] = sym
     if n is not None:
-        params["n"] = n
+        mcp_args["n"] = n
     if lower is not None:
-        params["lower"] = lower
+        mcp_args["lower"] = lower
     if upper is not None:
-        params["upper"] = upper
+        mcp_args["upper"] = upper
     if point is not None:
-        params["point"] = point
+        mcp_args["point"] = point
     if direction is not None:
-        params["direction"] = direction
+        mcp_args["direction"] = direction
     if series_n is not None:
-        params["series_n"] = series_n
+        mcp_args["series_n"] = series_n
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="sympy_mcp_calculus_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -668,38 +758,47 @@ def sympy_mcp_equation_operation(operation: str, equations: Any, symbols: Any | 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if equations is not None:
-        params["equations"] = equations
+        mcp_args["equations"] = equations
     if symbols is not None:
-        params["symbols"] = symbols
+        mcp_args["symbols"] = symbols
     if domain is not None:
-        params["domain"] = domain
+        mcp_args["domain"] = domain
     if check is not None:
-        params["check"] = check
+        mcp_args["check"] = check
     if simplify is not None:
-        params["simplify"] = simplify
+        mcp_args["simplify"] = simplify
     if rational is not None:
-        params["rational"] = rational
+        mcp_args["rational"] = rational
     if minimal is not None:
-        params["minimal"] = minimal
+        mcp_args["minimal"] = minimal
     if force is not None:
-        params["force"] = force
+        mcp_args["force"] = force
     if implicit is not None:
-        params["implicit"] = implicit
+        mcp_args["implicit"] = implicit
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="sympy_mcp_equation_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -718,30 +817,39 @@ def sympy_mcp_matrix_operation(operation: str, data: Any, rational: bool | None 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if data is not None:
-        params["data"] = data
+        mcp_args["data"] = data
     if rational is not None:
-        params["rational"] = rational
+        mcp_args["rational"] = rational
     if nrows is not None:
-        params["nrows"] = nrows
+        mcp_args["nrows"] = nrows
     if ncols is not None:
-        params["ncols"] = ncols
+        mcp_args["ncols"] = ncols
     if simplify is not None:
-        params["simplify"] = simplify
+        mcp_args["simplify"] = simplify
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="fermat-mcp",
             tool_name="sympy_mcp_matrix_operation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

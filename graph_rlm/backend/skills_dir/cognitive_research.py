@@ -9,7 +9,10 @@ from typing import Any
 # Import wrappers for our desired MCP capabilities
 from graph_rlm.backend.mcp_tools.advanced_reasoning import advanced_reasoning
 from graph_rlm.backend.mcp_tools.arxiv_mcp_server import search_papers
-from graph_rlm.backend.mcp_tools.chroma import chroma_add_documents, chroma_create_collection
+from graph_rlm.backend.mcp_tools.chroma import (
+    chroma_add_documents,
+    chroma_create_collection,
+)
 from graph_rlm.backend.mcp_tools.neo4j_mcp import write_cypher
 
 
@@ -111,8 +114,9 @@ async def perform_cognitive_research(
             collection_name = "cognitive_research"
             try:
                 await chroma_create_collection(collection_name=collection_name)
-            except Exception:
-                pass  # Collection likely exists/error handled in server
+            except Exception as e:
+                # Collection likely already exists or is being initialized; log for visibility but continue.
+                print(f"   ℹ️ Chroma collection '{collection_name}' status: {e}")
 
             # Prepare documents
             documents = []
@@ -131,7 +135,7 @@ async def perform_cognitive_research(
             )
 
             # Add papers
-            for i, p in enumerate(papers):
+            for _i, p in enumerate(papers):
                 if isinstance(p, dict):
                     content = p.get("summary", p.get("title", "Unknown"))
                     documents.append(f"Paper: {p.get('title', 'Unknown')}\n\n{content}")

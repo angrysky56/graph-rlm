@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings
@@ -6,6 +7,13 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Graph-RLM"
     API_V1_STR: str = "/api/v1"
+
+    # Knowledge Base
+    KNOWLEDGE_BASE_PATH: str = str(
+        (
+            Path(__file__).parent.parent.parent.parent.parent / "knowledge_base"
+        ).absolute()
+    )
 
     # Database
     FALKOR_HOST: str = "localhost"
@@ -16,6 +24,8 @@ class Settings(BaseSettings):
     API_PORT: int = 8000
     FALKORDB_PATH: Optional[str] = None
     LLM_PROVIDER: str = "openrouter"
+
+    REPL_TIMEOUT: int = 3000  # Seconds for REPL execution timeout
 
     GRAPH_NAME: str = "rlm_graph"
 

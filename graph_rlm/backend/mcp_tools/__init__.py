@@ -12,6 +12,9 @@ Usage:
 from typing import Any
 from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool as call_tool
 
+# Explicitly mark exports to satisfy linters
+call_tool = call_tool
+
 def run_skill(name: str, args: dict | None = None) -> Any:
     """
     Execute a skill by name.
@@ -29,4 +32,4 @@ def run_skill(name: str, args: dict | None = None) -> Any:
 
 def list_servers() -> list[str]:
     """Get list of all available MCP servers."""
-    return ['docker-mcp', 'brave-search', 'arxiv-mcp-server', 'wolframalpha', 'mcp-server-firecrawl', 'neo4j-mcp', 'advanced-reasoning', 'fermat-mcp', 'playwright', 'gitmcp', 'notebooklm', 'reflective-agent-architecture', 'ast-mcp-server', 'desktop-commander', 'mcp-obsidian', 'community-server-llm-txt', 'context7', 'mcp-logic', 'hybrid-ai', 'diagram-server', 'coinbase-trade-assistant', 'chatdag', 'verifier-graph', 'data-forge', 'memory']
+    return ['docker-mcp', 'brave-search', 'arxiv-mcp-server', 'wolframalpha', 'mcp-server-firecrawl', 'neo4j-mcp', 'advanced-reasoning', 'fermat-mcp', 'playwright', 'gitmcp', 'notebooklm', 'reflective-agent-architecture', 'ast-mcp-server', 'desktop-commander', 'mcp-obsidian', 'community-server-llm-txt', 'context7', 'mcp-logic', 'hybrid-ai', 'diagram-server', 'coinbase-trade-assistant', 'chatdag', 'verifier-graph', 'data-forge', 'memory', 'chroma']

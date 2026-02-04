@@ -1,14 +1,14 @@
-
+import asyncio
 import uuid
-from typing import Any, Dict
+from typing import Any
 
 # Import ChatDAG tools
 # Assuming 'chatdag' is the server name
-from graph_rlm.backend.mcp_tools.chatdag import search_knowledge, feed_data
+from graph_rlm.backend.mcp_tools.chatdag import feed_data, search_knowledge
 
 # Import Coordinator tools
 from graph_rlm.backend.src.core.agent import agent
-import asyncio
+
 
 async def coordinator_enhanced_task(task_description: str) -> Any:
     """
@@ -30,8 +30,7 @@ async def coordinator_enhanced_task(task_description: str) -> Any:
     print(f"🔍 Searching ChatDAG for context on: {task_description}")
     try:
         prior_work = await search_knowledge(
-            query=f"similar tasks: {task_description}",
-            k=10
+            query=f"similar tasks: {task_description}", k=10
         )
     except Exception as e:
         print(f"⚠️ Warning: Failed to search ChatDAG: {e}")
@@ -40,20 +39,21 @@ async def coordinator_enhanced_task(task_description: str) -> Any:
     # 2. Execute with context
     context_str = f"Context from memory:\n{prior_work}\n\nTask: {task_description}"
 
-    print(f"🤖 Running agent task with context...")
+    print("🤖 Running agent task with context...")
     # Using default model to ensure compatibility
     result = await asyncio.to_thread(
         agent.query_sync,
         prompt=context_str,
-        session_id=f"coordinator_task_{uuid.uuid4()}"
+        session_id=f"coordinator_task_{uuid.uuid4()}",
     )
 
     # 3. Store execution trace
-    print(f"💾 Storing result to ChatDAG...")
+    print("💾 Storing result to ChatDAG...")
     try:
         # Format result safely
         if isinstance(result, dict) or isinstance(result, list):
             import json
+
             result_str = json.dumps(result, indent=2)
         else:
             result_str = str(result)
@@ -64,8 +64,8 @@ async def coordinator_enhanced_task(task_description: str) -> Any:
             metadata={
                 "type": "api_response",
                 "priority": "high",
-                "domain": "engineering"
-            }
+                "domain": "engineering",
+            },
         )
         print("✅ Storage successful")
     except Exception as e:

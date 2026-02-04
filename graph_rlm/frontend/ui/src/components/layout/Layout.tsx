@@ -8,26 +8,30 @@ interface LayoutProps {
     children: React.ReactNode;
     onNewChat?: () => void;
     currentModel: string;
-    onSelectModel: (model: any) => void; // Using any or import Model type
     graphData: { nodes: any[], links: any[] };
 
     onRefreshConfig?: () => void;
     onInjectContent?: (text: string) => void;
     onSelectSession?: (id: string) => void;
+    onOpenExplorer?: () => void;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; };
+    replEntries?: any[];
+    scratchpadText: string;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
     children,
     onNewChat,
-    onSelectModel,
     currentModel,
     graphData,
+    scratchpadText,
 
     onRefreshConfig,
     onInjectContent,
     onSelectSession,
-    usage
+    onOpenExplorer,
+    usage,
+    replEntries
 }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -38,10 +42,11 @@ export const Layout: React.FC<LayoutProps> = ({
                 <Sidebar
                     onNewChat={onNewChat}
                     currentModel={currentModel}
-                    onSelectModel={onSelectModel}
                     onOpenSettings={() => setIsSettingsOpen(true)}
                     onSelectSession={onSelectSession}
+                    onOpenExplorer={onOpenExplorer}
                     usage={usage}
+                    replEntries={replEntries} // Pass it down!
                 />
             </div>
 
@@ -57,6 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({
                 <RightSidebar
                     graphData={graphData}
                     onInjectContent={onInjectContent || (() => { })}
+                    scratchpadText={scratchpadText}
                 />
             </div>
 

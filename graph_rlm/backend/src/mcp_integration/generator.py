@@ -127,25 +127,34 @@ class ToolGenerator:
 def {func_name}({params_str}) -> Any:
 {docstring}
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {{}}
+    mcp_args = {{}}
 """
 
         for param_name in properties.keys():
             function_code += f"""    if {param_name} is not None:
-        params["{param_name}"] = {param_name}
+        mcp_args["{param_name}"] = {param_name}
 """
 
         function_code += f"""
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="{server_name}",
             tool_name="{tool_name}",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 """
 
@@ -255,7 +264,7 @@ def list_tools() -> list[str]:
 
         # Write to file if changed
         if not module_path.exists() or module_path.read_text() != module_code:
-             module_path.write_text(module_code)
+            module_path.write_text(module_code)
 
     def generate_index_module(self, server_names: list[str]) -> None:
         """
@@ -279,6 +288,9 @@ Usage:
 
 from typing import Any
 from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool as call_tool
+
+# Explicitly mark exports to satisfy linters
+call_tool = call_tool
 
 def run_skill(name: str, args: dict | None = None) -> Any:
     """

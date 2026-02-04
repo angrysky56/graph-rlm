@@ -58,50 +58,59 @@ This is the most powerful, fastest and most reliable scraper tool, if available 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
     if formats is not None:
-        params["formats"] = formats
+        mcp_args["formats"] = formats
     if parsers is not None:
-        params["parsers"] = parsers
+        mcp_args["parsers"] = parsers
     if onlyMainContent is not None:
-        params["onlyMainContent"] = onlyMainContent
+        mcp_args["onlyMainContent"] = onlyMainContent
     if includeTags is not None:
-        params["includeTags"] = includeTags
+        mcp_args["includeTags"] = includeTags
     if excludeTags is not None:
-        params["excludeTags"] = excludeTags
+        mcp_args["excludeTags"] = excludeTags
     if waitFor is not None:
-        params["waitFor"] = waitFor
+        mcp_args["waitFor"] = waitFor
     if actions is not None:
-        params["actions"] = actions
+        mcp_args["actions"] = actions
     if mobile is not None:
-        params["mobile"] = mobile
+        mcp_args["mobile"] = mobile
     if skipTlsVerification is not None:
-        params["skipTlsVerification"] = skipTlsVerification
+        mcp_args["skipTlsVerification"] = skipTlsVerification
     if removeBase64Images is not None:
-        params["removeBase64Images"] = removeBase64Images
+        mcp_args["removeBase64Images"] = removeBase64Images
     if location is not None:
-        params["location"] = location
+        mcp_args["location"] = location
     if storeInCache is not None:
-        params["storeInCache"] = storeInCache
+        mcp_args["storeInCache"] = storeInCache
     if zeroDataRetention is not None:
-        params["zeroDataRetention"] = zeroDataRetention
+        mcp_args["zeroDataRetention"] = zeroDataRetention
     if maxAge is not None:
-        params["maxAge"] = maxAge
+        mcp_args["maxAge"] = maxAge
     if proxy is not None:
-        params["proxy"] = proxy
+        mcp_args["proxy"] = proxy
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_scrape",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -137,30 +146,39 @@ Map a website to discover all indexed URLs on the site.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
     if search is not None:
-        params["search"] = search
+        mcp_args["search"] = search
     if sitemap is not None:
-        params["sitemap"] = sitemap
+        mcp_args["sitemap"] = sitemap
     if includeSubdomains is not None:
-        params["includeSubdomains"] = includeSubdomains
+        mcp_args["includeSubdomains"] = includeSubdomains
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if ignoreQueryParameters is not None:
-        params["ignoreQueryParameters"] = ignoreQueryParameters
+        mcp_args["ignoreQueryParameters"] = ignoreQueryParameters
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_map",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -241,34 +259,43 @@ The query also supports search operators, that you can use if needed to refine t
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if tbs is not None:
-        params["tbs"] = tbs
+        mcp_args["tbs"] = tbs
     if filter is not None:
-        params["filter"] = filter
+        mcp_args["filter"] = filter
     if location is not None:
-        params["location"] = location
+        mcp_args["location"] = location
     if sources is not None:
-        params["sources"] = sources
+        mcp_args["sources"] = sources
     if scrapeOptions is not None:
-        params["scrapeOptions"] = scrapeOptions
+        mcp_args["scrapeOptions"] = scrapeOptions
     if enterprise is not None:
-        params["enterprise"] = enterprise
+        mcp_args["enterprise"] = enterprise
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_search",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -321,50 +348,59 @@ def firecrawl_crawl(url: str, prompt: str | None = None, excludePaths: list[str]
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
     if prompt is not None:
-        params["prompt"] = prompt
+        mcp_args["prompt"] = prompt
     if excludePaths is not None:
-        params["excludePaths"] = excludePaths
+        mcp_args["excludePaths"] = excludePaths
     if includePaths is not None:
-        params["includePaths"] = includePaths
+        mcp_args["includePaths"] = includePaths
     if maxDiscoveryDepth is not None:
-        params["maxDiscoveryDepth"] = maxDiscoveryDepth
+        mcp_args["maxDiscoveryDepth"] = maxDiscoveryDepth
     if sitemap is not None:
-        params["sitemap"] = sitemap
+        mcp_args["sitemap"] = sitemap
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if allowExternalLinks is not None:
-        params["allowExternalLinks"] = allowExternalLinks
+        mcp_args["allowExternalLinks"] = allowExternalLinks
     if allowSubdomains is not None:
-        params["allowSubdomains"] = allowSubdomains
+        mcp_args["allowSubdomains"] = allowSubdomains
     if crawlEntireDomain is not None:
-        params["crawlEntireDomain"] = crawlEntireDomain
+        mcp_args["crawlEntireDomain"] = crawlEntireDomain
     if delay is not None:
-        params["delay"] = delay
+        mcp_args["delay"] = delay
     if maxConcurrency is not None:
-        params["maxConcurrency"] = maxConcurrency
+        mcp_args["maxConcurrency"] = maxConcurrency
     if webhook is not None:
-        params["webhook"] = webhook
+        mcp_args["webhook"] = webhook
     if deduplicateSimilarURLs is not None:
-        params["deduplicateSimilarURLs"] = deduplicateSimilarURLs
+        mcp_args["deduplicateSimilarURLs"] = deduplicateSimilarURLs
     if ignoreQueryParameters is not None:
-        params["ignoreQueryParameters"] = ignoreQueryParameters
+        mcp_args["ignoreQueryParameters"] = ignoreQueryParameters
     if scrapeOptions is not None:
-        params["scrapeOptions"] = scrapeOptions
+        mcp_args["scrapeOptions"] = scrapeOptions
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_crawl",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -391,20 +427,29 @@ Check the status of a crawl job.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_check_crawl_status",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -459,30 +504,39 @@ Extract structured information from web pages using LLM capabilities. Supports b
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if urls is not None:
-        params["urls"] = urls
+        mcp_args["urls"] = urls
     if prompt is not None:
-        params["prompt"] = prompt
+        mcp_args["prompt"] = prompt
     if schema is not None:
-        params["schema"] = schema
+        mcp_args["schema"] = schema
     if allowExternalLinks is not None:
-        params["allowExternalLinks"] = allowExternalLinks
+        mcp_args["allowExternalLinks"] = allowExternalLinks
     if enableWebSearch is not None:
-        params["enableWebSearch"] = enableWebSearch
+        mcp_args["enableWebSearch"] = enableWebSearch
     if includeSubdomains is not None:
-        params["includeSubdomains"] = includeSubdomains
+        mcp_args["includeSubdomains"] = includeSubdomains
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_extract",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -551,24 +605,33 @@ Autonomous web data gathering agent. Describe what data you want, and the agent 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if prompt is not None:
-        params["prompt"] = prompt
+        mcp_args["prompt"] = prompt
     if urls is not None:
-        params["urls"] = urls
+        mcp_args["urls"] = urls
     if schema is not None:
-        params["schema"] = schema
+        mcp_args["schema"] = schema
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_agent",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -600,20 +663,29 @@ Check the status of an agent job.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if id is not None:
-        params["id"] = id
+        mcp_args["id"] = id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-server-firecrawl",
             tool_name="firecrawl_agent_status",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

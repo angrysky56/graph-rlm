@@ -172,7 +172,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ onInjectContent 
                                             {server.tools.map(tool => (
                                                 <button
                                                     key={tool}
-                                                    onClick={() => onInjectContent(`import mcp_tools.${sanitize(server.name)} as ${sanitize(server.name)}\n${sanitize(server.name)}.${sanitize(tool)}() `)}
+                                                    onClick={() => onInjectContent(`await mcp.${sanitize(server.name)}.${sanitize(tool)}()`)}
                                                     className="w-full text-left px-2 py-1.5 rounded hover:bg-blue-500/10 hover:text-blue-300 text-slate-400 transition-colors flex items-center justify-between group"
                                                     title="Click to insert"
                                                 >
@@ -195,7 +195,7 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({ onInjectContent 
                         {skills.map(skill => (
                             <button
                                 key={skill.name}
-                                onClick={() => onInjectContent(`run_skill("${skill.name}")`)}
+                                onClick={() => onInjectContent(`await rlm.run_skill("${skill.name}")`)}
                                 className="w-full text-left p-2 bg-slate-900/30 hover:bg-slate-800 rounded border border-transparent hover:border-purple-900/30 transition-all group"
                             >
                                 <div className="flex justify-between items-center mb-1">

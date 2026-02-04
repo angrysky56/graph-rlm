@@ -282,6 +282,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
+          {/* Graph Management Section */}
+          <div className="space-y-2 border-t border-slate-800 pt-4">
+            <label className="text-xs uppercase font-bold text-slate-500">Graph Hygiene</label>
+            <div className="grid grid-cols-2 gap-2">
+                <button
+                    onClick={async () => {
+                        setLoading(true);
+                        try {
+                            const res = await api.pruneOrphans(1);
+                            alert(res.message);
+                        } catch (e) { alert("Prune failed"); }
+                        setLoading(false);
+                    }}
+                    className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-bold border border-slate-700 hover:border-emerald-500 transition-colors flex flex-col items-center gap-1"
+                >
+                    <span>🧹 Prune Orphans</span>
+                    <span className="text-[9px] font-normal text-slate-500">(&gt; 1 hour old)</span>
+                </button>
+
+                <button
+                    onClick={async () => {
+                        if (confirm("WARNING: This will delete ALL knowledge graph nodes and history. This cannot be undone. Are you sure?")) {
+                            setLoading(true);
+                            try {
+                                await api.resetDatabase();
+                                alert("Database Wiped.");
+                                window.location.reload(); // Force reload to clear state
+                            } catch (e) { alert("Reset failed"); }
+                            setLoading(false);
+                        }
+                    }}
+                    className="p-2 bg-red-900/20 hover:bg-red-900/50 text-red-400 hover:text-red-200 rounded text-[10px] font-bold border border-red-900/50 hover:border-red-500 transition-colors flex flex-col items-center gap-1"
+                >
+                    <span>☢️ Factory Reset</span>
+                    <span className="text-[9px] font-normal text-red-500/50">Delete Everything</span>
+                </button>
+            </div>
+          </div>
+
         </div>
 
         {/* Footer */}

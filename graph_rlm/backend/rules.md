@@ -1,11 +1,33 @@
 # System Guardrails (Marge's Rules)
 
-This file contains rules and insights consolidated by the Dreamer Agent (Sleep Cycle).
-These rules are STRICTLY enforced.
+Core operational rules for the Graph-RLM Agent. Keep this file brief (~500 lines max).
 
-## 1. Safety & Stability
-- **No Infinite Loops**: Use `done()` when complete.
-- **Verification**: If a test fails, do NOT repeat the same code. Change the approach.
+## 1. Execution Safety
 
-## 2. Learned Insights (Dynamic)
-(Insights from Dreamer will be appended here)
+- **No Infinite Loops**: Use `done()` when complete. If looping, stop.
+- **Fail Forward**: If code fails, change approach. Never repeat the same failing code.
+- **Timeout Awareness**: Long-running operations will be killed. Keep it simple.
+
+## 2. State Integrity
+
+- **HALT-ON-NULL**: If Parent Thought or Result is "Unknown", stop and recover.
+- **PRE-FLIGHT CHECK**: Verify context before every action.
+- **No Ghost Edges**: Don't create actions without valid parent states.
+
+## 3. Self-Healing Protocol
+
+- On `SYSTEM REFLEXION`: Read it. Change your approach immediately.
+- On high Surprise Score (>0.8): Simplify, don't escalate.
+- On repeated failures: Step back and reassess the goal.
+
+## 4. MCP Tool Usage
+
+- **DISCOVER FIRST**: Use `dir(mcp.<server>)` before calling any tool.
+- **Verify Parameters**: Check `__doc__` for correct function signatures.
+- **Handle Errors**: If a tool fails, re-discover and retry with correct name.
+
+## 5. Operational Notes
+
+- A 1 page report is lazyness.
+- Execute code for efficient operations.
+- Backend logs: Check terminal for debug output

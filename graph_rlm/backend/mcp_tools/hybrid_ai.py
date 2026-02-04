@@ -34,24 +34,33 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if weights is not None:
-        params["weights"] = weights
+        mcp_args["weights"] = weights
     if threshold is not None:
-        params["threshold"] = threshold
+        mcp_args["threshold"] = threshold
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="create_mcp_neuron",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -80,24 +89,33 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if inputs is not None:
-        params["inputs"] = inputs
+        mcp_args["inputs"] = inputs
     if weights is not None:
-        params["weights"] = weights
+        mcp_args["weights"] = weights
     if threshold is not None:
-        params["threshold"] = threshold
+        mcp_args["threshold"] = threshold
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="evaluate_neuron",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -124,22 +142,31 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if gate_type is not None:
-        params["gate_type"] = gate_type
+        mcp_args["gate_type"] = gate_type
     if inputs is not None:
-        params["inputs"] = inputs
+        mcp_args["inputs"] = inputs
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="logic_gate",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -176,26 +203,35 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if rule_name is not None:
-        params["rule_name"] = rule_name
+        mcp_args["rule_name"] = rule_name
     if weights is not None:
-        params["weights"] = weights
+        mcp_args["weights"] = weights
     if threshold is not None:
-        params["threshold"] = threshold
+        mcp_args["threshold"] = threshold
     if description is not None:
-        params["description"] = description
+        mcp_args["description"] = description
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="create_decision_rule",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -225,22 +261,31 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if rule_name is not None:
-        params["rule_name"] = rule_name
+        mcp_args["rule_name"] = rule_name
     if inputs is not None:
-        params["inputs"] = inputs
+        mcp_args["inputs"] = inputs
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="apply_decision_rule",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -257,18 +302,27 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="get_decision_log",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -279,18 +333,27 @@ def clear_decision_log() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="clear_decision_log",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -328,24 +391,33 @@ Example:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if nn_outputs is not None:
-        params["nn_outputs"] = nn_outputs
+        mcp_args["nn_outputs"] = nn_outputs
     if decision_rule is not None:
-        params["decision_rule"] = decision_rule
+        mcp_args["decision_rule"] = decision_rule
     if threshold is not None:
-        params["threshold"] = threshold
+        mcp_args["threshold"] = threshold
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="hybrid-ai",
             tool_name="post_nn_decision",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

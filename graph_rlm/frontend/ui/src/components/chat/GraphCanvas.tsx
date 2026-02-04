@@ -43,10 +43,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   // Auto-zoom when data changes significantly (optional, but nice)
   useEffect(() => {
     if (graphRef.current) {
-       // Only zoom if node count is small (initial load) to avoid jarring jumps
-       if (data.nodes.length < 5) {
-          graphRef.current.zoomToFit(400);
-       }
+      // Only zoom if node count is small (initial load) to avoid jarring jumps
+      if (data.nodes.length < 5) {
+        graphRef.current.zoomToFit(400);
+      }
     }
   }, [data.nodes.length]);
 
@@ -60,37 +60,52 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         width={dimensions.width}
         height={dimensions.height}
         graphData={processedData}
+        // dagMode="td" // REMOVED: Caused layout issues with cyclic/disconnected graphs
+        // dagLevelDistance={50}
         nodeColor={(node: any) => node.color || "#64748b"}
-        nodeLabel="label"
+        nodeLabel={(node: any) => {
+          const promptSnippet = node.prompt
+            ? node.prompt.length > 200
+              ? node.prompt.substring(0, 200) + "..."
+              : node.prompt
+            : node.label;
+          const resultSnippet = node.result
+            ? `<div class="mt-1 pt-1 border-t border-slate-700 text-emerald-400 text-xs">${node.result.length > 100 ? node.result.substring(0, 100) + "..." : node.result}</div>`
+            : "";
+
+          return `
+            <div class="bg-slate-900 border border-slate-700 p-2 rounded shadow-2xl max-w-xs font-sans">
+              <div class="text-blue-400 font-bold text-[10px] uppercase tracking-tighter mb-1">${node.status || "Thought"}</div>
+              <div class="text-slate-200 text-xs leading-tight">${promptSnippet}</div>
+              ${resultSnippet}
+              <div class="mt-2 text-[9px] text-slate-500 font-mono">ID: ${node.id.substring(0, 8)}...</div>
+            </div>
+          `;
+        }}
         linkLabel={() => "Decomposes Into"}
         linkColor={() => "#475569"}
         backgroundColor="transparent"
-        d3VelocityDecay={0.4} // Slightly higher friction for stability
-        d3AlphaDecay={0.02}   // Slower cooling for better convergence
-        nodeRelSize={6}
-        nodeVal={(node: any) => node.val || 5} // Use calculated size
+        d3VelocityDecay={0.3} // Reduced friction to allow movement
+        d3AlphaDecay={0.02} // Standard cooling
+        nodeRelSize={7} // Highly visible nodes
+        nodeVal={(node: any) => node.val || 5}
+        warmupTicks={100} // Increase warmup
         // Interaction
         onNodeClick={(node) => onNodeClick && onNodeClick(node as GraphNode)}
         // Directional Arrows
         linkDirectionalArrowLength={3.5}
         linkDirectionalArrowRelPos={1}
-        // Particles for active nodes
-        linkDirectionalParticles={(_link: any) => {
-             // Optional: highlight links connected to processing nodes?
-             // For now keep simple
-             return 0;
+        // Simulation stability
+        cooldownTicks={100}
+        onEngineStop={() => {
+           // Ensure we see the nodes when simulation stops
+           if (graphRef.current) {
+             graphRef.current.zoomToFit(400);
+           }
         }}
-
       />
 
       {/* Overlay Status */}
-      <div className="absolute top-4 right-4 bg-slate-900/80 backdrop-blur border border-slate-700 p-2 rounded text-xs font-mono text-emerald-400 shadow-lg pointer-events-none select-none">
-        GRAPH ENGINE: {data.nodes.length > 0 ? "ACTIVE" : "IDLE"}
-        <div className="text-[10px] text-slate-500 mt-1">
-          LOUVAIN CLUSTERING • BETWEENNESS CENTRALITY
-        </div>
-      </div>
-
       <div className="absolute bottom-4 right-4 text-[10px] text-slate-600 font-mono pointer-events-none select-none">
         NODES: {data.nodes.length} | EDGES: {data.links.length}
       </div>

@@ -38,26 +38,35 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if diagram_type is not None:
-        params["diagram_type"] = diagram_type
+        mcp_args["diagram_type"] = diagram_type
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if use_template is not None:
-        params["use_template"] = use_template
+        mcp_args["use_template"] = use_template
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="create_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -81,22 +90,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if markdown_text is not None:
-        params["markdown_text"] = markdown_text
+        mcp_args["markdown_text"] = markdown_text
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="markdown_to_mindmap",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -120,22 +138,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if diagram_id is not None:
-        params["diagram_id"] = diagram_id
+        mcp_args["diagram_id"] = diagram_id
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="update_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -162,22 +189,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if diagram_id is not None:
-        params["diagram_id"] = diagram_id
+        mcp_args["diagram_id"] = diagram_id
     if filepath is not None:
-        params["filepath"] = filepath
+        mcp_args["filepath"] = filepath
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="save_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -193,18 +229,27 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="list_diagrams",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -226,20 +271,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if diagram_id is not None:
-        params["diagram_id"] = diagram_id
+        mcp_args["diagram_id"] = diagram_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="get_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -261,20 +315,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if diagram_id is not None:
-        params["diagram_id"] = diagram_id
+        mcp_args["diagram_id"] = diagram_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="delete_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -290,18 +353,27 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="list_templates",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -333,28 +405,37 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
     if target_type is not None:
-        params["target_type"] = target_type
+        mcp_args["target_type"] = target_type
     if source_format is not None:
-        params["source_format"] = source_format
+        mcp_args["source_format"] = source_format
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="convert_format_to_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -380,22 +461,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if json_content is not None:
-        params["json_content"] = json_content
+        mcp_args["json_content"] = json_content
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="json_to_flowchart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -421,24 +511,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if csv_content is not None:
-        params["csv_content"] = csv_content
+        mcp_args["csv_content"] = csv_content
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if chart_type is not None:
-        params["chart_type"] = chart_type
+        mcp_args["chart_type"] = chart_type
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="csv_to_org_chart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -464,22 +563,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if python_code is not None:
-        params["python_code"] = python_code
+        mcp_args["python_code"] = python_code
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="python_to_class_diagram",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -503,22 +611,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="diagram-server",
             tool_name="detect_file_format",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

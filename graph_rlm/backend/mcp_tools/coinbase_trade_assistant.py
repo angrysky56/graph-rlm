@@ -30,22 +30,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if min_volume_usd is not None:
-        params["min_volume_usd"] = min_volume_usd
+        mcp_args["min_volume_usd"] = min_volume_usd
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="coinbase-trade-assistant",
             tool_name="screen_all_coins",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -69,22 +78,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if product_id is not None:
-        params["product_id"] = product_id
+        mcp_args["product_id"] = product_id
     if timeframe is not None:
-        params["timeframe"] = timeframe
+        mcp_args["timeframe"] = timeframe
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="coinbase-trade-assistant",
             tool_name="analyze_coin",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -106,20 +124,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if product_ids is not None:
-        params["product_ids"] = product_ids
+        mcp_args["product_ids"] = product_ids
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="coinbase-trade-assistant",
             tool_name="get_market_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -135,18 +162,27 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="coinbase-trade-assistant",
             tool_name="check_signals",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -168,20 +204,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if watchlist is not None:
-        params["watchlist"] = watchlist
+        mcp_args["watchlist"] = watchlist
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="coinbase-trade-assistant",
             tool_name="monitor_portfolio",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

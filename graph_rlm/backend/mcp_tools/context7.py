@@ -42,22 +42,31 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if libraryName is not None:
-        params["libraryName"] = libraryName
+        mcp_args["libraryName"] = libraryName
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="context7",
             tool_name="resolve-library-id",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -76,22 +85,31 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if libraryId is not None:
-        params["libraryId"] = libraryId
+        mcp_args["libraryId"] = libraryId
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="context7",
             tool_name="query-docs",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

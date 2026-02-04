@@ -98,6 +98,11 @@ export const processGraphData = (
 
       return {
         ...n,
+        // Preserve existing coordinates if they exist
+        x: n.x,
+        y: n.y,
+        vx: n.vx,
+        vy: n.vy,
         community: commId,
         val: size,
         color: getNodeColor(commId),

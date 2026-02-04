@@ -1,19 +1,23 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Layout } from './components/layout/Layout';
-import { ReplConsole } from './components/chat/ReplConsole';
 import { ChatInput } from './components/chat/ChatInput';
+import { ChatHistory } from './components/chat/ChatHistory'; // Import ChatHistory
+// Scratchpad is now unused here, but kept for Layout prop passing? No, pass string to Layout.
+import { GraphExplorer } from './components/graph/GraphExplorer';
 
 import { v4 as uuidv4 } from 'uuid';
 import { api } from './api';
 
 function App() {
+  const [viewMode, setViewMode] = useState<'explorer' | 'chat'>('chat'); // Default to Chat (Agent View)
   const [sessionId, setSessionId] = useState<string>(() => {
     return localStorage.getItem('NEXUS_SESSION_ID') || uuidv4();
   });
 
   const [currentModel, setCurrentModel] = useState<string>(''); // Empty initially, load from config
   const [replEntries, setReplEntries] = useState<any[]>([]);
+  const [scratchpadText, setScratchpadText] = useState<string>(''); // ACTUAL scratchpad text from agent
 
   // Chat Input State (Lifted for Injection)
   const [chatInput, setChatInput] = useState("");
@@ -44,15 +48,23 @@ function App() {
     }
   };
 
-  const loadGraph = async (sid?: string) => {
+  const loadGraph = async (sid?: string | null) => {
     try {
-      const targetSession = sid || sessionId;
-      const data = await api.getGraphState(targetSession);
+      // If sid is explicitly null, we want global graph (no filter).
+      // If sid is string, use it.
+      // If sid is undefined, fallback to current sessionId (refresh).
+      const targetSession = sid === undefined ? sessionId : sid;
+
+      // Ensure we query for *something* if we are in a session
+      // If targetSession is empty string/null, we get global graph.
+      const queryId = targetSession || undefined;
+
+      console.log(`[App] Loading Graph for Session: ${queryId || 'GLOBAL'}`);
+      const data = await api.getGraphState(queryId);
       if (data && data.nodes) {
         setGraphData(data);
         return true;
       }
-      // If data is empty but no error, it's a valid empty graph
       return true;
     } catch (e) { return false; }
     return false;
@@ -72,11 +84,20 @@ function App() {
 
       // We check for success boolean now
       const configOk = await refreshConfig();
-      const graphOk = await loadGraph();
+      // Fetch Graph initially
+      // Always load the graph for the current session to ensure consistency.
+      // If the user wants a "Global View", we can add a specific toggle later.
+      const graphOk = await loadGraph(sessionId);
+
+      // Initial Status Fetch (No Polling)
+      try {
+          if (sessionId) {
+            await api.getSystemStatus(sessionId);
+          }
+      } catch (e) { console.error("Initial status fetch failed", e); }
+
 
       // Ensure BOTH are ready before stopping retries
-      // If config is ready but graph failed (e.g. DB initializing), we should retry graph?
-      // Or just keep retrying both. Ideally we want the graph to be loaded.
       if (configOk && graphOk) {
         return;
       }
@@ -91,22 +112,87 @@ function App() {
 
     attempt();
 
-    return () => { mounted = false; };
-  }, []);
+    // No Polling - Updates are pushed via SSE
+
+    return () => {
+        mounted = false;
+    };
+  }, [sessionId]);
 
   const handleNewChat = () => {
     const newId = uuidv4();
     setSessionId(newId);
     setReplEntries([]);
+    setScratchpadText(''); // Clear scratchpad
     setGraphData({ nodes: [], links: [] });
     // Reset usage stats
 
   };
 
-  const handleSessionSelect = (sid: string) => {
+  const handleSessionSelect = async (sid: string) => {
     setSessionId(sid);
-    setReplEntries([]); // Clear logs (Future: load logs from DB?)
-    loadGraph(sid);
+    setReplEntries([]); // Clear current while loading
+    setScratchpadText(''); // Clear while loading
+    loadGraph(sid); // Restore explicit load to handle view mode switches
+
+    // Note: Scratchpad text will be populated when agent runs again
+    // The scratchpad_text event provides the actual context
+
+    try {
+      const history = await api.getHistory(sid);
+      if (history && Array.isArray(history)) {
+        const entries = history.map((msg: any) => {
+          // Robust content mapping using new backend fields
+          let finalContent = msg.content || "";
+          let finalStyle: 'code' | 'thinking' | 'trace' | 'success' | 'error' | undefined = undefined;
+          let finalType: 'input' | 'output' | 'info' | 'error' = msg.role === 'user' ? 'input' : 'output';
+
+          // 1. Detect Final Answer (Simple heuristic if backend marks it)
+          if (msg.status === 'success' && !msg.repl_id && msg.result) {
+               // Could be final answer
+          }
+
+          // 2. Detect Code Execution
+          // If we have a repl_id, OR prompt starts with code indicators
+          // msg.content often has "Thought: ... Code: ..." or similar if raw
+          const isCode = msg.repl_id || (typeof msg.content === 'string' && (msg.content.includes("def ") || msg.content.includes("import "))) || msg.execution_summary;
+
+          if (isCode && msg.role !== 'user') {
+             finalStyle = 'code';
+             // If we have a result, append it neatly
+             if (msg.execution_summary) {
+                 finalContent += `\n\n> **Result:**\n${msg.execution_summary}`;
+             } else if (msg.result) {
+                 finalContent += `\n\n> **Result:**\n${msg.result}`;
+             }
+             if (msg.repl_id) {
+                 finalContent = `[REPL: ${msg.repl_id}]\n${finalContent}`;
+             }
+          }
+          // 3. Simple Result Append (if not code but has result)
+          else if (msg.result && msg.role !== 'user') {
+             finalContent += `\n\n> **Result:**\n${msg.result}`;
+          }
+
+          // 4. Error Status
+          if (msg.status === 'error') {
+              finalType = 'error';
+              finalStyle = 'error';
+          }
+
+          return {
+            type: finalType,
+            content: finalContent,
+            timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
+            style: finalStyle,
+            repl_id: msg.repl_id
+          };
+        });
+        setReplEntries(entries);
+      }
+    } catch (e) {
+      console.error("Failed to load history:", e);
+    }
   };
 
   const handleStop = async () => {
@@ -118,13 +204,6 @@ function App() {
     setIsProcessing(false);
     setReplEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
   };
-
-  // ... imports
-
-  // Mapping Stream Events to REPL Entries
-
-
-  // ... (keep handleNewChat as single source of truth at top level)
 
   const handleExecute = (query: string) => {
     setIsProcessing(true);
@@ -141,7 +220,8 @@ function App() {
       if (event.type === 'token') {
         setReplEntries(prev => {
           const last = prev[prev.length - 1];
-          if (last && last.type === 'output' && last.isStreaming) {
+          // Only append to last entry if it's a generic output (not code) and still streaming
+          if (last && last.type === 'output' && last.isStreaming && last.style !== 'code') {
             return [
               ...prev.slice(0, -1),
               { ...last, content: last.content + event.content }
@@ -152,15 +232,20 @@ function App() {
         });
 
       } else if (event.type === 'thinking') {
-        // ...
-        // 'Thinking' events (gray text)
-        setReplEntries(prev => [...prev, { type: 'info', content: event.content, timestamp: Date.now() }]);
+        // ALL thinking events go to Live REPL (bottom left) UNFILTERED
+        // This is the raw terminal output - no filtering
+        setReplEntries(prev => [...prev, {
+          type: 'info',
+          content: event.content || '',
+          timestamp: Date.now(),
+          style: 'thinking'
+        }]);
 
       } else if (event.type === 'code_output_chunk') {
         // Appending streamed code output
         setReplEntries(prev => {
           const last = prev[prev.length - 1];
-          // If last entry is streaming code output (we use style='code' to distinguish)
+          // If last entry is streaming code output
           if (last && last.type === 'output' && last.style === 'code' && last.isStreaming) {
             return [
               ...prev.slice(0, -1),
@@ -170,7 +255,7 @@ function App() {
             // Start new code output block
             return [...prev, {
               type: 'output',
-              content: event.content, // Start with this chunk
+              content: event.content,
               timestamp: Date.now(),
               style: 'code',
               isStreaming: true
@@ -211,8 +296,10 @@ function App() {
         setGraphData(prev => {
           const newData = { ...prev };
           if (action === 'add_node') {
+            console.log("[GraphUpdate] Adding Node:", node);
             if (!newData.nodes.find(n => n.id === node.id)) newData.nodes = [...newData.nodes, node];
           } else if (action === 'add_link') {
+            console.log("[GraphUpdate] Adding Link:", link);
             newData.links = [...newData.links, link];
           } else if (action === 'update_node') {
             newData.nodes = newData.nodes.map(n => n.id === node.id ? { ...n, ...node } : n);
@@ -231,8 +318,45 @@ function App() {
           return prev;
         });
         abortControllerRef.current = null;
+      } else if (event.type === 'trace') {
+        // Handle Trace Logs (System Observability)
+        setReplEntries(prev => [...prev, {
+            type: 'info',
+            content: event.content,
+            timestamp: Date.now(),
+            style: 'trace' // New style for trace logs
+        }]);
+
+      } else if (event.type === 'warning') {
+        setReplEntries(prev => [...prev, { type: 'error', content: `Warning: ${event.content}`, timestamp: Date.now() }]);
       } else if (event.type === 'error') {
         setReplEntries(prev => [...prev, { type: 'error', content: `Error: ${event.content}`, timestamp: Date.now() }]);
+        setIsProcessing(false);
+      } else if (event.type === 'scratchpad_text') {
+        // Store the ACTUAL scratchpad text the agent sees
+        // This is the verbatim output of build_scratchpad()
+        setScratchpadText(event.content || '');
+      } else if (event.type === 'active_thought') {
+        // Note: We no longer track individual thoughts in state
+        // The scratchpad_text event gives us the complete context
+        console.debug('[AGENT] Active thought:', event.data?.id);
+
+      } else if (event.type === 'scratchpad_update') {
+        // Scratchpad will be updated by the next scratchpad_text event
+        console.debug('[AGENT] Scratchpad update pending');
+
+      } else if (event.type === 'answer' || event.type === 'final_answer') {
+        // Final Answer Event - show in sidebar
+        const answerContent = event.content;
+
+        // Show final answer in sidebar
+        setReplEntries(prev => [...prev, {
+          type: 'output',
+          content: `✅ **Final Answer:**\n${answerContent}`,
+          timestamp: Date.now(),
+          style: 'success'
+        }]);
+
         setIsProcessing(false);
       }
     });
@@ -240,90 +364,50 @@ function App() {
     abortControllerRef.current = ctrl;
   };
 
-  // We need to fetch the full model object to know the provider, because ModelSelector only passes the ID string.
-  // Or we modify ModelSelector to pass the object.
-  // Modification to Layout required to pass available models map?
-  // Let's assume we can infer provider or fetch it.
 
-  // Actually, App.tsx doesn't have the list of models in state to lookup.
-  // Simplify: Assuming standard format 'provider/model-name' usually used in IDs?
-  // No, OpenRouter IDs are 'vendor/name'. Ollama are 'name'.
 
-  // Strategy: Move model state fetching to App (or context) so we can lookup.
-  // For now: Just try to heuristic detecting provider.
-
-  const handleModelSelect = async (modelId: string) => {
-    // 1. Optimistic Update
-    setCurrentModel(modelId);
-
-    // 2. Persist to Backend
-    try {
-      const updates: any = {};
-      let provider = 'openrouter';
-
-      // Basic Heuristics if we don't have metadata
-      if (!modelId.includes('/') && !modelId.includes(':')) {
-        // Likely Ollama? Or simple name
-        // Check if current provider is ollama?
-        // Default to OpenRouter if slashed?
-      }
-
-      // BETTER: Keep the current provider unless explicit switch?
-      // Actually, if the user used the selector, they picked a specific model which belongs to a specific provider group.
-      // But we lost that grouping info here.
-
-      // Let's rely on the ID format for OpenRouter (e.g. google/gemini).
-      // Ollama usually has no slash or different format.
-      // But OpenRouter includes many providers.
-
-      // Fix: We update settings based on active provider in config if possible,
-      // OR we just send the model ID to the fields.
-      // The backend `llm.py` uses `OPENROUTER_MODEL` if provider is openrouter.
-      // If we don't switch provider, we might set wrong key.
-
-      // Let's just set ALL model keys to this ID to be safe? No.
-
-      // Correct approach: App needs access to the models list to find the provider.
-      // But refactoring that is large.
-      // Quick fix: Assume OpenRouter for now if it contains '/', else Ollama?
-
-      if (modelId.includes('/')) {
-        provider = 'openrouter';
-        updates.OPENROUTER_MODEL = modelId;
-      } else {
-        provider = 'ollama';
-        updates.OLLAMA_MODEL = modelId;
-      }
-
-      updates.LLM_PROVIDER = provider;
-
-      await api.updateConfig(updates);
-      // alert(`Switched to ${modelId}`); // Optional feedback
-    } catch (e) {
-      console.error("Failed to persist model", e);
-    }
-  };
+  // Render Explorer Mode
+  if (viewMode === 'explorer') {
+      return (
+          <GraphExplorer
+              graphData={graphData}
+              activeSessionId={sessionId}
+              onSelectSession={handleSessionSelect}
+              onSwitchToChat={() => {
+                  setViewMode('chat');
+                  loadGraph(sessionId); // Restore Session Context
+              }}
+              onNodeClick={(node) => {
+                  console.log("Node clicked", node);
+              }}
+              onShowFullGraph={() => {
+                  loadGraph(null); // Load Global Graph
+              }}
+          />
+      );
+  }
 
   return (
     <Layout
       graphData={graphData}
       onNewChat={handleNewChat}
       currentModel={currentModel}
-      onSelectModel={handleModelSelect}
       onRefreshConfig={refreshConfig}
       onInjectContent={(text) => setChatInput(prev => prev + text)}
       onSelectSession={handleSessionSelect}
+      onOpenExplorer={() => {
+        setViewMode('explorer');
+        loadGraph(null); // Force Global Load
+      }}
+      replEntries={replEntries}
+      scratchpadText={scratchpadText} // Pass to Layout -> RightSidebar
     >
-      <div className="flex h-full relative flex-col">
-        {/* REPL Area - Takes full height minus input */}
-        <div className="flex-1 overflow-hidden relative">
-          <div className="absolute inset-0">
-            {/* We render ReplConsole directly. It handles scrolling. */}
-            {/* We map replEntries to the props expected by ReplConsole or update ReplConsole to match */}
-            <ReplConsole entries={replEntries} />
-          </div>
-        </div>
 
+      <div className="flex h-full relative flex-col">
+        {/* Center: Chat History (Was Scratchpad) */}
+        <div className="flex-1 min-h-0 relative flex flex-col">
+          <ChatHistory entries={replEntries} />
+        </div>
         {/* Input Area */}
         <div className="shrink-0">
           <ChatInput

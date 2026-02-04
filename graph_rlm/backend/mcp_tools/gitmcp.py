@@ -20,20 +20,29 @@ def match_common_libs_owner_repo_mapping(library: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if library is not None:
-        params["library"] = library
+        mcp_args["library"] = library
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="gitmcp",
             tool_name="match_common_libs_owner_repo_mapping",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -48,22 +57,31 @@ def fetch_generic_documentation(owner: str, repo: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if owner is not None:
-        params["owner"] = owner
+        mcp_args["owner"] = owner
     if repo is not None:
-        params["repo"] = repo
+        mcp_args["repo"] = repo
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="gitmcp",
             tool_name="fetch_generic_documentation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -79,24 +97,33 @@ def search_generic_documentation(owner: str, repo: str, query: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if owner is not None:
-        params["owner"] = owner
+        mcp_args["owner"] = owner
     if repo is not None:
-        params["repo"] = repo
+        mcp_args["repo"] = repo
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="gitmcp",
             tool_name="search_generic_documentation",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -113,26 +140,35 @@ def search_generic_code(owner: str, repo: str, query: str, page: float | None = 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if owner is not None:
-        params["owner"] = owner
+        mcp_args["owner"] = owner
     if repo is not None:
-        params["repo"] = repo
+        mcp_args["repo"] = repo
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if page is not None:
-        params["page"] = page
+        mcp_args["page"] = page
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="gitmcp",
             tool_name="search_generic_code",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -146,20 +182,29 @@ def fetch_generic_url_content(url: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="gitmcp",
             tool_name="fetch_generic_url_content",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

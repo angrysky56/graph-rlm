@@ -22,24 +22,33 @@ def parse_to_ast(code: Any | None = None, language: Any | None = None, filename:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="parse_to_ast",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -55,24 +64,33 @@ def generate_asg(code: Any | None = None, language: Any | None = None, filename:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="generate_asg",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -88,24 +106,33 @@ def analyze_code(code: Any | None = None, language: Any | None = None, filename:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="analyze_code",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -122,26 +149,35 @@ def parse_to_ast_incremental(code: Any | None = None, old_code: Any | None = Non
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if old_code is not None:
-        params["old_code"] = old_code
+        mcp_args["old_code"] = old_code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="parse_to_ast_incremental",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -157,24 +193,33 @@ def generate_enhanced_asg(code: Any | None = None, language: Any | None = None, 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="generate_enhanced_asg",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -191,26 +236,35 @@ def diff_ast(old_code: str, new_code: str, language: Any | None = None, filename
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if old_code is not None:
-        params["old_code"] = old_code
+        mcp_args["old_code"] = old_code
     if new_code is not None:
-        params["new_code"] = new_code
+        mcp_args["new_code"] = new_code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="diff_ast",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -228,28 +282,37 @@ def find_node_at_position(code: Any | None = None, line: int | None = None, colu
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if line is not None:
-        params["line"] = line
+        mcp_args["line"] = line
     if column is not None:
-        params["column"] = column
+        mcp_args["column"] = column
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="find_node_at_position",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -266,26 +329,35 @@ def search_code_patterns(code: str, pattern: str, language: Any | None = None, f
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if pattern is not None:
-        params["pattern"] = pattern
+        mcp_args["pattern"] = pattern
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="search_code_patterns",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -304,30 +376,39 @@ def transform_code_patterns(code: str, pattern: str, replacement: str, language:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if pattern is not None:
-        params["pattern"] = pattern
+        mcp_args["pattern"] = pattern
     if replacement is not None:
-        params["replacement"] = replacement
+        mcp_args["replacement"] = replacement
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
     if preview_only is not None:
-        params["preview_only"] = preview_only
+        mcp_args["preview_only"] = preview_only
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="transform_code_patterns",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -342,22 +423,31 @@ def validate_ast_pattern(pattern: str, language: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if pattern is not None:
-        params["pattern"] = pattern
+        mcp_args["pattern"] = pattern
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="validate_ast_pattern",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -368,18 +458,27 @@ def list_transformation_examples() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="list_transformation_examples",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -395,24 +494,33 @@ def sync_file_to_graph(code: str, file_path: str, language: Any | None = None) -
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if file_path is not None:
-        params["file_path"] = file_path
+        mcp_args["file_path"] = file_path
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="sync_file_to_graph",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -427,22 +535,31 @@ def query_neo4j_graph(query: str, parameters: Any | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if parameters is not None:
-        params["parameters"] = parameters
+        mcp_args["parameters"] = parameters
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="query_neo4j_graph",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -456,20 +573,29 @@ def ask_uss_agent(query: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="ask_uss_agent",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -480,18 +606,27 @@ def uss_agent_status() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="uss_agent_status",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -509,28 +644,37 @@ def analyze_source_file(project_name: str, code: Any | None = None, language: An
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if project_name is not None:
-        params["project_name"] = project_name
+        mcp_args["project_name"] = project_name
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
     if language is not None:
-        params["language"] = language
+        mcp_args["language"] = language
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
     if include_summary is not None:
-        params["include_summary"] = include_summary
+        mcp_args["include_summary"] = include_summary
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="analyze_source_file",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -556,28 +700,37 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if project_path is not None:
-        params["project_path"] = project_path
+        mcp_args["project_path"] = project_path
     if project_name is not None:
-        params["project_name"] = project_name
+        mcp_args["project_name"] = project_name
     if file_extensions is not None:
-        params["file_extensions"] = file_extensions
+        mcp_args["file_extensions"] = file_extensions
     if sync_to_db is not None:
-        params["sync_to_db"] = sync_to_db
+        mcp_args["sync_to_db"] = sync_to_db
     if include_summary is not None:
-        params["include_summary"] = include_summary
+        mcp_args["include_summary"] = include_summary
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="ast-mcp-server",
             tool_name="analyze_project",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

@@ -4,14 +4,19 @@ import { InspectorPanel } from '../mcp/InspectorPanel';
 import { Activity, ChevronRight, ChevronLeft, Maximize2, Minimize2 } from 'lucide-react';
 
 
+// Add Scratchpad import (need to update imports first) and props
+import { Scratchpad } from '../Scratchpad';
+
 interface RightSidebarProps {
     graphData: { nodes: any[], links: any[] };
     onInjectContent: (text: string) => void;
+    scratchpadText: string;
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent, scratchpadText }) => {
     const [collapsed, setCollapsed] = useState(false);
     const [graphExpanded, setGraphExpanded] = useState(true);
+    const [scratchpadExpanded, setScratchpadExpanded] = useState(true); // New toggle for scratchpad
 
     if (collapsed) {
         return (
@@ -43,8 +48,28 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
                 </button>
             </div>
 
+            {/* Scratchpad Section (Top) */}
+            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 ${scratchpadExpanded ? 'h-[250px]' : 'h-[40px]'}`}>
+                <div className="flex items-center justify-between p-2 bg-slate-900/20">
+                     <div className="flex items-center gap-2 text-[10px] font-bold text-emerald-500 uppercase tracking-wider px-2">
+                        <span>🧠 Agent Scratchpad <span className="text-slate-600 font-normal normal-case ml-1">(Exact Context)</span></span>
+                    </div>
+                     <button
+                        onClick={() => setScratchpadExpanded(!scratchpadExpanded)}
+                        className="p-1 text-slate-600 hover:text-white"
+                    >
+                        {scratchpadExpanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                    </button>
+                </div>
+                {scratchpadExpanded && (
+                     <div className="flex-1 overflow-hidden">
+                        <Scratchpad scratchpadText={scratchpadText} />
+                     </div>
+                )}
+            </div>
+
             {/* Graph Section */}
-            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 ${graphExpanded ? 'h-[400px]' : 'h-[40px]'}`}>
+            <div className={`flex flex-col border-b border-slate-800 transition-all duration-300 ${graphExpanded ? 'h-[300px]' : 'h-[40px]'}`}>
                 <div className="flex items-center justify-between p-2 bg-slate-900/20">
                     <div className="flex items-center gap-2 text-[10px] font-bold text-slate-500 uppercase tracking-wider px-2">
                         <Activity size={12} /> Live Graph

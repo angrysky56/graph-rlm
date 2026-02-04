@@ -1,19 +1,19 @@
-import React, { useState, useEffect } from 'react';
-import { ModelStatus } from './ModelStatus';
+import { useState, useEffect, useRef } from 'react';
 import { Settings, Plus, History as HistoryIcon } from 'lucide-react';
-import { type Model, api } from '../../api';
+import { SessionList } from './SessionList';
 
 interface SidebarProps {
     onNewChat?: () => void;
     currentModel: string;
-    onSelectModel: (model: Model) => void;
     onOpenSettings: () => void;
     onSelectSession?: (id: string) => void;
+    onOpenExplorer?: () => void;
     usage?: {
         prompt_tokens: number;
         completion_tokens: number;
         total_tokens: number;
     };
+    replEntries?: any[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -21,127 +21,149 @@ export const Sidebar: React.FC<SidebarProps> = ({
     currentModel,
     onOpenSettings,
     onSelectSession,
-    usage
+    onOpenExplorer,
+    usage,
+    replEntries = []
 }) => {
-    const [models, setModels] = useState<Model[]>([]);
-    const [sessions, setSessions] = useState<any[]>([]);
+    const [historyOpen, setHistoryOpen] = useState(false);
 
+    // Refs for auto-scrolling
+    const terminalRef = useRef<HTMLDivElement>(null);
+    const codeRef = useRef<HTMLDivElement>(null);
+
+    // Auto-scroll terminal to bottom when new entries arrive
     useEffect(() => {
-        let isStopped = false;
+        if (terminalRef.current) {
+            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+        }
+    }, [replEntries]);
 
-        const fetchModels = async () => {
-            let retries = 0;
-            const max = 30; // Increased retries
-            while (retries < max && !isStopped) {
-                try {
-                    const data = await api.listModels();
-                    // Keep retrying if empty list (assuming backend has at least 1 model)
-                    if (data && data.length > 0) {
-                        setModels(data);
-                        break;
-                    }
-                } catch (e) { }
-                retries++;
-                // Exponential backoff
-                await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(1.2, retries), 5000)));
-            }
-        };
+    // Auto-scroll code panel
+    useEffect(() => {
+        if (codeRef.current) {
+            codeRef.current.scrollTop = codeRef.current.scrollHeight;
+        }
+    }, [replEntries]);
 
-        const fetchSessions = async () => {
-            let retries = 0;
-            const max = 30;
-            while (retries < max && !isStopped) {
-                try {
-                    const data = await api.getSessions();
-                    // Sessions CAN be empty, but if we error we retry.
-                    // If we get specific error or empty on first try, maybe wait?
-                    // Actually, getting sessions is less critical than models.
-                    // But let's assume if it works, it works.
-                    if (Array.isArray(data)) {
-                        setSessions(data);
-                        // If we got a valid array, even empty, we stop.
-                        break;
-                    }
-                } catch (e) { }
-                retries++;
-                await new Promise(r => setTimeout(r, Math.min(1000 * Math.pow(1.2, retries), 5000)));
-            }
-        };
+    // Filter entries for code execution results (Top panel)
+    const executionEntries = replEntries.filter(e => e.style === 'code');
 
-        fetchModels();
-        fetchSessions();
-
-        return () => { isStopped = true; };
-    }, []);
+    // Filter entries for terminal log (Bottom panel) - thinking events and traces
+    const terminalEntries = replEntries.filter(e =>
+        e.style === 'thinking' || e.style === 'trace' || e.type === 'info' || e.type === 'error'
+    );
 
     return (
-        <div className="w-[400px] bg-slate-950 h-screen border-r border-slate-800 flex flex-col font-sans text-slate-200 transition-all">
-            {/* Header */}
-            <div className="p-4 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0">
-                <h1 className="text-sm font-bold text-slate-100 tracking-wider flex items-center gap-2">
-                    <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
-                    GRAPH RLM
-                </h1>
-                <Settings
-                    size={14}
-                    className="text-slate-500 hover:text-white cursor-pointer transition-colors"
-                    onClick={onOpenSettings}
-                />
-            </div>
-
-            {/* Model Status Section */}
-            <div className="p-4 border-b border-slate-800 space-y-3 shrink-0">
-                <div className="flex justify-between items-center text-[10px] text-slate-500 uppercase tracking-widest font-bold">
-                    <div className="flex items-center gap-2">
-                        <span>Reasoning Engine</span>
-                        {onNewChat && (
-                            <button onClick={onNewChat} className="hover:text-blue-400 transition-colors" title="New Session">
-                                <Plus size={10} />
-                            </button>
-                        )}
-                    </div>
-                </div>
-
-                <ModelStatus
-                    model={models.find(m => m.id === currentModel) || { id: currentModel, name: currentModel, context_length: 0, supports_tools: false, pricing: { prompt: '', completion: '' } }}
-                    usage={usage}
-                />
-            </div>
-
-            {/* History Section (Live Sessions) */}
-            <div className="flex-1 flex flex-col min-h-0">
-                <div className="p-4 pb-2 text-[10px] text-slate-500 uppercase tracking-widest font-bold flex items-center gap-2">
-                    <HistoryIcon size={10} />
-                    Recent Sessions
-                </div>
-
-                <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-1 scrollbar-thin scrollbar-thumb-slate-800">
-                    {sessions.length === 0 && (
-                        <div className="p-4 text-center text-xs text-slate-600 italic">No history found.</div>
-                    )}
-                    {sessions.map(s => (
-                        <div key={s.id} onClick={() => onSelectSession && onSelectSession(s.id)} className="p-3 bg-slate-900/40 border-transparent border hover:border-slate-800 rounded cursor-pointer transition-colors group">
-                            <div className="text-xs text-slate-300 font-medium truncate">{s.title || "Untitled Session"}</div>
-                            <div className="text-[10px] text-slate-600 mt-1 flex justify-between">
-                                <span>{new Date(s.created_at || Date.now()).toLocaleTimeString()}</span>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {/* User Profile / Status Footer */}
-            <div className="p-4 border-t border-slate-800 bg-slate-900/30 shrink-0">
+        <div className="w-[450px] bg-slate-950 h-screen border-r border-slate-800 flex flex-col font-sans text-slate-200 transition-all shadow-2xl z-30">
+             {/* Header */}
+             <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0">
                 <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center font-bold text-xs">
-                        TY
+                     <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                     <h1 className="text-xs font-bold text-slate-100 tracking-wider">GRAPH RLM <span className="text-slate-500 text-[10px]">v2.0</span></h1>
+                </div>
+                <div className="flex gap-2">
+                     <button
+                        onClick={onOpenExplorer}
+                        className="text-slate-500 hover:text-emerald-400 p-1 flex items-center gap-1 bg-slate-900 rounded border border-slate-800 px-2"
+                        title="Open Full Graph Explorer"
+                     >
+                        <span className="text-[9px] font-bold uppercase">Session History</span>
+                     </button>
+                     <button
+                        onClick={onNewChat}
+                        className="text-slate-500 hover:text-blue-400 p-1 flex items-center gap-1 bg-slate-900 rounded border border-slate-800 px-2"
+                        title="Start New Session"
+                     >
+                        <Plus size={12} />
+                        <span className="text-[9px] font-bold uppercase">New Chat</span>
+                     </button>
+                     <Settings size={14} className="text-slate-500 hover:text-white cursor-pointer ml-1 self-center" onClick={onOpenSettings} />
+                </div>
+            </div>
+
+            {/* Compact Model Status */}
+            <div className="px-3 py-2 border-b border-slate-800 bg-slate-950/50 shrink-0">
+                 <div className="flex justify-between items-center text-[10px]">
+                      <span className="text-slate-400 font-mono truncate max-w-[200px]">{currentModel}</span>
+                      {usage && (
+                          <span className="text-slate-600 font-mono">
+                              {usage.total_tokens} T
+                          </span>
+                      )}
+                 </div>
+            </div>
+
+            {/* MAIN DASHBOARD - Two stacked panels */}
+            <div className="flex-1 flex flex-col min-h-0 bg-black/20">
+
+                {/* TOP: Code Execution Results (from replEntries with style='code') */}
+                <div className="flex-1 min-h-0 flex flex-col border-b border-slate-700">
+                    <div className="px-3 py-1 bg-slate-900/80 text-[10px] font-bold text-blue-400 uppercase tracking-widest flex justify-between">
+                        <span>Code Execution</span>
+                        <span className="text-slate-600">{executionEntries.length} results</span>
                     </div>
-                    <div>
-                        <div className="text-xs font-bold text-slate-200">System Admin</div>
-                        <div className="text-[10px] text-slate-500">Connected to Localhost</div>
+                    <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] space-y-2 bg-[#0d1117]">
+                        {executionEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for code execution...</div>}
+                        {executionEntries.map((e, i) => (
+                            <div key={i} className="border-l-2 border-blue-900/30 pl-2">
+                                <div className="text-blue-300/50 text-[9px] mb-1">
+                                    {new Date(e.timestamp).toLocaleTimeString()}
+                                    {e.isStreaming && <span className="ml-2 animate-pulse text-blue-500">RUNNING</span>}
+                                </div>
+                                <pre className="whitespace-pre-wrap text-blue-100/90 break-words">{e.content.replace('[EXECUTION]', '').trim()}</pre>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* BOTTOM: Terminal Log (agent events from SSE) */}
+                <div className="flex-1 min-h-0 flex flex-col">
+                    <div className="px-3 py-1 bg-slate-900/80 text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex justify-between">
+                        <span>Terminal Log</span>
+                        <span className="text-slate-600">{terminalEntries.length} events</span>
+                    </div>
+                    <div
+                        ref={terminalRef}
+                        className="flex-1 overflow-y-auto p-2 font-mono text-[9px] bg-[#0f1216]"
+                    >
+                        {terminalEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for agent events...</div>}
+                        {terminalEntries.map((entry: any, i: number) => (
+                            <div key={i} className={`leading-relaxed whitespace-pre-wrap break-words ${entry.type === 'error' ? 'text-red-400' : 'text-slate-400'}`}>
+                                {entry.content}
+                            </div>
+                        ))}
                     </div>
                 </div>
             </div>
+
+            {/* Collapsible History */}
+            <div className="border-t border-slate-800 bg-slate-900/30 shrink-0">
+                 <button
+                    onClick={() => setHistoryOpen(!historyOpen)}
+                    className="w-full flex items-center justify-between p-3 text-[10px] uppercase font-bold text-slate-500 hover:text-slate-300 transition-colors"
+                 >
+                    <div className="flex items-center gap-2">
+                        <HistoryIcon size={12} />
+                        <span>Session History</span>
+                    </div>
+                    <span className="text-xs">{historyOpen ? '−' : '+'}</span>
+                 </button>
+
+                 {historyOpen && (
+                     <div className="border-t border-slate-800 max-h-[200px] overflow-hidden bg-slate-950 flex flex-col">
+                        <SessionList
+                            onSelectSession={(id) => onSelectSession && onSelectSession(id)}
+                            className="bg-transparent"
+                        />
+                     </div>
+                 )}
+            </div>
+
+             {/* User Profile */}
+             <div className="p-3 border-t border-slate-800 bg-slate-950 shrink-0 flex items-center gap-3">
+                  <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-900 to-indigo-900 flex items-center justify-center font-bold text-[10px] text-blue-200">TY</div>
+                  <div className="text-[10px] text-slate-600">Local Admin</div>
+             </div>
         </div>
     );
 };

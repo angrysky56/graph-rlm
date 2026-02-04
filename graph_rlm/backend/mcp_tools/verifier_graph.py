@@ -37,26 +37,35 @@ Constraints enforced:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if type is not None:
-        params["type"] = type
+        mcp_args["type"] = type
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
     if parentIds is not None:
-        params["parentIds"] = parentIds
+        mcp_args["parentIds"] = parentIds
     if edgeTypes is not None:
-        params["edgeTypes"] = edgeTypes
+        mcp_args["edgeTypes"] = edgeTypes
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="propose_thought",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -71,22 +80,31 @@ def get_context(nodeId: str, maxDepth: float | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if nodeId is not None:
-        params["nodeId"] = nodeId
+        mcp_args["nodeId"] = nodeId
     if maxDepth is not None:
-        params["maxDepth"] = maxDepth
+        mcp_args["maxDepth"] = maxDepth
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="get_context",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -100,20 +118,29 @@ def get_reasoning_chain(claimId: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if claimId is not None:
-        params["claimId"] = claimId
+        mcp_args["claimId"] = claimId
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="get_reasoning_chain",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -128,22 +155,31 @@ def query_graph(query: str, nodeType: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if nodeType is not None:
-        params["nodeType"] = nodeType
+        mcp_args["nodeType"] = nodeType
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="query_graph",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -154,18 +190,27 @@ def get_graph_state() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="get_graph_state",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -179,20 +224,29 @@ def get_node(nodeId: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if nodeId is not None:
-        params["nodeId"] = nodeId
+        mcp_args["nodeId"] = nodeId
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="get_node",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -203,18 +257,27 @@ def clear_graph() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="verifier-graph",
             tool_name="clear_graph",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

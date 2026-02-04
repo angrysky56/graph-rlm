@@ -1,15 +1,17 @@
-# Implementation Plan: Fix RLM REPL & Import Paths
+# Implementation Plan: Prompt-Code Integrity Alignment
 
 ## Phase 1: Preparation
-- [x] Analyzed `agent.py` and `core.py`.
-- [x] Identified that `mcp_tools` import is failing because of incorrect path usage by user, and potential lack of feedback if LLM doesn't generate code block.
+- [x] Audit system prompt against `RLMInterface` implementation.
+- [x] Verify REPL namespace injection logic in `_execute_code`.
 
-## Phase 2: Implementation (Agent Fixes)
-- [ ] **[Step 1]**: Modify `graph_rlm/backend/src/core/agent.py`:
-    -   Add `graph_rlm/backend` (or specific `mcp_tools` parent) to `sys.path` so `import mcp_tools` works directly. This fixes the immediate usability hurdle.
-    -   Add `logger.info(f"LLM Response: {response_text}")` to debug silent failures.
-    -   Update `system_prompt` to be even more clearer about code block formatting.
+## Phase 2: Implementation
+- [ ] **[Step 1]**: Update `agent.py` -> `_build_system_prompt`.
+    - *Context*: Add `await` requirement. Update `done()`, `agent`, `graph_search` references to `await rlm.*`.
+- [ ] **[Step 2]**: Refactor Ethics section in the prompt for brevity and alignment with user principles (SOLID/Zen).
 
 ## Phase 3: Verification
-- [ ] Restart backend (auto-reload should handle it).
-- [ ] Use `run_command` or ask User to retry the import: `import mcp_tools.arxiv_mcp_server`.
+- [ ] Mock a REPL session and verify that calling `await rlm.help()` returns expected results.
+- [ ] Verify that the agent correctly identifies successful completion using `await rlm.done()`.
+
+## Phase 4: Work Log
+- Documented in `.CODEAGENCY/work_log.md`.

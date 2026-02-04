@@ -33,9 +33,12 @@ class RalphProtocol:
 
         # External Verification (Compiler/Test Runner)
         print("[Ralph] Applying Backpressure (External Verification)...")
+        import sys
+
         # trunk-ignore(bandit/B603)
-        # trunk-ignore(bandit/B607)
-        result = subprocess.run(["pytest", self.test_dir], capture_output=True)
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", self.test_dir], capture_output=True
+        )
 
         if result.returncode == 0:
             print("[Ralph] Verification Passed. Committing to Disk (Global State).")

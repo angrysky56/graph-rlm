@@ -22,22 +22,31 @@ Returns formatted string of results.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if k is not None:
-        params["k"] = k
+        mcp_args["k"] = k
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="search_knowledge",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -52,20 +61,29 @@ Returns synthesized insight.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if topic is not None:
-        params["topic"] = topic
+        mcp_args["topic"] = topic
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="crystallize_thought",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -86,24 +104,33 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if target_path is not None:
-        params["target_path"] = target_path
+        mcp_args["target_path"] = target_path
     if recursive is not None:
-        params["recursive"] = recursive
+        mcp_args["recursive"] = recursive
     if analyze_images is not None:
-        params["analyze_images"] = analyze_images
+        mcp_args["analyze_images"] = analyze_images
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="ingest_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -133,24 +160,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if image_path is not None:
-        params["image_path"] = image_path
+        mcp_args["image_path"] = image_path
     if prompt is not None:
-        params["prompt"] = prompt
+        mcp_args["prompt"] = prompt
     if detail is not None:
-        params["detail"] = detail
+        mcp_args["detail"] = detail
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="analyze_image",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -177,22 +213,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if pdf_path is not None:
-        params["pdf_path"] = pdf_path
+        mcp_args["pdf_path"] = pdf_path
     if analyze_images is not None:
-        params["analyze_images"] = analyze_images
+        mcp_args["analyze_images"] = analyze_images
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="extract_pdf_text",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -221,24 +266,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
     if source_id is not None:
-        params["source_id"] = source_id
+        mcp_args["source_id"] = source_id
     if metadata is not None:
-        params["metadata"] = metadata
+        mcp_args["metadata"] = metadata
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="feed_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -264,26 +318,35 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dry_run is not None:
-        params["dry_run"] = dry_run
+        mcp_args["dry_run"] = dry_run
     if corruption_threshold is not None:
-        params["corruption_threshold"] = corruption_threshold
+        mcp_args["corruption_threshold"] = corruption_threshold
     if remove_duplicates is not None:
-        params["remove_duplicates"] = remove_duplicates
+        mcp_args["remove_duplicates"] = remove_duplicates
     if show_diff is not None:
-        params["show_diff"] = show_diff
+        mcp_args["show_diff"] = show_diff
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="clean_corrupted_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -306,22 +369,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if source_a is not None:
-        params["source_a"] = source_a
+        mcp_args["source_a"] = source_a
     if source_b is not None:
-        params["source_b"] = source_b
+        mcp_args["source_b"] = source_b
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="diff_sources",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -344,22 +416,31 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if force is not None:
-        params["force"] = force
+        mcp_args["force"] = force
     if training_threshold is not None:
-        params["training_threshold"] = training_threshold
+        mcp_args["training_threshold"] = training_threshold
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="train_adaptive_model",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -383,24 +464,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if was_useful is not None:
-        params["was_useful"] = was_useful
+        mcp_args["was_useful"] = was_useful
     if comments is not None:
-        params["comments"] = comments
+        mcp_args["comments"] = comments
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="chatdag",
             tool_name="report_search_quality",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

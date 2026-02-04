@@ -32,24 +32,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if file_path is not None:
-        params["file_path"] = file_path
+        mcp_args["file_path"] = file_path
     if alias is not None:
-        params["alias"] = alias
+        mcp_args["alias"] = alias
     if engine is not None:
-        params["engine"] = engine
+        mcp_args["engine"] = engine
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="load_data",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -68,20 +77,29 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="get_dataset_info",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -94,18 +112,27 @@ Lists all currently loaded datasets and their IDs.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="list_active_datasets",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -127,22 +154,31 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if schema is not None:
-        params["schema"] = schema
+        mcp_args["schema"] = schema
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="validate_dataset",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -164,22 +200,31 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if operations is not None:
-        params["operations"] = operations
+        mcp_args["operations"] = operations
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="clean_dataset",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -199,20 +244,29 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="get_dataset_profile",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -242,28 +296,37 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if chart_type is not None:
-        params["chart_type"] = chart_type
+        mcp_args["chart_type"] = chart_type
     if x is not None:
-        params["x"] = x
+        mcp_args["x"] = x
     if y is not None:
-        params["y"] = y
+        mcp_args["y"] = y
     if title is not None:
-        params["title"] = title
+        mcp_args["title"] = title
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="generate_chart",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -282,22 +345,31 @@ Generates a persistence barcode and 3D manifold plot.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if text_column is not None:
-        params["text_column"] = text_column
+        mcp_args["text_column"] = text_column
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="scan_semantic_voids",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -318,22 +390,31 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="run_sql_query",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -361,26 +442,35 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if value_column is not None:
-        params["value_column"] = value_column
+        mcp_args["value_column"] = value_column
     if id_column is not None:
-        params["id_column"] = id_column
+        mcp_args["id_column"] = id_column
     if sort_column is not None:
-        params["sort_column"] = sort_column
+        mcp_args["sort_column"] = sort_column
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="extract_signals",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -406,24 +496,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_name is not None:
-        params["dataset_name"] = dataset_name
+        mcp_args["dataset_name"] = dataset_name
     if split is not None:
-        params["split"] = split
+        mcp_args["split"] = split
     if config_name is not None:
-        params["config_name"] = config_name
+        mcp_args["config_name"] = config_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="load_hf_dataset",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -445,20 +544,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="extract_tables",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -484,24 +592,33 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
     if lat_col is not None:
-        params["lat_col"] = lat_col
+        mcp_args["lat_col"] = lat_col
     if lon_col is not None:
-        params["lon_col"] = lon_col
+        mcp_args["lon_col"] = lon_col
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="generate_map",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -523,20 +640,29 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dataset_id is not None:
-        params["dataset_id"] = dataset_id
+        mcp_args["dataset_id"] = dataset_id
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="data-forge",
             tool_name="start_explorer",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

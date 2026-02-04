@@ -17,18 +17,27 @@ def browser_close() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_close",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -43,22 +52,31 @@ def browser_resize(width: float, height: float) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if width is not None:
-        params["width"] = width
+        mcp_args["width"] = width
     if height is not None:
-        params["height"] = height
+        mcp_args["height"] = height
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_resize",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -73,22 +91,31 @@ def browser_console_messages(level: str, filename: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if level is not None:
-        params["level"] = level
+        mcp_args["level"] = level
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_console_messages",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -103,22 +130,31 @@ def browser_handle_dialog(accept: bool, promptText: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if accept is not None:
-        params["accept"] = accept
+        mcp_args["accept"] = accept
     if promptText is not None:
-        params["promptText"] = promptText
+        mcp_args["promptText"] = promptText
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_handle_dialog",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -134,24 +170,33 @@ def browser_evaluate(function: str, element: str | None = None, ref: str | None 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if function is not None:
-        params["function"] = function
+        mcp_args["function"] = function
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_evaluate",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -165,20 +210,29 @@ def browser_file_upload(paths: list[str] | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if paths is not None:
-        params["paths"] = paths
+        mcp_args["paths"] = paths
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_file_upload",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -192,20 +246,29 @@ def browser_fill_form(fields: list[dict[str, Any]]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if fields is not None:
-        params["fields"] = fields
+        mcp_args["fields"] = fields
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_fill_form",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -216,18 +279,27 @@ def browser_install() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_install",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -241,20 +313,29 @@ def browser_press_key(key: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if key is not None:
-        params["key"] = key
+        mcp_args["key"] = key
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_press_key",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -272,28 +353,37 @@ def browser_type(ref: str, text: str, element: str | None = None, submit: bool |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
     if text is not None:
-        params["text"] = text
+        mcp_args["text"] = text
     if submit is not None:
-        params["submit"] = submit
+        mcp_args["submit"] = submit
     if slowly is not None:
-        params["slowly"] = slowly
+        mcp_args["slowly"] = slowly
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_type",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -307,20 +397,29 @@ def browser_navigate(url: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if url is not None:
-        params["url"] = url
+        mcp_args["url"] = url
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_navigate",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -331,18 +430,27 @@ def browser_navigate_back() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_navigate_back",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -357,22 +465,31 @@ def browser_network_requests(includeStatic: bool, filename: str | None = None) -
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if includeStatic is not None:
-        params["includeStatic"] = includeStatic
+        mcp_args["includeStatic"] = includeStatic
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_network_requests",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -386,20 +503,29 @@ def browser_run_code(code: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if code is not None:
-        params["code"] = code
+        mcp_args["code"] = code
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_run_code",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -417,28 +543,37 @@ def browser_take_screenshot(type: str, filename: str | None = None, element: str
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if type is not None:
-        params["type"] = type
+        mcp_args["type"] = type
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
     if fullPage is not None:
-        params["fullPage"] = fullPage
+        mcp_args["fullPage"] = fullPage
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_take_screenshot",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -452,20 +587,29 @@ def browser_snapshot(filename: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filename is not None:
-        params["filename"] = filename
+        mcp_args["filename"] = filename
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_snapshot",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -483,28 +627,37 @@ def browser_click(ref: str, element: str | None = None, doubleClick: bool | None
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
     if doubleClick is not None:
-        params["doubleClick"] = doubleClick
+        mcp_args["doubleClick"] = doubleClick
     if button is not None:
-        params["button"] = button
+        mcp_args["button"] = button
     if modifiers is not None:
-        params["modifiers"] = modifiers
+        mcp_args["modifiers"] = modifiers
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_click",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -521,26 +674,35 @@ def browser_drag(startElement: str, startRef: str, endElement: str, endRef: str)
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if startElement is not None:
-        params["startElement"] = startElement
+        mcp_args["startElement"] = startElement
     if startRef is not None:
-        params["startRef"] = startRef
+        mcp_args["startRef"] = startRef
     if endElement is not None:
-        params["endElement"] = endElement
+        mcp_args["endElement"] = endElement
     if endRef is not None:
-        params["endRef"] = endRef
+        mcp_args["endRef"] = endRef
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_drag",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -555,22 +717,31 @@ def browser_hover(ref: str, element: str | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_hover",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -586,24 +757,33 @@ def browser_select_option(ref: str, values: list[str], element: str | None = Non
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if element is not None:
-        params["element"] = element
+        mcp_args["element"] = element
     if ref is not None:
-        params["ref"] = ref
+        mcp_args["ref"] = ref
     if values is not None:
-        params["values"] = values
+        mcp_args["values"] = values
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_select_option",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -618,22 +798,31 @@ def browser_tabs(action: str, index: float | None = None) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if action is not None:
-        params["action"] = action
+        mcp_args["action"] = action
     if index is not None:
-        params["index"] = index
+        mcp_args["index"] = index
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_tabs",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -649,24 +838,33 @@ def browser_wait_for(time: float | None = None, text: str | None = None, textGon
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if time is not None:
-        params["time"] = time
+        mcp_args["time"] = time
     if text is not None:
-        params["text"] = text
+        mcp_args["text"] = text
     if textGone is not None:
-        params["textGone"] = textGone
+        mcp_args["textGone"] = textGone
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="playwright",
             tool_name="browser_wait_for",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

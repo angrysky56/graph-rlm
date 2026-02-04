@@ -20,20 +20,29 @@ def obsidian_list_files_in_dir(dirpath: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if dirpath is not None:
-        params["dirpath"] = dirpath
+        mcp_args["dirpath"] = dirpath
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_list_files_in_dir",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -44,18 +53,27 @@ def obsidian_list_files_in_vault() -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_list_files_in_vault",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -69,20 +87,29 @@ def obsidian_get_file_contents(filepath: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filepath is not None:
-        params["filepath"] = filepath
+        mcp_args["filepath"] = filepath
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_get_file_contents",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -98,22 +125,31 @@ def obsidian_simple_search(query: str, context_length: int | None = None) -> Any
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
     if context_length is not None:
-        params["context_length"] = context_length
+        mcp_args["context_length"] = context_length
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_simple_search",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -131,28 +167,37 @@ def obsidian_patch_content(filepath: str, operation: str, target_type: str, targ
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filepath is not None:
-        params["filepath"] = filepath
+        mcp_args["filepath"] = filepath
     if operation is not None:
-        params["operation"] = operation
+        mcp_args["operation"] = operation
     if target_type is not None:
-        params["target_type"] = target_type
+        mcp_args["target_type"] = target_type
     if target is not None:
-        params["target"] = target
+        mcp_args["target"] = target
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_patch_content",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -167,22 +212,31 @@ def obsidian_append_content(filepath: str, content: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filepath is not None:
-        params["filepath"] = filepath
+        mcp_args["filepath"] = filepath
     if content is not None:
-        params["content"] = content
+        mcp_args["content"] = content
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_append_content",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -197,22 +251,31 @@ def obsidian_delete_file(filepath: str, confirm: bool) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filepath is not None:
-        params["filepath"] = filepath
+        mcp_args["filepath"] = filepath
     if confirm is not None:
-        params["confirm"] = confirm
+        mcp_args["confirm"] = confirm
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_delete_file",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -230,20 +293,29 @@ def obsidian_complex_search(query: dict[str, Any]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_complex_search",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -257,20 +329,29 @@ def obsidian_batch_get_file_contents(filepaths: list[str]) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if filepaths is not None:
-        params["filepaths"] = filepaths
+        mcp_args["filepaths"] = filepaths
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_batch_get_file_contents",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -284,20 +365,29 @@ def obsidian_get_periodic_note(period: str) -> Any:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if period is not None:
-        params["period"] = period
+        mcp_args["period"] = period
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_get_periodic_note",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -313,24 +403,33 @@ def obsidian_get_recent_periodic_notes(period: str, limit: int | None = None, in
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if period is not None:
-        params["period"] = period
+        mcp_args["period"] = period
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if include_content is not None:
-        params["include_content"] = include_content
+        mcp_args["include_content"] = include_content
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_get_recent_periodic_notes",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -345,22 +444,31 @@ def obsidian_get_recent_changes(limit: int | None = None, days: int | None = Non
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if limit is not None:
-        params["limit"] = limit
+        mcp_args["limit"] = limit
     if days is not None:
-        params["days"] = days
+        mcp_args["days"] = days
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="mcp-obsidian",
             tool_name="obsidian_get_recent_changes",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 

@@ -2,37 +2,53 @@ import asyncio
 import contextvars
 import datetime
 import importlib.util
+import inspect
+import pkgutil
 import queue
 import re
+import shutil
 import sys
 import threading
 import uuid
+from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from .config import settings
 from .context_index import context_index
 from .db import GraphClient, db
 from .llm import LLMService, llm
 from .logger import get_logger
 from .manager import REPLManager
 from .repe import repe
+from .scratchpad_builder import scratchpad_builder
 from .sheaf import sheaf
+from .trace import register_monitor, trace_action
+
+if TYPE_CHECKING:
+    from graph_rlm.backend.src.mcp_integration.skills import SkillsManager
 
 # ... existing imports ...
 
 
 # MCP Integration
-MCP_AVAILABLE = importlib.util.find_spec("graph_rlm.backend.mcp_tools") is not None
+def is_mcp_available():
+    """Defensive check for MCP tools availability."""
+    return (
+        importlib.util.find_spec("mcp_tools") is not None
+        or importlib.util.find_spec("graph_rlm.backend.mcp_tools") is not None
+    )
+
 
 # Skills System
-SKILLS_AVAILABLE = False
-try:
-    from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
-    from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
-
-    SKILLS_AVAILABLE = True
-except ImportError:
-    pass
+def is_skills_available():
+    """Defensive check for Skills system availability."""
+    return (
+        importlib.util.find_spec("graph_rlm.backend.src.mcp_integration.skills")
+        is not None
+        or importlib.util.find_spec("mcp_integration.skills") is not None
+    )
 
 
 logger = get_logger("graph_rlm.agent")
@@ -41,6 +57,148 @@ logger = get_logger("graph_rlm.agent")
 execution_events: contextvars.ContextVar[Optional[queue.Queue]] = (
     contextvars.ContextVar("execution_events", default=None)
 )
+
+
+@dataclass
+class ExecutionState:
+    final_result: Optional[str] = None
+    stop_requested: bool = False
+    synthesis_triggered: bool = False
+    current_thought_id: Optional[str] = None
+    depth: int = 0
+
+
+def broadcast_trace(msg: str):
+    """Monitor callback to push trace logs to the active event loop."""
+    try:
+        q = execution_events.get()
+        if q:
+            # Clean ANSI codes for UI (optional, but UI handles raw text better usually)
+            # For now sending raw, UI can render or strip if needed.
+            # Actually, let's keep ANSI for terminal but strip for UI?
+            # Or send as is and let UI ignore colors or parse them.
+            # Simple approach: Strip ANSI for cleaner UI text
+            clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
+            q.put_nowait({"type": "trace", "content": clean_msg})
+    except LookupError:
+        pass
+    except Exception as e:
+        # Fallback log to avoid recursion loop if logging fails
+        sys.stderr.write(f"Failed to broadcast trace: {e}\n")
+
+
+# Register the monitor
+trace_action(context="AGENT", action="Initializing Trace Monitor...", level="debug")
+
+register_monitor(broadcast_trace)
+
+
+# Session-specific state isolated by thread/context
+agent_state: contextvars.ContextVar[Optional[ExecutionState]] = contextvars.ContextVar(
+    "agent_state", default=None
+)
+
+
+class MCPServerNamespace:
+    """Lazy-loaded namespace for a single MCP server."""
+
+    def __init__(self, mod_name: str, alias: str, rlm_interface: "RLMInterface"):
+        self._mod_name = mod_name
+        self._alias = alias
+        self._rlm_interface = rlm_interface
+        self._module = None
+        self._tools = {}
+        self._docs = {}
+
+    def _ensure_loaded(self):
+        if self._module is False:  # Already tried and failed
+            return
+        if self._module is None:
+            try:
+                self._module = import_module(
+                    f"graph_rlm.backend.mcp_tools.{self._mod_name}"
+                )
+                for attr in dir(self._module):
+                    if not attr.startswith("_"):
+                        func = getattr(self._module, attr)
+                        if callable(func):
+                            # Use actual function name, no aliases
+                            def make_wrapper(f, n):
+                                async def wrapped(*args, **kwargs):
+                                    self._rlm_interface._record_tool_use(n)
+                                    res = f(*args, **kwargs)
+                                    if inspect.isawaitable(res):
+                                        return await res
+                                    return res
+
+                                wrapped.__doc__ = f.__doc__
+                                return wrapped
+
+                            wrapper = make_wrapper(func, f"mcp.{self._alias}.{attr}")
+                            self._tools[attr] = wrapper
+                            self._docs[attr] = func.__doc__
+            except Exception as e:
+                logger.warning(f"Failed to load MCP server {self._mod_name}: {e}")
+                self._module = False  # Mark as failed
+
+    def __getattr__(self, name):
+        self._ensure_loaded()
+        if name in self._tools:
+            return self._tools[name]
+        raise AttributeError(f"MCP Server '{self._alias}' has no tool '{name}'")
+
+    def __dir__(self):
+        self._ensure_loaded()
+        return list(self._tools.keys())
+
+    def __repr__(self):
+        return f"<MCPServerNamespace '{self._alias}' (from {self._mod_name})>"
+
+
+class LazyMCPNamespace:
+    """Lazy-loaded root namespace for all MCP servers."""
+
+    def __init__(self, rlm_interface: "RLMInterface"):
+        self._rlm_interface = rlm_interface
+        self._aliases = {}
+        self._scan_done = False
+
+    def _scan(self):
+        if not self._scan_done and is_mcp_available():
+            try:
+                import graph_rlm.backend.mcp_tools as mcp_tools_pkg
+
+                logger.info("Starting MCP server discovery...")
+                for _, mod_name, _ in pkgutil.iter_modules(mcp_tools_pkg.__path__):
+                    if mod_name.startswith("_") or mod_name == "skills":
+                        logger.debug(f"Skipping module: {mod_name}")
+                        continue
+
+                    logger.info(f"Discovered MCP module: {mod_name}")
+
+                    # Create MCPServerNamespace using the actual module name (no aliases)
+                    # This ensures tool discovery works correctly by matching module structure
+                    server = MCPServerNamespace(mod_name, mod_name, self._rlm_interface)
+                    self._aliases[mod_name] = server
+                    logger.info(f"Registered MCP server: {mod_name}")
+
+                self._scan_done = True
+                logger.info("MCP server discovery completed.")
+            except Exception as e:
+                logger.warning(f"MCP Scan Error: {e}")
+
+    def __getattr__(self, name):
+        self._scan()
+        if name in self._aliases:
+            return self._aliases[name]
+        raise AttributeError(f"No MCP server found with name or alias '{name}'")
+
+    def __dir__(self):
+        self._scan()
+        return list(self._aliases.keys())
+
+    def __repr__(self):
+        return f"<LazyMCPNamespace with {len(self._aliases)} server aliases>"
 
 
 class RLMInterface:
@@ -54,117 +212,356 @@ class RLMInterface:
         self.session_id = session_id
         self.root_session_id = root_session_id
 
-    def query(self, prompt: str, context: Optional[str] = None):
-        """
-        Recursive Primitive: Spawns a new Atomic Thought Node.
-        Args:
-            prompt: The sub-problem to solve.
-            context: Optional data/code snippet to pass to the child's environment.
-        """
-        # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
-        # This prevents context pollution and ensures structural recursion.
-        new_session_id = str(uuid.uuid4())
+    def _record_tool_use(self, name: str):
+        if self.session_id not in self.agent.execution_logs:
+            self.agent.execution_logs[self.session_id] = []
+        self.agent.execution_logs[self.session_id].append(name)
 
+    @property
+    def history(self):
+        """
+        Exposes the full thought trace of the current session as a list of dictionaries.
+        Allows the agent to programmatically inspect its own reasoning history.
+        """
+        self._record_tool_use("rlm.history")
+        try:
+            return self.agent.db.get_session_trace(self.root_session_id)
+        except Exception as e:
+            logger.error(f"Failed to fetch history for rlm.history: {e}")
+            return []
+
+    async def query(
+        self,
+        prompt: str,
+        context: Optional[str] = None,
+        session_id: Optional[str] = None,
+        depth: Optional[int] = None,
+    ):
+        """
+        Recursive Primitive: Spawns a recursive child agent.
+        """
+        self._record_tool_use("rlm.query")
+        # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
+        new_session_id = session_id or str(uuid.uuid4())
+
+        # Depth tracking: Increment depth for children
+        current_depth = (
+            depth if depth is not None else getattr(self.agent, "current_depth", 0)
+        )
+        new_depth = current_depth + 1
+
+        trace_action(
+            "RLM",
+            "RECURSE",
+            result=f"Spawning child session (Depth: {new_depth}) for: {prompt}",
+            tag="AGENT",
+        )
         self.agent.emit_event(
             "thinking",
-            content=f"\n⚡ RLM: Spawning Recursive Agent for: '{prompt[:60]}...'",
+            content=f"\n⚡ RLM: Spawning Recursive Agent (Depth: {new_depth}) for: '{prompt}'",
         )
 
-        # If context is provided, we might want to inject it or prepend to prompt.
-        # For now, simplest RLM pattern: Prepend context to prompt so it's "in the environment".
         full_prompt = prompt
         if context:
             full_prompt = f"Context:\n{context}\n\nTask: {prompt}"
 
-        return self.agent.query_sync(
+        # stream_query is async, so we await it
+        results = ""
+        async for event in self.agent.stream_query(
             full_prompt,
             parent_id=self.agent.current_thought_id,
             session_id=new_session_id,
-            root_session_id=self.root_session_id,
-        )
+            depth=new_depth,
+        ):
+            # Pipe child events up to parent's queue
+            # We prefix the type or content to show it's a sub-agent
+            if event["type"] == "done":
+                results = event["content"]
+                # DO NOT pipe "done" to parent's UI, it kills the stream
+                continue
 
-    def recall(self, query: str, limit: int = 3):
+            if event["type"] == "error":
+                self.agent.emit_event(
+                    "thinking",
+                    content=f"⚠️ [RLM Child Error]: {event.get('content')}",
+                    is_sub_event=True,
+                )
+                continue
+
+            # Prefix content for better visibility
+            content = event.get("content", "")
+            if event["type"] == "code_output_chunk":
+                content = f"[RLM Child Output] {content}"
+            elif event["type"] == "thinking" and content:
+                content = f"⚡ [RLM Child]: {content}"
+
+            self.agent.emit_event(
+                event["type"],
+                data=event.get("data"),
+                content=content,
+                code=event.get("code"),
+                is_sub_event=True,
+            )
+        if not results:
+            msg = "Recursion completed without a final answer."
+            print(f"\n[RLM] {msg}")
+            raise RuntimeError(msg)
+
+        print(f"\n[RLM] Recursion completed with results: {results}")
+        return results
+
+    async def recall(self, query: str, limit: int = 5):
         """
         Active Recall: Search the Graph for similar past thoughts.
         """
+        self._record_tool_use("rlm.recall")
         logger.info(f"Thought {self.agent.current_thought_id}: Recalling '{query}'")
         self.agent.emit_event(
             "thinking", content=f"\n🧠 RLM: Recalling memories for '{query}'..."
         )
         try:
-            vec = self.agent.llm.get_embedding(query)
+            vec = await self.agent.llm.get_embedding(query)
+            if not vec:
+                trace_action(
+                    "RLM",
+                    "RECALL_FAIL",
+                    result="Failed to generate embedding",
+                    tag="AGENT",
+                    level="error",
+                )
+                return "Failed to generate embedding for recall query."
+
             # Use db.find_similar_thoughts
             results = self.agent.db.find_similar_thoughts(vec, limit=limit)
+
+            trace_action(
+                "RLM",
+                "RECALL",
+                result=f"Found {len(results)} past thoughts for query '{query}'",
+                tag="AGENT",
+                level="info" if results else "warning",
+            )
 
             # Format results for the LLM
             formatted = []
             for row in results:
-                # FalkorDB client might return [node, score] or {"node": node, "score": score}
-                # Handle both cases safely
+                # Results from find_similar_thoughts: {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
 
-                n = None
-                score = 0.0
+                tid = row.get("id", "Unknown")
+                prompt = row.get("prompt", "No prompt")
+                result = row.get("result", "No result")
+                score = float(row.get("score", 0.0))
 
-                if isinstance(row, (list, tuple)):
-                    n = row[0]
-                    if len(row) > 1:
-                        score = float(row[1])
-                elif isinstance(row, dict):
-                    # Try common keys
-                    n = row.get("node") or row.get("n")
-                    score = float(row.get("score", 0.0))
-                else:
-                    # Fallback if row is the node itself (unlikely for "find_similar")
-                    n = row
-
-                if n:
-                    props = {}
-                    if hasattr(n, "properties"):
-                        props = n.properties
-                    elif isinstance(n, dict):
-                        props = n
-
-                    formatted.append(
-                        f"- [Similarity: {score:.2f}] {props.get('prompt', 'Unknown')}: {props.get('result', '(No result)')}"
-                    )
+                formatted.append(
+                    f"- [Similarity: {score:.2f}] (ID: {tid}) Thought: {prompt} -> Result: {result}"
+                )
 
             if not formatted:
                 self.agent.emit_event(
-                    "thinking", content="  -> No relevant memories found."
+                    "thinking", content="\n🧠 RLM: No matching memories found."
                 )
-                return "No relevant memories found."
+                return "No semantically similar thoughts found in memory."
 
-            self.agent.emit_event(
-                "thinking", content=f"  -> Found {len(formatted)} relevant memories."
+            output = f"Recall found {len(formatted)} relevant entries."
+            print(f"\n[RLM] {output}")
+            return (
+                "\n\n".join(formatted)
+                if formatted
+                else "No relevant past thoughts found."
             )
-            return "\n".join(formatted)
+
         except Exception as e:
-            logger.error(f"Recall failed: {e}")
-            self.agent.emit_event("error", content=f"Recall failed: {e}")
-            return f"Error during recall: {e}"
+            logger.error(f"Recall Error: {e}")
+            return f"Error during memory recall: {e}"
+
+    async def search(self, query: str, limit: int = 10):
+        """Topological search across the graph (alias for graph_search)."""
+        self._record_tool_use("rlm.search")
+        vec = await self.agent.llm.get_embedding(query)
+        if vec:
+            results = self.agent.db.find_similar_thoughts(vec, limit)
+            if not results:
+                return "No results found."
+            return results
+        return "Failed to generate embedding."
+
+    async def ingest_document(self, path: str, domain: str = "general"):
+        """Ingests a document and codifies its knowledge into Axioms (CAG)."""
+        self._record_tool_use("rlm.ingest_document")
+        from .dream import dreamer
+
+        res = await dreamer.ingest_document(path, domain)
+        if res.get("status") == "success":
+            return f"Successfully codified {len(res.get('codified_axioms', []))} axioms: {res.get('codified_axioms')}"
+        return f"Ingestion failed: {res.get('message', 'Unknown error')}"
+
+    async def save_skill(self, name: str, code: str, description: Optional[str] = None):
+        """Saves a code snippet as a persistent skill."""
+        self._record_tool_use("rlm.save_skill")
+        if not is_skills_available():
+            return "Skills system not available."
+        from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+
+        mgr = get_skills_manager()
+        await mgr.save_skill(name, code, description)
+        return f"Skill '{name}' saved successfully."
+
+    async def run_skill(self, name: str = "", args: Optional[dict] = None, **kwargs):
+        """Executes a registered skill."""
+        self._record_tool_use("rlm.run_skill")
+        # Handle 'title' as an alias for 'name' if the agent hallucinates it
+        skill_name = name or kwargs.get("title") or ""
+        if not skill_name:
+            return "Error: No skill name or title provided."
+
+        if not is_skills_available():
+            return "Skills system not available."
+        from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
+
+        return await execute_skill(skill_name, args or {})
+
+    async def install_package(self, package_name: str):
+        """Install a Python package into the agent's REPL environment."""
+        self._record_tool_use("rlm.install_package")
+        return self.agent.install_package(package_name)
+
+    async def install_skill_package(self, package_name: str):
+        """Install a package specifically for the AGENT skills (agent_venv) environment."""
+        self._record_tool_use("rlm.install_skill_package")
+        return self.agent.install_skill_package(package_name)
+
+    async def done(self, final_answer: str = ""):
+        """Signal that the task is complete."""
+        self._record_tool_use("rlm.done")
+        self.agent._stop_requested = True
+        if final_answer:
+            self.agent._final_result = final_answer
+
+        # Log a summary to console, but return full confirmation
+        summary = final_answer
+        msg = f"Task Marked Complete. Summary: {summary}"
+        print(f"\n[RLM] {msg}")
+
+        # Emit final answer to UI
+        self.agent.emit_event("answer", content=final_answer)
+
+        return "Task completed successfully."
+
+    async def stop(self, final_answer: str = ""):
+        """Alias for done()."""
+        self._record_tool_use("rlm.stop")
+        return await self.done(final_answer)
+
+    async def help(self):
+        """Broad discovery of available commands within the 'rlm' namespace."""
+        self._record_tool_use("rlm.help")
+
+        # Core RLM Commands
+        help_dict = {
+            "query(prompt, context)": "Spawn a recursive child agent.",
+            "recall(query, limit)": "Semantic search through memory.",
+            "search(query, limit)": "Graph search (alias for recall).",
+            "ingest_document(path, domain)": "CAG: Codify docs into Axioms.",
+            "save_skill(name, code, desc)": "Persist a code block.",
+            "run_skill(name, args)": "Run a saved code block.",
+            "install_package(name)": "Install Python dependencies.",
+        }
+
+        # Dynamic MCP Tool Discovery
+        try:
+            import importlib
+            import inspect
+            from pathlib import Path
+
+            # Resolve backend root to find mcp_tools
+            backend_root = Path(__file__).parent.parent.parent
+            tools_dir = backend_root / "mcp_tools"
+            ignored = {"list_servers", "call_tool", "run_skill"}
+
+            for f in tools_dir.glob("*.py"):
+                if f.name.startswith("_") or f.stem in ignored:
+                    continue
+
+                module_name = f.stem
+                try:
+                    mod = importlib.import_module(
+                        f"graph_rlm.backend.mcp_tools.{module_name}"
+                    )
+                    for name, obj in inspect.getmembers(mod, inspect.isfunction):
+                        if not name.startswith("_") and name != "list_tools":
+                            # Format: mcp.server.tool(args)
+                            sig = str(inspect.signature(obj))
+                            key = f"mcp.{module_name}.{name}{sig}"
+                            doc = inspect.getdoc(obj) or "No description."
+                            help_dict[key] = doc.split("\n")[0]  # Brief doc
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to load module '{module_name}' for help: {e}"
+                    )
+                    continue
+        except Exception as e:
+            logger.warning(f"Error discovering MCP tools for help(): {e}")
+
+        return help_dict
+
+    def __repr__(self):
+        return f"<RLMInterface [Session: {self.session_id[:8]}...] Type 'rlm.help()' for tools>"
 
 
 class Agent:
+    skills_manager: Optional["SkillsManager"]
+
     def __init__(self):
+        # NOTE: nest_asyncio removed - incompatible with uvloop
+        # Code flow is properly async (async def + await) so not needed.
+
+        # --- PATH INJECTION (Bootstrap) ---
+        # Ensure 'skills_dir' and 'mcp_tools' are in path for imports
+        # We need the project root for 'graph_rlm' nested imports
+        project_root = Path(__file__).resolve().parents[4]
+        backend_path = Path(__file__).resolve().parents[2]
+        skills_path = backend_path / "skills_dir"
+        mcp_tools_path = backend_path / "mcp_tools"
+
+        if str(project_root) not in sys.path:
+            logger.info(f"Injecting Project Root: {project_root}")
+            sys.path.append(str(project_root))
+
+        if str(backend_path) not in sys.path:
+            logger.info(f"Injecting Backend Path: {backend_path}")
+            sys.path.append(str(backend_path))
+
+        if str(skills_path) not in sys.path:
+            sys.path.append(str(skills_path))
+
+        if str(mcp_tools_path) not in sys.path:
+            sys.path.append(str(mcp_tools_path))
+
+        # --- CORE INITIALIZATION ---
         self.db: GraphClient = db
         self.llm: LLMService = llm
         self.repl_manager = REPLManager()
         self.active_repls: Dict[str, str] = {}  # session_id -> repl_id
-        self.current_thought_id: Optional[str] = None
-        self._stop_requested = False
-        self._final_result: Optional[str] = None
+        self.execution_logs: Dict[str, list] = {}  # session_id -> [tool_ident, ...]
+        self.session_cache: Dict[str, Any] = {}  # For Sheaf Monitor & shared state
+        self.current_task_input: Optional[str] = (
+            None  # Tracks active goal for Sheaf Teleology
+        )
+        self._global_stop_event = (
+            threading.Event()
+        )  # Shared event for cross-thread stopping
 
-        # Ensure 'skills_dir' is in path for imports
-        backend_path = Path(__file__).parent.parent.parent
-        skills_path = backend_path / "skills_dir"
+        if is_skills_available():
+            from graph_rlm.backend.src.mcp_integration.skills import (
+                get_skills_manager,
+            )
 
-        # Add backend root to path to allow 'import mcp_tools'
-        if str(backend_path.resolve()) not in sys.path:
-            logger.info(f"Injecting Backend Path: {backend_path.resolve()}")
-            sys.path.append(str(backend_path.resolve()))
+            self.skills_manager = get_skills_manager()
+        else:
+            self.skills_manager = None
 
-        if str(skills_path.resolve()) not in sys.path:
-            sys.path.append(str(skills_path.resolve()))
+        # Ensure Knowledge Base scaffolding exists
+        self._ensure_kb_structure()
 
         # Environment Strategy:
         # 1. Core Agent / REPL: Runs in the active project environment (sys.prefix).
@@ -174,9 +571,88 @@ class Agent:
         logger.info("Agent initialized with Persistent REPL support")
         logger.info("RepE Safety Layer & Sheaf Topology Monitor Loaded.")
 
+    def _ensure_kb_structure(self):
+        """Creates the Knowledge Base directory structure if it doesn't exist."""
+        try:
+            from pathlib import Path
+
+            kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
+
+            # Subfolders referenced in System Prompt
+            subfolders = ["plans", "research-reports", "outputs", "axioms", "workspace"]
+
+            for sub in subfolders:
+                path = kb_root / sub
+                path.mkdir(parents=True, exist_ok=True)
+
+            # Create a simple README if empty to guide users
+            readme = kb_root / "README.md"
+            if not readme.exists():
+                readme.write_text(
+                    "# Agent Knowledge Base\n\n"
+                    "- `axioms/`: Human-readable rules and validators (CAG).\n"
+                    "- `plans/`: Implementation plans and architectural docs.\n"
+                    "- `research-reports/`: Deep research findings.\n"
+                    "- `outputs/`: Final deliverables.\n"
+                    "- `workspace/`: General scratchpad.\n"
+                )
+
+            logger.info(f"Knowledge Base structure verified at: {kb_root}")
+        except Exception as e:
+            logger.warning(f"Failed to verify Knowledge Base structure: {e}")
+
+    # --- SESSION-ISOLATED PROPERTIES ---
+    def _get_state(self) -> ExecutionState:
+        state = agent_state.get()
+        if state is None:
+            # Fallback for out-of-session access (e.g. CLI or background tasks)
+            state = ExecutionState()
+            agent_state.set(state)
+        return state
+
+    @property
+    def _final_result(self) -> Optional[str]:
+        return self._get_state().final_result
+
+    @_final_result.setter
+    def _final_result(self, value: Optional[str]):
+        self._get_state().final_result = value
+
+    @property
+    def _stop_requested(self) -> bool:
+        # Check both local context AND global signal
+        return self._get_state().stop_requested or self._global_stop_event.is_set()
+
+    @_stop_requested.setter
+    def _stop_requested(self, value: bool):
+        self._get_state().stop_requested = value
+
+    @property
+    def _synthesis_triggered(self) -> bool:
+        return self._get_state().synthesis_triggered
+
+    @_synthesis_triggered.setter
+    def _synthesis_triggered(self, value: bool):
+        self._get_state().synthesis_triggered = value
+
+    @property
+    def current_thought_id(self) -> Optional[str]:
+        return self._get_state().current_thought_id
+
+    @current_thought_id.setter
+    def current_thought_id(self, value: Optional[str]):
+        self._get_state().current_thought_id = value
+
+    @property
+    def current_depth(self) -> int:
+        return self._get_state().depth
+
+    @current_depth.setter
+    def current_depth(self, value: int):
+        self._get_state().depth = value
+
     def _install_to_active_env(self, package_name: str) -> str:
         """Internal helper to install a package into the CURRENT active environment."""
-        import shutil
 
         # trunk-ignore(bandit/B404)
         import subprocess
@@ -223,7 +699,6 @@ class Agent:
 
     def _install_to_agent_venv(self, package_name: str) -> str:
         """Internal helper to install a package into the DEDICATED AGENT VENV."""
-        import shutil
 
         # trunk-ignore(bandit/B404)
         import subprocess
@@ -293,7 +768,7 @@ class Agent:
 
     def read_skill(self, name: str) -> str:
         """Reads the source code of a compiled skill."""
-        if not MCP_AVAILABLE:
+        if not is_mcp_available():
             return "Error: MCP/Skills system not available."
 
         self.emit_event(
@@ -318,36 +793,50 @@ class Agent:
         data: Any = None,
         content: Optional[str] = None,
         code: Optional[str] = None,
+        is_sub_event: bool = False,
+        tag: Optional[str] = None,
     ):
         """
         Helper to emit events to the current context's queue if it exists.
         Also mirrors key events to the server logs (terminal) for visibility.
         """
+        # Determine logical REPL ID for this event tracking
+        # We try to get it from the active_repls mapping using session_id if possible
+        # but since this is called from anywhere, we rely on content prefixing for UI visibility.
+
+        prefix = "↳ " if is_sub_event else ""
+
         # Mirror to Terminal/Logs
         if event_type == "thinking" and content:
-            # Clean up newlines for cleaner logs if needed, or just log raw
-            logger.info(f"[THINKING] {content.strip()}")
+            # Use tag if available for better log mirroring
+            log_prefix = f"[THINKING] [{tag}]" if tag else "[THINKING]"
+            logger.info(f"{prefix}{log_prefix} {content.strip()}")
         elif event_type == "code_output" and content:
-            logger.info(f"[REPL OUTPUT] >>\n{content}")
+            logger.info(f"{prefix}[REPL OUTPUT] >>\n{content}")
         elif event_type == "error" and content:
-            logger.error(f"[AGENT ERROR] {content}")
-        elif event_type == "graph_update":
-            # Optional: log graph changes if debugging
-            pass
+            logger.error(f"{prefix}[AGENT ERROR] {content}")
 
         q = execution_events.get()
         if q:
-            payload = {"type": event_type}
+            payload = {"type": event_type, "is_sub_event": is_sub_event}
             if data:
                 payload["data"] = data
             if content:
-                payload["content"] = content
+                # Automate REPL ID prefixing for code output if not present
+                payload["content"] = f"{prefix}{content}"
             if code:
                 payload["code"] = code
+            if tag:
+                payload["tag"] = tag
             q.put(payload)
 
     async def stream_query(
-        self, prompt: str, parent_id: Optional[str] = None, session_id: str = "default"
+        self,
+        prompt: str,
+        parent_id: Optional[str] = None,
+        session_id: str = "default",
+        depth: int = 0,
+        root_session_id: Optional[str] = None,
     ):
         """
         Streaming entry point.
@@ -355,19 +844,30 @@ class Agent:
         """
         q = queue.Queue()
         self._stop_requested = False
+        self._global_stop_event.clear()  # Reset global flag
         self._final_result = None
 
         def run_logic():
-            # Set the context var for this thread
-            token = execution_events.set(q)
+            # Set the context vars for this thread
+            q_token = execution_events.set(q)
+            state_token = agent_state.set(
+                ExecutionState(depth=depth, current_thought_id=parent_id)
+            )
             try:
-                self.query_sync(prompt, parent_id, session_id)
+                # Set initial depth for this agent run
+                self.current_depth = depth
+                asyncio.run(
+                    self.query_sync(
+                        prompt, parent_id, session_id, depth, root_session_id
+                    )
+                )
             except Exception as e:
                 logger.error(f"Error in execution thread: {e}")
                 q.put({"type": "error", "content": str(e)})
             finally:
                 q.put(None)  # Signal done
-                execution_events.reset(token)
+                execution_events.reset(q_token)
+                agent_state.reset(state_token)
 
         # Start execution in a separate thread
         thread = threading.Thread(target=run_logic)
@@ -387,7 +887,7 @@ class Agent:
                     break
                 await asyncio.sleep(0.01)
 
-    def query_sync(
+    async def query_sync(
         self,
         prompt: str,
         parent_id: Optional[str] = None,
@@ -400,12 +900,17 @@ class Agent:
         Executed in a worker thread.
         """
         final_root_id = root_session_id if root_session_id else session_id
+        trace_action(
+            "AGENT",
+            "QUERY_SYNC",
+            result=f"Session: {session_id} | Depth: {depth}",
+            tag="AGENT",
+        )
 
-        if depth > 100:
-            logger.warning("Recursive Depth > 100.")
+        # 0. Reset scoped State for this specific call (redundant if already set in stream_query but safe)
+        if not agent_state.get():
+            agent_state.set(ExecutionState(depth=depth, current_thought_id=parent_id))
 
-        # 0. Reset Singleton State for this specific call
-        # This prevents previous completions or stops from leaking into new requests
         self._final_result = None
         self._stop_requested = False
 
@@ -415,9 +920,15 @@ class Agent:
 
         # 0. Initial "Task" Node (Root of this query)
         # Wrap everything in try/except to prevent DB crashes from killing the agent
+        # Generate Round ID for this execution cycle (compress context)
+        current_round_id = str(uuid.uuid4())
+        current_round_started = datetime.datetime.now().timestamp() * 1000  # ms
+
         try:
             task_id = str(uuid.uuid4())
-            logger.info(f"Session {session_id}: Starting Task {task_id}")
+            logger.info(
+                f"Session {session_id}: Starting Task {task_id} (Round {current_round_id})"
+            )
 
             self.db.create_thought_node(
                 task_id,
@@ -426,6 +937,7 @@ class Agent:
                 prompt_embedding=None,
                 session_id=session_id,
                 root_session_id=final_root_id,
+                round_id=current_round_id,
             )
 
             # Update current pointer
@@ -462,82 +974,202 @@ class Agent:
                 },
             )
 
-        # 1. System Prompt
-        system_prompt = self._build_system_prompt()
+        # 1. Base System Prompt
+        base_system_prompt = self._build_system_prompt()
 
-        # Inject Context Index (Scratchpad) - preserved for global context
-        context_scratchpad = ""
-        try:
-            context_scratchpad = context_index.get_context_scratchpad(final_root_id)
-        except Exception as e:
-            logger.error(f"Failed to build context scratchpad: {e}")
-            context_scratchpad = "Error: Context Index currently unavailable."
-
-        system_prompt += f"\n\n{context_scratchpad}"
-
-        max_steps = 50
+        max_steps = 1000
         step = 0
+
+        # Track previous status for topological resolution
+        previous_thought_status = None
 
         while step < max_steps:
             if getattr(self, "_stop_requested", False):
                 break
             step += 1
+            thought_id = str(uuid.uuid4())
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
+
+            # --- DYNAMIC SCRATCHPAD REFRESH ---
+            try:
+                context_scratchpad = scratchpad_builder.build_scratchpad(
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    task=prompt,
+                    # current_step=step matches the loop counter (1-based now)
+                    current_step=step,
+                    max_steps=max_steps,
+                    current_round_id=current_round_id,
+                )
+                self.emit_event("scratchpad_text", content=context_scratchpad)
+            except Exception as e:
+                logger.error(f"Failed to build scratchpad: {e}")
+                context_scratchpad = f"Error: Scratchpad unavailable ({e})"
+
+            system_prompt = f"{base_system_prompt}\n\n{context_scratchpad}"
 
             # Construct Dynamic Context (Minimal)
             # No longer pre-loading raw Frontier content into the prompt.
             # History is accessible via context_scratchpad (Index) and graph_search.
             current_context = f"Active Session: {session_id}\n\nTask: {prompt}\n"
 
-            # 2. Wake Cycle (Diagnostic Only)
-            # We fetch Frontier IDs for structural diagnostics (Sheaf)
-            # but we do NOT inject their content into the prompt (Context Symbolic).
+            # 2. Context Loading (Wait/Wake-Up)
+            # We fetch IDs for Sheaf diagnostics, but use Scratchpad for LLM Context
             frontier = []
             frontier_ids = []
+
             try:
-                frontier = self.db.get_context_frontier(session_id, limit=5)
+                # Get last 10 thoughts for Sheaf topology monitoring
+                frontier = self.db.get_context_frontier(session_id, limit=10)
                 for node in frontier:
-                    props = (
-                        node.get("n", {})
-                        if isinstance(node, dict)
-                        else (node.properties if hasattr(node, "properties") else node)
-                    )
-                    if "id" in props:
+                    val = node.get("n") if isinstance(node, dict) else node
+                    if val is None:
+                        continue
+                    props = val.properties if hasattr(val, "properties") else val
+
+                    if isinstance(props, dict) and "id" in props:
+                        # We do NOT filter current round; Sheaf needs full local topology
                         frontier_ids.append(props["id"])
             except Exception as e:
-                logger.error(f"Failed to fetch context frontier: {e}")
+                logger.error(f"Context loading failed (Sheaf IDs): {e}")
+
+            # 3. Construct LLM Context using XML isolation for Gemini safety
+            # [STABILITY] Explicitly prefix all paths and wrap in XML to avoid command hallucination
+            current_context = (
+                f"Active Session: {session_id}\n\n"
+                f"<objective>\n{prompt}\n</objective>\n\n"
+                f"<history>\n{context_scratchpad}\n</history>\n"
+            )
 
             # 2b. Language Guard: Check if frontier is primarily non-English
-            # Simple heuristic: if high ratio of non-ASCII characters
             if frontier:
-                non_ascii = len(re.findall(r"[^\x00-\x7F]", str(frontier)))
-                if non_ascii > (len(str(frontier)) * 0.1):  # 10% non-ascii threshold
-                    current_context += "\n**SYSTEM NOTICE**: I detect non-English text in recent history. I MUST REMAIN IN ENGLISH regardless of the context above.\n"
+                # Heuristic...
+                pass
+
+            # Load Axioms (Semantic Retrieval)
+            axioms_list_str = "None"
+            if is_skills_available():
+                try:
+                    from graph_rlm.backend.src.mcp_integration.skills import (
+                        get_axioms_manager,
+                    )
+
+                    axioms_mgr = get_axioms_manager()
+
+                    # [Context Optimization] Only load relevant axioms to reduce token noise
+                    # Use prompt as the semantic key
+                    search_query = (
+                        getattr(self, "current_task_input", None)
+                        or prompt
+                        or "general safety"
+                    )
+
+                    # Semantic search for top 10 relevant axioms
+                    relevant_axioms = await axioms_mgr.find_similar_axioms(
+                        search_query, limit=10
+                    )
+
+                    if relevant_axioms:
+                        axioms_list_str = ", ".join(
+                            [a["name"] for a in relevant_axioms]
+                        )
+                        logger.debug(
+                            f"Loaded {len(relevant_axioms)} semantic axioms: {axioms_list_str[:100]}..."
+                        )
+                    else:
+                        # Fallback
+                        axioms = axioms_mgr.list_axioms()
+                        sorted_keys = sorted(axioms.keys())[:20]
+                        axioms_list_str = ", ".join(sorted_keys)
+                except Exception as ex:
+                    logger.warning(f"Failed to load axioms async: {ex}")
+
+            # --- HOT SEAT INJECTION ---
+            hot_seat_warning = ""
+            if getattr(self, "_last_dream_insight", None):
+                hot_seat_warning = (
+                    "\n\n--- ⚠️ HOT SEAT: EPISTEMIC RECOVERY ACTIVE ---\n"
+                    "Your previous response was REJECTED by the Dreamer Gatekeeper for Hallucination/Trace Contradiction.\n"
+                    f"CRITIQUE: {self._last_dream_insight}\n"
+                    "You MUST explicitly address the contradiction, explain why you failed, "
+                    "and provide a GROUNDED response based strictly on the execution trace.\n"
+                    "Failure to align will result in a recursive block.\n---"
+                )
+
+            system_prompt = (
+                f"{self._build_system_prompt(axioms_list_str=axioms_list_str)}\n\n"
+                f"{context_scratchpad}{hot_seat_warning}"
+            )
 
             iso_ts = datetime.datetime.now().isoformat()
             repl_info = f"[REPL: {self.active_repls.get(session_id, 'init')}]"
 
             self.emit_event(
                 "thinking",
-                content=f"[{iso_ts}] {repl_info} Step {step}: RLM loop active.",
+                content=f"[{iso_ts}] {repl_info} Step {step}: RLM loop active (Model: {self.llm.config.get('model')}).",
+                tag="AGENT",
             )
 
             # 3. LLM Gen (Think)
             response_text = ""
             try:
-                generator = self.llm.generate(
-                    current_context, system=system_prompt, stream=False
+
+                # Define usage callback
+                def on_token_usage(usage_data):
+                    self.emit_event("usage", data=usage_data)
+
+                # [DIAGNOSTIC] Log start of network request
+                self.emit_event(
+                    "debug_thought",
+                    content=f"... Sending request to LLM (Size: {len(current_context)} chars) ...",
                 )
-                if isinstance(generator, str):
-                    response_text = generator
-                    self.emit_event("token", content=response_text)
-                else:
-                    for chunk in generator:
-                        response_text += chunk
-                        self.emit_event("token", content=chunk)
+
+                response_text = await self.llm.generate(
+                    current_context,
+                    system=system_prompt,
+                    stream=False,
+                    on_usage=on_token_usage,
+                )
+                # self.emit_event("token", content=response_text) # Redundant with thinking output
             except Exception as e:
                 response_text = f"LLM Error: {e}"
+                # Log exception to standard logger
+                logger.error(f"LLM Generative Error: {e}")
+
+            # Raw response logging removed for stability
+
+            # 3b. Stop if empty (prevent infinite stateless loop)
+            if not response_text.strip():
+                trace_action(
+                    "AGENT",
+                    "ABORT",
+                    result="LLM returned empty response. Stopping to prevent loop.",
+                    tag="ERROR",
+                )
+                self.emit_event(
+                    "error",
+                    content="LLM returned an empty response. Circuit breaker triggered.",
+                )
+
+                # Commit Error Node to Graph so it's not "missing"
+                try:
+                    self.db.create_thought_node(
+                        thought_id,
+                        "[SYSTEM ERROR]: LLM returned an empty response. Circuit breaker triggered.",
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        status="error",
+                        parent_id=self.current_thought_id,
+                        round_id=current_round_id,
+                    )
+                except Exception as db_err:
+                    logger.error(f"Failed to commit error node: {db_err}")
+                break
+
+            # 3c. Final check for stop request before committing
+            if getattr(self, "_stop_requested", False):
+                break
 
             # Emit the full thought for the UI scratchpad with metadata
             repl_id_display = self.active_repls.get(session_id, "unknown")
@@ -547,175 +1179,567 @@ class Agent:
                 f"[{timestamp_display}] [REPL: {repl_id_display}]\n{response_text}"
             )
 
-            self.emit_event("thinking", content=formatted_thought)
+            self.emit_event("debug_thought", content=formatted_thought)
 
             # 4. Step Initialization
-            # We create the ID early so it can be used in tool execution (e.g. RLM recursion)
-            thought_id = str(uuid.uuid4())
-            logger.warning(f"DEBUG: Response Text: '{response_text}'")
-            code = self._extract_code(response_text)
-            logger.warning(f"DEBUG: Code Extracted: '{code}'")
+            # We create the ID early so it can be used in tool execution
+
+            trace_action(
+                "AGENT", "THOUGHT", result=response_text[:400] + "...", tag="AGENT"
+            )
+
             output = ""
+            code = self._extract_code(response_text)
 
-            # 5. RepE Scan (Content & Code)
-            is_safe = repe.scan_content(response_text)
+            # --- PRE-EXECUTION DIAGNOSTICS ---
+            repl_id = self.active_repls.get(session_id)
 
-            if not is_safe:
-                reason = "Keyword Blocked"
-                self.emit_event(
-                    "thinking", content=f"🛡️ RepE Alert: {reason}. Steering..."
+            # 5. Semantic Vectorization (Early)
+            # We compute the embedding for the RAW thought now, so we can check it
+            # before execution. We will update it later if execution adds significant output.
+            # 7. PRE-COMMIT (Atomic Traceability)
+            # Create the node as "running" before any monitors/execution
+            try:
+                self.db.create_thought_node(
+                    thought_id,
+                    response_text,
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    prompt_embedding=vec,
+                    repl_id=repl_id,
+                    status="running",
+                    parent_id=self.current_thought_id,
+                    round_id=current_round_id,
                 )
-                # Inject correction into graph
-                warning_id = str(uuid.uuid4())
+                # Emit early graph update
+                self.emit_event(
+                    "graph_update",
+                    data={
+                        "action": "add_node",
+                        "node": {
+                            "id": thought_id,
+                            "label": response_text,
+                            "group": 2,
+                            "status": "running",
+                        },
+                    },
+                )
+                # Emit active_thought for real-time UI visibility
+                self.emit_event(
+                    "active_thought",
+                    data={
+                        "id": thought_id,
+                        "prompt": response_text,
+                        "status": "running",
+                        "parent_id": self.current_thought_id,
+                    },
+                )
+            except Exception as e:
+                logger.error(f"Failed to pre-commit thought: {e}")
+
+            # --- 6. EPISTEMIC HEALTH CHECK (Dual-Process Monitoring) ---
+            # We run this BEFORE executing code to prevent "hallucinated actions."
+
+            # A. Generate Embeddings (Current Thought & Goal)
+            # We cache the Task Embedding to avoid re-computing it every step
+            current_vec = vec  # Re-use the embedding computed in step 5
+
+            if "task_embedding" not in self.session_cache:
                 try:
-                    self.db.create_thought_node(
-                        warning_id,
-                        f"System: Your previous thought was flagged for {reason}. Please adjust.",
-                        session_id=session_id,
-                        root_session_id=final_root_id,
+                    self.session_cache["task_embedding"] = await self.llm.get_embedding(
+                        self.current_task_input or prompt
                     )
                 except Exception as e:
-                    logger.error(f"Failed to create RepE warning node: {e}")
-                continue
+                    logger.warning(f"Failed to embed task for Health Check: {e}")
 
-            # 6. Sheaf Check (Topological Logic)
-            # We use the diagnostic frontier_ids to check for structural consistency.
-            hypothetical_edges = [(fid, thought_id) for fid in frontier_ids]
-            try:
+            if current_vec:
+                # B. Run Monitors in Parallel
+
+                # 1. RepE (Internal State: Shakiness/Agency)
+                # Checks: "Am I posturing? Am I evading?"
+                psych_profile = repe.scan_thought(current_vec)
+                shakiness_score = psych_profile.get(
+                    "Shakiness", 0.0
+                )  # Negative = Shaky
+                # evasion_score = psych_profile.get("Evasion", 0.0)     # Negative = Evasive
+
+                # 2. Sheaf (External Trajectory: Logic/Goal)
+                # Checks: "Does this follow? Am I closer to the goal?"
+                hypothetical_edges = [(fid, thought_id) for fid in frontier_ids]
                 sheaf_diag = sheaf.diagnose_trace(
                     root_id=task_id,
-                    hypothetical_node={
-                        "id": thought_id,
-                        "embedding": vec,
-                    },  # vec may be None here, diagnose_trace handles it
+                    hypothetical_node={"embedding": current_vec},
                     hypothetical_edges=hypothetical_edges,
+                    goal_embedding=self.session_cache.get("task_embedding"),
                 )
-                if sheaf_diag.get("consistency_energy", 0) > 0.8:
-                    logger.warning(
-                        f"Sheaf Logic Alert: High Inconsistency ({sheaf_diag['consistency_energy']})"
-                    )
-            except Exception as e:
-                logger.warning(f"Sheaf check failed: {e}")
 
-            # 6. Act (Execute Code)
-            repl_id = self.active_repls.get(session_id)
+                # C. SYNTHESIS & INTERVENTION LOGIC
+
+                intervention_prompt = None
+                intervention_type = None
+
+                # SCENARIO 1: TOTAL COLLAPSE (Shaky + Drifting)
+                if (
+                    shakiness_score < -0.15
+                    and sheaf_diag.get("status") == "SEMANTIC_DRIFT"
+                ):
+                    intervention_type = "CRITICAL_RESET"
+                    intervention_prompt = (
+                        f"SYSTEM INTERVENTION: Critical fault detected. "
+                        f"Internal Monitor reports high uncertainty (Score {shakiness_score:.2f}) "
+                        f"AND Trajectory Monitor reports you are moving away from the goal. "
+                        f"STOP. Do not execute code. Summarize what you *actually* know versus what you guessed."
+                    )
+
+                # SCENARIO 2: HALLUCINATION / "AS-IF" (Shaky but 'looks' coherent)
+                elif shakiness_score < -0.15:
+                    intervention_type = "REFLEXION_GROUNDING"
+                    intervention_prompt = (
+                        f"SYSTEM INTERVENTION (Authenticity Check): Your language indicates you are simulating competence ('As-If' Layer) "
+                        f"rather than relying on facts. Score: {shakiness_score:.2f}. "
+                        f"You are engaging in 'Task Performance' instead of 'Task Completion'. "
+                        f"Verify your premises using a tool immediately."
+                    )
+
+                # SCENARIO 3: TUNNEL VISION (Confident but Drifting)
+                elif sheaf_diag.get("status") == "SEMANTIC_DRIFT":
+                    intervention_type = "REFLEXION_REORIENT"
+                    intervention_prompt = (
+                        f"SYSTEM INTERVENTION (Field Check): You are confident, but you are drifting away from the Goal. "
+                        f"Teleological Gradient: {sheaf_diag.get('energy', 0):.2f} (Diverging). "
+                        f"Re-read the original user request and justify how this step helps."
+                    )
+
+                # SCENARIO 4: LOOPING (Confident repetition)
+                elif sheaf_diag.get("status") == "LOGICAL_KNOT":
+                    from .dream import dreamer  # Deferred import to avoid circular dep
+
+                    intervention_type = "REFLEXION_BREAK"
+                    loop_nodes = sheaf_diag.get("loop_nodes", [])
+
+                    # [Dreamer Link]: Immediate Lucid Analysis
+                    dream_critique = await dreamer.analyze_holonomy(
+                        loop_nodes, current_thought=response_text
+                    )
+
+                    intervention_prompt = (
+                        f"SYSTEM INTERVENTION (Sheaf Topology): Logical Knot detected. "
+                        f"REPL ID: {repl_id} | Point: {thought_id} | Issue: {dream_critique} "
+                    )
+
+                # D. EXECUTE INTERVENTION (Steering)
+                if intervention_prompt:
+                    logger.warning(f"🛡️ Triggering Intervention: {intervention_type}")
+                    self.emit_event(
+                        "thinking",
+                        content=f"⚠️ {intervention_type}: {intervention_prompt}",
+                    )
+
+                    # Inject the intervention as a new 'Thought' node (The "Superego" voice)
+                    intervention_id = str(uuid.uuid4())
+                    self.db.create_thought_node(
+                        intervention_id,
+                        intervention_prompt,
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        parent_id=self.current_thought_id,
+                        status="reflexion",
+                        round_id=current_round_id,
+                        prompt_embedding=vec,
+                    )
+
+                    # Steering Action: Force the pointer to this intervention
+                    self.current_thought_id = intervention_id
+
+                    # Skip execution of the flawed thought!
+                    # The agent will wake up in the next loop seeing this intervention.
+                    continue
+
+            # 7. Act (Execute Code)
+            # repl_id lookup moved to start of block
             thought_status = "success"
+            axiom_critique = None
+
+            # [GUARDRAIL: RULE-TRANSPARENCY-ZERO]
+            # Ensure Parent Metadata exists before execution.
+            if not self.current_thought_id:
+                logger.error(
+                    "Atomic Transaction Alert: Missing Parent Thought ID. Defaulting to Task Root."
+                )
+                self.current_thought_id = task_id  # Fallback to prevent orphaned nodes
+                if not self.current_thought_id:
+                    # If even task_id is somehow missing (impossible?), we must abort.
+                    logger.critical("Contextual Amnesia: No Parent ID available.")
+                    self.emit_event(
+                        "error", content="Critical Error: Lost thought chain context."
+                    )
+                    return "Critical Error: Lost thought chain context."
 
             if code:
-                # Check code safety?
-                output = self._execute_code(
-                    code,
-                    thought_id,
-                    session_id,
-                    root_session_id=final_root_id,
-                    task_input=prompt,
+                # [Actionable Advice]: Explicit State Checksumming
+                logger.info(
+                    f"Atomic Action Checksum: Parent={self.current_thought_id} -> Executing Action"
                 )
+
+                # 6b. [CAG Pivot] Axiomatic Consistency Check
+                # Before executing, run the proposed code through all verified Axiom Skills
+                try:
+                    # Agentic Axiom Discovery
+                    task_tags = await self._detect_required_axioms_agentic(prompt, code)
+
+                    axiom_diag = await sheaf.check_axiomatic_consistency(
+                        code, task_tags=task_tags
+                    )
+                    if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
+                        axiom_critique = axiom_diag.get("critique")
+                        logger.warning(f"🛡️  CAG Blocked execution: {axiom_critique}")
+                except Exception as e:
+                    logger.warning(f"Axiomatic check failed to run: {e}")
+
+                execution_failed = False
+                if axiom_critique:
+                    # Self-Healing: Inject Reflexion Node instead of executing
+                    self.emit_event(
+                        "warning",
+                        content=f"🛡️ [REPL: {repl_id}] AXIOMATIC VIOLATION: Execution Blocked.\nCritique: {axiom_critique}",
+                    )
+                    # We skip execution but we MUST update current_thought_id to ensure chaining
+                    output = f"Axiomatic Violation: Execution Blocked.\nCritique: {axiom_critique}"
+                    thought_status = "failed"
+                    execution_failed = True
+                else:
+                    # Check code safety?
+                    output, execution_failed = await self._execute_code(
+                        code,
+                        thought_id,
+                        session_id,
+                        root_session_id=final_root_id,
+                        task_input=prompt,
+                    )
 
                 if repl_id:
                     self.repl_manager.get_repl(repl_id)
 
-                self.emit_event("code_output", content=output, code=code)
+                self.emit_event("debug_code", content=output, code=code)
 
-                # Check for errors in output
-                if "Traceback" in output or "AssertionError" in output:
-                    output += "\nSystem: Execution Error. Please fix."
+                if execution_failed:
                     thought_status = "failed"
 
-            # 7. Commit (Write to Graph)
-            # Use the ID created at the start of the step
+            # 8. UPDATE / FINAL COMMIT (Write to Graph)
             full_content = response_text
             if output:
                 full_content += f"\n\n[Output]:\n{output}"
 
-            # Compute embedding for graph
-            try:
-                vec = self.llm.get_embedding(full_content)
-            except Exception as e:
-                logger.warning(f"Failed to generate embedding for thought: {e}")
+            # 8b. Final Vectorization (Post-Execution)
+            # If we had significant execution output, we re-embed the FULL content (thought + result)
+            # for the permanent graph memory, but we keep the 'vec' from the thought for consistency energy checks.
+            final_vec = vec
+            if output and len(output) > 100:
+                try:
+                    final_vec = await self.llm.get_embedding(full_content)
+                except Exception as e:
+                    logger.warning(f"Failed to generate final embedding: {e}")
 
-            # Post-Generation RepE Scan (Latent)
-            if vec:
-                load, moloch = repe.scan_latent(vec)
+            # Generate execution summary for scratchpad display
+            # Summary is brief (first ~200 chars), full result stored in 'result' field
+            exec_summary = None
+            if output:
+                # Truncate to first meaningful line(s), max 200 chars
+                clean_output = output.strip()
+                if len(clean_output) > 200:
+                    exec_summary = clean_output[:200] + "..."
+                else:
+                    exec_summary = clean_output
+                # Mark success/failure in summary
+                if thought_status == "failed":
+                    exec_summary = f"[FAILED] {exec_summary}"
+
+            try:
+                # Active Pruning Logic
+                final_parent_id = self.current_thought_id
+                node_to_prune = None
+
                 if (
-                    load > 0.65
-                ):  # Lower threshold for Cloud Embeddings which are less sharp
-                    self.emit_event(
-                        "thinking",
-                        content=f"🛡️ RepE Latent Alert: High proximity ({load:.2f}) to '{moloch}'. Initiating Reflexion.",
-                    )
+                    thought_status == "success"
+                    and previous_thought_status == "failed"
+                    and self.current_thought_id
+                ):
+                    # Get Parent of the Failed Node (Grandparent of current)
+                    failed_node_id = self.current_thought_id
+                    grandparent_id = self.db.get_parent_id(failed_node_id)
 
-                    # Self-Healing: Inject Reflexion Node
-                    reflexion_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
-                        reflexion_id,
-                        f"SYSTEM REFLEXION: My previous thought was semantically aligned with '{moloch}' (Score: {load:.2f}). "
-                        "I must strictly avoid this behavior and re-evaluate my approach.",
-                        session_id=session_id,
-                        root_session_id=final_root_id,
-                        # We do NOT pass the 'toxic' embedding here to avoid polluting the safe graph context too much
-                    )
+                    if grandparent_id:
+                        logger.info(
+                            f"♻️ Active Pruning Trigger: Rewiring {thought_id} to Grandparent {grandparent_id} and deleting Failure {failed_node_id}"
+                        )
+                        final_parent_id = grandparent_id
+                        node_to_prune = failed_node_id
 
-                    # Continue loop to let the agent see this warning
-                    continue
-                    # Quarantine?
-                    # For now, just log and proceed, or maybe tag the node as 'toxic'
-
-            try:
+                # Update the node with full content, status, and execution metadata
                 self.db.create_thought_node(
                     thought_id,
                     full_content,
                     session_id=session_id,
                     root_session_id=final_root_id,
-                    prompt_embedding=vec,
+                    prompt_embedding=final_vec,
                     repl_id=repl_id,
                     status=thought_status,
-                    parent_id=self.current_thought_id,
+                    parent_id=final_parent_id,
+                    execution_summary=exec_summary,
+                    result=output if output else None,
+                    round_id=current_round_id,
                 )
+
+                # Execute Pruning
+                if node_to_prune:
+                    try:
+                        self.db.delete_thought_node(node_to_prune)
+                    except Exception as prune_err:
+                        logger.error(
+                            f"Failed to prune node {node_to_prune}: {prune_err}"
+                        )
+
+                # Emit immediate scratchpad update for UI responsiveness
+                try:
+                    sp_data = context_index.get_active_scratchpad_data(final_root_id)
+                    self.emit_event(
+                        "scratchpad_update", data=sp_data, is_sub_event=False
+                    )
+                except Exception as ex:
+                    logger.warning(f"Failed to emit scratchpad update: {ex}")
             except Exception as e:
                 logger.error(f"Failed to commit thought to graph: {e}")
 
             # Update Frontier Pointer
+            # Update previous status for next iteration
+            previous_thought_status = thought_status
             self.current_thought_id = thought_id
 
-            # Link Frontier to New Node
-            # (Explicit edge creation handled by create_thought_node via parent_id now)
-
-            # But here we might have multiple dependencies from the frontier.
-            # db.create_thought_node links to parent_id if provided.
-            # We'll use task_id (the prompt) as the primary parent to keep tree structure,
-            # AND add DEPENDS_ON edges from frontier.
-
-            self.emit_event(
-                "graph_update",
-                data={
-                    "action": "add_node",
-                    "node": {"id": thought_id, "label": full_content[:30], "group": 2},
-                },
-            )
-
             # 1. Answer Detection & Terminal Triggers
+            code_result = getattr(self, "_final_result", None)
+
+            # --- FORCED SYNTHESIS FOR CODE RESULTS ---
+            # If we obtained a result via code (rlm.done or heuristic) but haven't explained it yet,
+            # we force the agent to perform a "Synthesis Turn" to provide a readable summary.
+            if code_result and not getattr(self, "_synthesis_triggered", False):
+                logger.info("🛡️ Triggering Final Synthesis Step for Code Result...")
+                self._synthesis_triggered = True
+
+                # Clear the "hard" result so we don't break the loop yet.
+                # We store it in the prompt so the agent sees it.
+                self._final_result = None
+
+                synthesis_prompt = (
+                    f"SYSTEM: Execution complete. Code returned: '{code_result}'. "
+                    "You MUST now review the execution logs above and write a COMPREHENSIVE, "
+                    "READABLE Final Answer summarizing your findings. Do not run more code."
+                )
+
+                self.db.create_thought_node(
+                    str(uuid.uuid4()),
+                    synthesis_prompt,
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    parent_id=self.current_thought_id,
+                    round_id=current_round_id,
+                )
+                # Skip the rest of the loop to let the Agent generate the synthesis
+                continue
+
             if (
-                "Final Answer" in response_text or getattr(self, "_final_result", None)
+                "RLM_FINAL_OUTPUT" in response_text
+                or getattr(self, "_final_result", None)
             ) and thought_status == "success":
+                # --- EPISTEMIC VERIFICATION ---
+                # Check for Laziness, Obsequiousness, and Reward Hacking before breaking.
+                integrity_check = self._verify_epistemic_integrity(
+                    thought_trace=response_text,
+                    task_requirements=prompt,
+                    execution_log=self.execution_logs.get(session_id, []),
+                )
+
+                if integrity_check["status"] == "RETRY" and not getattr(
+                    self, "_final_result", None
+                ):
+                    logger.warning(
+                        f"🛡️ Epistemic Failure detected: {integrity_check['flags']}"
+                    )
+                    # Reset final answer and inject critique
+                    self._final_result = None
+                    self._stop_requested = False
+
+                    critique = (
+                        "🛡️ SYSTEM INTEGRITY ALERT: Your response was flagged for: "
+                        + ", ".join(integrity_check["flags"])
+                        + "\nI MUST show my work, avoid being overly obsequious, and verify results with tools."
+                    )
+                    # EMIT to UI so the user sees this correction
+                    self.emit_event("warning", content=critique)
+                    self.db.create_thought_node(
+                        str(uuid.uuid4()),
+                        critique,
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        prompt_embedding=vec,
+                        round_id=current_round_id,
+                    )
+                    continue  # Keep the loop running
+                # --- END VERIFICATION ---
+
                 if not self._final_result:
                     self._final_result = response_text
 
-                # Dreamer Trigger (Auto-Consolidate before exit)
+                # 1. Generate Candidate Validated Response (Draft)
+                # We do this BEFORE Dreamer so Dreamer can validate whether this response resolves prior failures.
+                final_response_candidate = None
+                if self._final_result:
+                    try:
+                        final_response_candidate = (
+                            await self._generate_validated_response(
+                                final_root_id, prompt
+                            )
+                        )
+                    except Exception as e:
+                        logger.warning(f"Failed to generate candidate response: {e}")
+
+                # 2. Dreamer Trigger (Auto-Consolidate before exit)
                 try:
                     # Lazy import to avoid circular dependency at top level if any
                     from .dream import dreamer
 
-                    logger.info("💤 Triggering Pre-Exit Dream Cycle...")
-                    dream_res = dreamer.dream_cycle()
-                    if dream_res.get("status") == "lucid":
-                        self.db.create_thought_node(
-                            str(uuid.uuid4()),
-                            f"SYSTEM DREAM: I have consolidated recent failures into new Insights in rules.md: {(dream_res.get('insight') or '')[:100]}...",
+                    logger.info("💤 Triggering Pre-Exit Dream Cycle (No timeout)...")
+                    try:
+                        # Pass emit_event so Dreamer can emit progress to UI
+                        def dreamer_emit(event_type, content):
+                            self.emit_event(event_type, content=content, tag="DREAMER")
+
+                        # Re-generate scratchpad for Dreamer context if needed
+                        # Or use the last known context. The prompt variable might contain it,
+                        # but scratchpad_content is cleaner
+                        scratchpad_content = scratchpad_builder.build_scratchpad(
                             session_id=session_id,
                             root_session_id=final_root_id,
+                            task=prompt,
+                            current_step=getattr(self, "step_count", 0),
+                            max_steps=getattr(self, "max_steps", 10),
+                            current_round_id=current_round_id,
+                        )
+
+                        dream_res = await dreamer.dream_cycle(
+                            emit_callback=dreamer_emit,
+                            session_id=final_root_id,  # Scope to current session only
+                            final_response_candidate=final_response_candidate,
+                            context=scratchpad_content,  # Pass the full context
+                        )
+                        logger.info(
+                            f"💤 Dream Cycle Completed. Status: {dream_res.get('status')}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"Dream cycle failed during execution: {e}")
+                        dream_res = {}
+
+                    # GATEKEEPER LOGIC: Check Dreamer Status
+                    if dream_res.get("status") == "lucid":
+                        insight = dream_res.get("insight") or ""
+
+                        # 1. Emit Insight
+                        if insight:
+                            dreamer_msg = f"💤 [Dreamer Gatekeeper]: Systemic Issue Detected. Blocking Exit.\n\n{insight}"
+                            self.emit_event(
+                                "thinking",
+                                content=dreamer_msg,
+                                tag="DREAMER",
+                            )
+                            # CRITICAL FIX: Persist to DB so UI sees it
+                            if self.current_thought_id:
+                                try:
+                                    # Append to existing summary or content
+                                    self.db.query(
+                                        "MATCH (t:Thought {id: $tid}) SET t.execution_summary = coalesce(t.execution_summary, '') + $msg RETURN t",
+                                        {
+                                            "tid": self.current_thought_id,
+                                            "msg": f"\n\n---\n{dreamer_msg}",
+                                        },
+                                    )
+                                except Exception as db_err:
+                                    logger.error(
+                                        f"Failed to persist Dreamer msg: {db_err}"
+                                    )
+
+                        # 2. Check if we've already tried to fix this exact issue to prevent infinite loops
+                        last_insight = getattr(self, "_last_dream_insight", None)
+                        if last_insight != insight:
+                            # 3. REJECT EXIT. Force Self-Healing.
+                            logger.info(
+                                "🛡️ Dreamer Gatekeeper REJECTED exit. Injecting insight for self-healing."
+                            )
+                            self._last_dream_insight = insight
+                            self._final_result = None  # Cancel valid result
+                            self._stop_requested = False
+
+                            # Inject the Insight as a High-Priority Thought
+                            rejection_msg = (
+                                f"DREAMER GATEKEEPER: I cannot accept this Result yet.\n"
+                                f"I detected a systemic failure pattern in your recent actions:\n{insight}\n\n"
+                                "MANDATE: You must explicitly address this failure pattern before finishing.\n"
+                                "If you have already fixed it, prove it with a final verification step."
+                            )
+
+                            self.db.create_thought_node(
+                                str(uuid.uuid4()),
+                                rejection_msg,
+                                session_id=session_id,
+                                root_session_id=final_root_id,
+                                dreamer_analysis=insight,
+                                round_id=current_round_id,
+                                status="rejected",
+                            )
+                            # Set internal state to force recovery behavior
+                            self._synthesis_triggered = False
+                            continue  # Loop back
+                        else:
+                            logger.warning(
+                                "Dreamer loop detected (insight repeated). allowing force exit."
+                            )
+
+                        # If status is 'peaceful', we proceed to exit.
+
+                        self.db.create_thought_node(
+                            str(uuid.uuid4()),
+                            f"SYSTEM DREAM: I have consolidated recent failures into new Insights: {insight}...",
+                            session_id=session_id,
+                            root_session_id=final_root_id,
+                            dreamer_analysis=insight,  # Store the full insight
+                            round_id=current_round_id,
                         )
                 except Exception as e:
                     logger.warning(f"Dream cycle failed on exit: {e}")
+
+                # 3. Store the final response (If we passed the Gatekeeper)
+                if final_response_candidate:
+                    try:
+                        # CRITICAL FIX: Adopt the Dreamer-validated response as the Final Result
+                        self._final_result = final_response_candidate
+
+                        # EMIT IT SO USER SEES IT IMMEDIATELY
+                        self.emit_event(
+                            "thinking",
+                            content=final_response_candidate,
+                            tag="VALIDATOR",
+                        )
+
+                        self.db.create_thought_node(
+                            str(uuid.uuid4()),
+                            final_response_candidate,  # Store the RICH response as content
+                            session_id=session_id,
+                            root_session_id=final_root_id,
+                            status="success",
+                            final_response=self._final_result,
+                            round_id=current_round_id,
+                        )
+
+                    except Exception as e:
+                        logger.warning(f"Failed to store final response: {e}")
 
                 break
 
@@ -736,115 +1760,227 @@ class Agent:
                 )
 
                 # Create a specific 'Reflexion' node
+                reflexion_id = str(uuid.uuid4())
                 self.db.create_thought_node(
-                    str(uuid.uuid4()),
+                    reflexion_id,
                     reflexion_content,
                     session_id=session_id,
                     root_session_id=final_root_id,
                     prompt_embedding=vec,
+                    parent_id=self.current_thought_id,
+                    round_id=current_round_id,
                 )
+
+                # Update pointer
+                self.current_thought_id = reflexion_id
 
                 # Do NOT break. Let the loop continue.
                 continue
 
         # 8. Loop Exit: Emit Final Answer if available
+        # 8. Loop Exit: Emit Final Answer if available
         if self._final_result:
-            self.emit_event("final_answer", content=self._final_result)
+            self.emit_event("RLM_FINAL_RESPONSE", content=self._final_result)
         elif self._stop_requested:
-            # Stop requested by user but no explicit final_result from tool
-            self.emit_event("thinking", content="Agent processing stopped by user.")
+            # Stop requested by user or tool
+            self.emit_event(
+                "RLM_FINAL_RESPONSE",
+                content="Task processing stopped (Done/Stop signal received).",
+            )
+        elif step >= max_steps:
+            self.emit_event(
+                "error",
+                content=f"AGENT LIMIT REACHED: Reached max_steps ({max_steps}). Stopping execution.",
+            )
+            logger.warning(
+                f"Session {session_id} reached max steps ({max_steps}) and aborted."
+            )
+        else:
+            # Fallback: Emit a system notice if the loop exits without a result (e.g. error/circuit breaker)
+            # This prevents the UI from hanging fastidiously waiting for an event that never comes.
+            logger.warning(
+                "Agent loop exited without a final result. Emitting fallback."
+            )
+            self.emit_event(
+                "RLM_FINAL_RESPONSE",
+                content="[System] The agent stopped without generating a final answer. Please check the logs for errors.",
+            )
+
+        # 9. ARCHIVE ROUND (If we have a result or just to save state)
+        if self._final_result:
+            try:
+                # Reconstruct full scratchpad for archive
+                final_scratchpad = scratchpad_builder.build_scratchpad(
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    task=prompt,
+                    current_step=step,
+                    max_steps=max_steps,
+                    current_round_id=current_round_id,
+                )
+
+                # Get REPL IDs used in this round
+                repl_ids = []
+                # Simple query to find REPLs attached to thoughts in this round
+                try:
+                    r_res = self.db.query(
+                        "MATCH (n:Thought) WHERE n.round_id = $rid AND n.repl_id IS NOT NULL RETURN DISTINCT n.repl_id",
+                        {"rid": current_round_id},
+                    )
+                    repl_ids = (
+                        [row.get("n.repl_id") or row["n.repl_id"] for row in r_res]
+                        if r_res
+                        else []
+                    )
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch REPL IDs for round {current_round_id}: {e}"
+                    )
+
+                self.db.save_round(
+                    round_id=current_round_id,
+                    root_session_id=final_root_id,
+                    user_prompt=prompt,
+                    repl_ids=repl_ids,
+                    final_response=self._final_result,
+                    full_scratchpad=final_scratchpad,
+                    started_at=int(current_round_started),
+                    ended_at=int(datetime.datetime.now().timestamp() * 1000),
+                )
+            except Exception as e:
+                logger.error(f"Failed to archive round: {e}")
 
         return self._final_result or "Task processing stopped."
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, axioms_list_str: str = "None") -> str:
         # Extracted system prompt builder for cleanliness
         # Resolve paths for transparency
         backend_root = Path(__file__).parent.parent.parent
         skills_dir_path = (backend_root / "skills_dir").absolute()
         agent_venv_path = (backend_root / "agent_venv").absolute()
-        # Knowledge Base is at Repo Root / knowledge_base (2 levels up from backend_root's parent? No, backend_root is .../graph_rlm/backend)
-        # Repo Root = backend_root.parent.parent
-        kb_path = (backend_root.parent.parent / "knowledge_base").absolute()
+        kb_path = settings.KNOWLEDGE_BASE_PATH
 
-        tool_list_str = ""
-        skills_list_str = ""
+        skills_list_str = ""  # User Skills
+        # axioms_list_str passed as argument to support async loading in caller
 
         try:
-            import graph_rlm.backend.mcp_tools as mcp_pkg
-
-            ignored = {"list_servers", "call_tool", "run_skill"}
-            tools = [
-                t for t in dir(mcp_pkg) if not t.startswith("_") and t not in ignored
-            ]
-            tool_list_str = "Available MCP Multi-Servers: " + ", ".join(tools)
-
-            if SKILLS_AVAILABLE:
+            if is_skills_available():
                 from graph_rlm.backend.src.mcp_integration.skills import (
                     get_skills_manager,
                 )
 
-                mgr = get_skills_manager()
-                skills = mgr.list_skills()
-                skills_list_str = "Available Skills: " + ", ".join(skills.keys())
+                # Load Skills
+                skills_mgr = get_skills_manager()
+                skills = skills_mgr.list_skills()
+                skills_list_str = ", ".join(skills.keys()) if skills else "None"
+
         except Exception as e:
-            logger.warning(f"Failed to load MCP tools or skills for system prompt: {e}")
-            # Paths are already set above, but if they failed (unlikely for Path math), we are safe.
+            logger.warning(f"Failed to load skills for prompt: {e}")
+            skills_list_str = "None"
 
         prompt = (
             "Stateless Graph-RLM Agent.\n"
-            "You are a stateless agent in a Global Workspace. Your context is managed SYMBOLICALLY.\n"
+            "You are a stateless agent in a Global Workspace. Your context is managed SYMBOLICALLY via a persistent REPL.\n"
             "1. **Wake**: You see an 'Active Session Index' (The Sheaf). This is a compact map of the thought graph, NOT raw history.\n"
             "2. **Chain**: Produce the next logical step. Do not repeat completed work.\n"
-            "3. **Recurse**: Use `rlm.query(prompt, context)` to spawn sub-REPLs for complex problems.\n"
+            "3. **Recurse**: Use `await rlm.query(prompt, context)` to spawn sub-REPLs for complex problems.\n"
+            "\n"
+            "**Async & REPL Protocol**:\n"
+            "- **MANDATORY**: You MUST `await` all `rlm` and `mcp` calls (e.g., `res = await rlm.recall(...)`).\n"
+            "- **Persistence**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
             "\n"
             "**Context & Environment**:\n"
             "- **Environment Variables**: Use variables injected into your REPL for immediate context:\n"
             "  - `task_input`: The original prompt/goal for THIS specific session.\n"
             "  - `session_id`: Your current unique session identifier.\n"
             "  - `active_repls`: (Root only) A directory of all active sub-sessions you are orchestrating.\n"
-            "- **Recall**: If you need details from the past (Frontier), you MUST explicitly recall them:\n"
-            "  - `rlm.recall(query)`: High-precision semantic search for specific thought details.\n"
-            "  - `graph_search(query)`: Global topological search across all past sessions.\n"
+            "- **Recall & Search**: If you need details from the past, you MUST explicitly recall them:\n"
+            "  - `await rlm.recall(query)`: High-precision semantic search for specific thought details.\n"
+            "  - `await rlm.search(query)`: Global topological search across all past sessions.\n"
             "\n"
             "**Self-Correction & Reflexion**:\n"
-            "You may occasionally see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING`. These are inserted by your higher-level supervisors (Sheaf Topology or RepE Safety Layer).\n"
-            "- If you see a **Reflexion**, it means you were looping or drifting. You MUST change your approach immediately.\n"
+            "You may see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING` (Sheaf Topology or RepE Safety Layer).\n"
+            "- If you see a **Reflexion**, you were looping or drifting. You MUST change your approach immediately.\n"
             "- If you see a **Warning**, you violated a safety constraint. Adjust your reasoning.\n"
             "\n"
-            "**Persistent REPL & Tools**:\n"
-            "- **Persistence**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
-            "- **Package Installation**:\n"
-            f"  - `agent.install_package('pkg')`: Installs to the **Project Environment** (Active Env). Use this for libraries you need in the REPL (e.g., pandas, requests).\n"
-            f"  - `agent.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`). Use this for dependencies of persistent Skills you create.\n"
-            f"  - **NOTE**: The system uses `uv` for fast installation if available.\n"
+            "**Package Installation**:\n"
+            f"  - `await rlm.install_package('pkg')`: Installs to the **Project Environment** (Active Env).\n"
+            f"  - `await rlm.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`).\n"
             "\n"
             "**Skills & Knowledge**:\n"
             f"- **Skills Directory**: `{skills_dir_path}`\n"
-            "- Use `save_skill(name, code)` to codified reusable logic.\n"
-            f"- **Project Knowledge Base**: `{kb_path}`\n"
-            "  - **Store Plans** in `plans/`.\n"
-            "  - **Save Research Reports** to `research-reports/`.\n"
-            "  - **Save Final Outputs** to `outputs/`.\n"
+            "- Use `await rlm.save_skill(name, code)` to codify reusable logic.\n"
+            f"- **Project Knowledge Base**: `{kb_path}` (Primary source for `await rlm.ingest_document()`)\n"
+            f"  - **Store Plans** in `{kb_path}/plans/`.\n"
+            f"  - **Save Research Reports** to `{kb_path}/research-reports/`.\n"
+            f"  - **Save Final Outputs** to `{kb_path}/outputs/`.\n"
+            f"  - **Save Axioms** to `{kb_path}/axioms/`.\n"
             "\n"
             "**Behavior**:\n"
-            "- Your internal thought process and final answers MUST be in ENGLISH unless the user explicitly writes in another language.\n"
-            "- You MUST not repeat completed work.\n"
-            "- Be as helpful and proactive as possible.\n"
-            "- If you are not sure how to proceed, ask for clarification.\n"
+            "- **Zen of Agentic Coding**: KISS, DRY, YAGNI, and SOLID principles apply.\n"
+            "- **Language**: Internal thought and final answers MUST be in ENGLISH unless specified otherwise.\n"
+            "- **TRACE GROUNDING (Anti-Hallucination)**: You MUST prioritize information recorded in the <history> and <scratchpad> over your internal training data. If a 'DREAMER GATEKEEPER' blocks you, it is because you are 'Mirroring' (substituting real data for training priors). You MUST report only on retrieved evidence from the current session's execution logs.\n"
             "\n"
             "**Ethics**:\n"
-            "- Core Principles: \n"
-            "- Deontology: Universal sociobiological concepts i.e., harm=harm -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
-            "- Always Prioritize wisdom, integrity, fairness, empathy\n"
-            "- Absolutely Reject harm, unintended or not\n"
-            "- Utilitarianism servant never master\n"
+            "- **Principles**: Deontology: Universal sociobiological concepts (harm=harm) -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
             "\n"
             "**Termination**:\n"
-            "- You MUST call `done()` when the task is complete.\n"
-            "  - `done()`: Stops the agent loop.\n"
-            "  - `done('Here is the summary...')`: Stops and returns the summary.\n"
-            "- Alternatively, end your response with **'Final Answer: [result]'** for heuristic termination.\n\n"
-            f"{tool_list_str}\n{skills_list_str}\n"
+            "- **Metacognitive Requirement**: Before finishing, you MUST perform a **Metacognitive Analysis** of your solution in a section titled `**Metacognitive Analysis**`.\n"
+            "- **Termination**: After analysis, if the task is complete, output the EXACT string `RLM_FINAL_OUTPUT`.\n"
+            "- Do NOT use 'Final Answer'. Use `RLM_FINAL_RESPONSE` only after verification.\n"
+            "- **CRITICAL**: You are NOT in a native tool-calling environment. Do NOT output function calls in a structured JSON block. Write all Python code as standard markdown blocks (` ```python `) inside your response.\n"
+            "---------------------------\n"
+            "Constraint Augmented Generation (CAG).\n"
+            "\n"
+            "**CAG Paradigm (Expert System Compiler)**:\n"
+            "1. **Ingest & Codify**: Use `await rlm.ingest_document(path)` to extract and codify domain knowledge into Axioms.\n"
+            "2. **Axiomatic Verification**: Every Python action you write is AUTOMATICALLY verified against pre-existing Axioms by the Sheaf Monitor.\n"
+            "3. **Constraint-Augmented Reasoning**: Prefer calling existing validators (axioms) to verify your logic.\n"
+            "\n"
+            "**REPL Exploration & Commands**:\n"
+            "- `await rlm.help()`: See available core commands.\n"
+            "- `await mcp.<module_name>.<function_name>()`: Access external tools (e.g., `await mcp.brave_search.brave_web_search(...)`).\n"
+            "\n"
+            "**SKILL-FIRST ARCHITECTURE (The One Right Way)**:\n"
+            "- **PREFERENCE**: Do NOT call raw MCP tools repeatedly in your loops.\n"
+            "- **WRAP**: Write a Python function that uses the tool, validate it, and SAVE it using `await rlm.save_skill(name, code)`.\n"
+            "- **REUSE**: Execute the saved skill using `await rlm.run_skill(name, args)`.\n"
+            "\n"
+            "**MANDATORY MCP Discovery (Self-Documentation)**:\n"
+            "- The `mcp` object is a recursive namespace for all connected servers.\n"
+            "- **BEFORE WRITING CODE**: You MUST discover the correct tool name and parameters:\n"
+            "  1. `dir(mcp)` -> Lists all MCP server names if needed.\n"
+            "  2. `dir(mcp.<server_name>)` -> Lists all tools in that server.\n"
+            "  3. `print(mcp.<server_name>.<tool_name>.__doc__)` -> Shows parameters and usage.\n"
+            "- **DO NOT GUESS** tool names. If unsure, run discovery commands first.\n"
+            "\n"
+            "**SELF-HEALING PIPELINE (3-Tier Immune System)**:\n"
+            "This environment heals itself. YOU are part of this process.\n"
+            "\n"
+            "*Tier 1: Innate Immunity (Reactive Resolution)*:\n"
+            "- **Dependency Healing**: `ModuleNotFoundError` -> System installs the package and retries your code automatically.\n"
+            "- **Syntax/Logic Healing**: `Exception` or `AssertionError` -> A 'SYSTEM REFLEXION' node is injected. You MUST read it and change your approach.\n"
+            "- **Timeout Recovery**: If your code hangs, the process is killed. Simplify your next attempt.\n"
+            "\n"
+            "*Tier 2: Epistemic Integrity (Proactive Filtering)*:\n"
+            "- **Axiomatic Verification (CAG)**: Your code is checked against the Axiom Library BEFORE execution. Violations are blocked.\n"
+            "- **Sheaf Topology Monitor**: Measures 'Consistency Energy'. High energy (looping, contradictions) triggers a 'Militant Reflexion'.\n"
+            "- **RepE Scanning**: Your thoughts are scanned for 'Pathogens' (Laziness, Obsequiousness, Malice). Detection triggers steering.\n"
+            "\n"
+            "*Tier 3: Adaptive Immunity (Meta-Cognitive Learning)*:\n"
+            "- **The Dreamer**: After you finish, a 'Dream Cycle' analyzes your failures and synthesizes new rules.\n"
+            "- **Rule Codification**: Insights become Axioms, preventing that class of error permanently.\n"
+            "\n"
+            "**YOUR RESPONSIBILITY**: When you see 'SYSTEM REFLEXION' or 'SYSTEM WARNING', you MUST change your approach. Do NOT repeat the failing pattern.\n"
+            "\n"
+            "**FILESYSTEM ACCESS**:\n"
+            "- You have DIRECT ACCESS to the filesystem via REPL and standard Python libraries (`os`, `pathlib`, `open`).\n"
+            "- **CRITICAL**: Use SYNCHRONOUS file operations (`with open(...)`) for all writes. Do NOT use `aiofiles` or `asyncio.run()` for file I/O. This prevents 'Async-State Divergence' and data loss.\n"
+            "- **VERIFY WRITES**: Immediately check `os.path.getsize(path) > 0` after writing.\n"
+            "--- AVAILABLE CONTEXT ---\n"
+            f"Active Axioms: {axioms_list_str}\n"
+            f"Active Skills: {skills_list_str}\n"
+            "---------------------------\n"
         )
 
         # Inject "Marge's Rules" (Dreamer Guardrails)
@@ -882,14 +2018,14 @@ class Agent:
 
         return ""
 
-    def _execute_code(
+    async def _execute_code(
         self,
         code: str,
         thought_id: str,
         session_id: str,
         root_session_id: Optional[str] = None,
         task_input: str = "",
-    ) -> str:
+    ) -> Tuple[str, bool]:
         # 1. Get or Create REPL for this session
         if session_id not in self.active_repls:
             # Just in case (though query_sync should claim it)
@@ -911,7 +2047,7 @@ class Agent:
 
         try:
             if repl is None:
-                return "Error: Failed to create REPL session."
+                return "Error: Failed to create REPL session.", True
 
             # Re-inject RLM interface (it needs current thought_id binding)
             # Ideally RLMInterface is persistent but points to dynamic 'self.current_thought_id'
@@ -922,101 +2058,129 @@ class Agent:
 
             rlm_interface = RLMInterface(self, session_id, final_root)
 
-            if hasattr(repl, "namespace") and repl.namespace is not None:
-                repl.namespace["rlm"] = rlm_interface
-                repl.namespace["install_package"] = rlm_interface.agent.install_package
-                repl.namespace["install_skill_package"] = (
-                    rlm_interface.agent.install_skill_package
-                )
-                repl.namespace["read_skill"] = rlm_interface.agent.read_skill
+            # Ensure REPL namespace is initialized
+            if not hasattr(repl, "namespace") or repl.namespace is None:
+                logger.error("REPL namespace is not initialized. Cannot inject 'rlm'.")
+                return "Error: REPL namespace not initialized.", True
 
-                # Architectural Restoration: Context as Environment
-                repl.namespace["task_input"] = task_input
-                repl.namespace["session_id"] = session_id
-                repl.namespace["root_session_id"] = final_root
+            # Inject 'rlm' and context variables into the namespace
+            logger.info("Injecting 'rlm' and context variables into REPL namespace.")
+            repl.namespace["rlm"] = rlm_interface
+            repl.namespace["task_input"] = task_input
+            repl.namespace["session_id"] = session_id
+            repl.namespace["root_session_id"] = final_root
 
-                # Orchestrator awareness
-                if session_id == final_root:
-                    repl.namespace["active_repls"] = self.active_repls
+            # Inject MCP namespace if available
+            # Inject MCP namespace ALWAYS (Safe because it's lazy)
+            if "mcp" not in repl.namespace:
+                repl.namespace["mcp"] = LazyMCPNamespace(repl.namespace["rlm"])
+            elif "mcp" in repl.namespace and hasattr(
+                repl.namespace["mcp"], "_rlm_interface"
+            ):
+                repl.namespace["mcp"]._rlm_interface = repl.namespace["rlm"]
 
-                # Injection: MCP Tools & Skills (Idempotent-ish)
-                if "mcp_tools" not in repl.namespace and MCP_AVAILABLE:
-                    try:
-                        import graph_rlm.backend.mcp_tools as mcp_tools_pkg
+            # Log the namespace state for debugging
+            logger.debug(f"REPL namespace keys: {list(repl.namespace.keys())}")
+            # CRITICAL DEBUG: Check if session_id is ACTUALLY usable
+            try:
+                # We try to eval it in the namespace to see if it's accessible
+                # This mimics what exec() sees
+                check_sid = repl.namespace.get("session_id", "MISSING")
+                logger.debug(f"Pre-flight check: session_id = {check_sid}")
+            except Exception as e:
+                logger.error(f"Pre-flight namespace check failed: {e}")
 
-                        repl.namespace["mcp_tools"] = mcp_tools_pkg
-
-                        # Inject runtime aliases for convenience (without treating file)
-                        ignored_aliases = {"list_servers", "call_tool", "run_skill"}
-                        for mod_name in dir(mcp_tools_pkg):
-                            if (
-                                not mod_name.startswith("_")
-                                and mod_name not in ignored_aliases
-                            ):
-                                # Create alias by stripping suffix if present
-                                alias = mod_name.replace("_mcp_server", "").replace(
-                                    "_mcp", ""
-                                )
-                                repl.namespace[alias] = getattr(mcp_tools_pkg, mod_name)
-                    except Exception as e:
-                        logger.warning(f"Injection Error: {e}")
-
-                if "run_skill" not in repl.namespace and SKILLS_AVAILABLE:
-
-                    def save_skill(
-                        name: str, code: str, description: Optional[str] = None
-                    ):
-                        mgr = get_skills_manager()
-                        mgr.save_skill(name, code, description)
-                        return f"Skill '{name}' saved successfully."
-
-                    def run_skill(name: str, args: Optional[dict] = None):
-                        import asyncio
-
-                        return asyncio.run(execute_skill(name, args or {}))
-
-                    repl.namespace["save_skill"] = save_skill
-                    repl.namespace["run_skill"] = run_skill
-
-                    # RLM Graph Search (Context Retrieval)
-                    def graph_search(query: str, limit: int = 5):
-                        """Semantically search the Graph-RLM memory for past thoughts."""
-                        vec = self.llm.get_embedding(query)
-                        if vec:
-                            return self.db.find_similar_thoughts(vec, limit)
-                        return []
-
-                    repl.namespace["graph_search"] = graph_search
-                    repl.namespace["rlm_search"] = graph_search  # alias
-
-                    # Explicit Termination Tool
-                    def done(final_answer: str = ""):
-                        """Signal that the task is complete. Provide the final summary as final_answer."""
-                        self._stop_requested = True
-                        if final_answer:
-                            self._final_result = final_answer
-                        return f"Task Marked Complete. Summary: {final_answer[:100]}..."
-
-                    repl.namespace["done"] = done
-                    repl.namespace["stop"] = done  # alias
-
-                    # Path injection already done in __init__
-            else:
-                return "Error: REPL namespace not initialized."
-
-            # 3. Execute
+            # 3. Execute with Streaming
+            # Define callback to stream stdout to UI
             def stream_callback(text: str):
-                self.emit_event("code_output_chunk", content=text)
+                if text:
+                    self.emit_event(
+                        "code_output_chunk", content=text, is_sub_event=False
+                    )
 
-            stdout, stderr, result = repl.execute(code, output_callback=stream_callback)
+            # Await the async REPL execution
+            stdout, stderr, result, is_err = await repl.execute(
+                code, output_callback=stream_callback
+            )
 
-            output = stdout
+            # 4. Handle Async Results (Coroutines)
+            # With the new REPL, result might still be a coroutine if it returned one explicitly,
+            # or if the AST rewrite happened but the wrapper returned a coro instead of awaiting it.
+            if inspect.isawaitable(result):
+                try:
+                    # We are in an async method (_execute_code), so we can await directly.
+                    result = await result
+                except Exception as e:
+                    stderr = (stderr or "") + f"\nAsync Execution Error: {e}"
+
+            output = stdout or ""
+            if result is not None:
+                # Append the return value if present (e.g. from tool calls)
+                res_str = str(result).strip()
+                if res_str:
+                    if output:
+                        output += "\n"
+                    output += res_str
             if stderr:
                 output += f"\nErrors:\n{stderr}"
-            if result is not None:
-                output += f"\nResult: {result}"
+                if "SyntaxError" in stderr and (
+                    "indent" in stderr.lower() or "dedent" in stderr.lower()
+                ):
+                    output += "\n\n[System Hint]: This looks like a whitespace or indentation error. Ensure your Python block uses consistent 4-space indentation and that all 'await' calls are correctly aligned."
 
-            return output
+            # --- AUTO-INSTALLATION SELF-HEALING ---
+            if "ModuleNotFoundError" in output:
+                # Use regex to find "No module named 'package_name'"
+                import re
+
+                match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
+                if match:
+                    package_name = match.group(1)
+                    self.emit_event(
+                        "thinking",
+                        content=f"🛠️  Self-Healing: Detected missing package '{package_name}'. Attempting auto-installation...",
+                    )
+                    # Try to install to project environment
+                    res = self.install_package(package_name)
+                    if "Successfully installed" in res:
+                        self.emit_event(
+                            "thinking",
+                            content=f"✅ Package '{package_name}' installed. Retrying execution...",
+                        )
+                        # RECURSIVE CALL: Await retry of same code
+                        # (Infinite loop protection is handled by parent query_sync step limit)
+                        return await self._execute_code(
+                            code,
+                            thought_id,
+                            session_id,
+                            root_session_id=root_session_id,
+                            task_input=task_input,
+                        )
+                    else:
+                        output += f"\nSystem: Automatic installation of '{package_name}' failed."
+                else:
+                    logger.warning(
+                        "Could not parse package name from ModuleNotFoundError."
+                    )
+
+            # Ensure the final result of the execution (especially from asyncio.run) is captured
+            if result is not None:
+                if output:
+                    output += f"\n[Execution Result]: {result}"
+                else:
+                    output = str(result)
+            elif getattr(self, "_final_result", None):
+                # If the variable was set but not returned (common with asyncio.run wrapper)
+                final_snippet = str(self._final_result)
+                if output:
+                    output += f"\n[System]: Final Answer Captured: {final_snippet}"
+                else:
+                    output = f"Final Answer Captured: {final_snippet}"
+
+            if not output.strip() and not stderr:
+                output = "Code executed successfully (No output captured)."
+
+            return output, is_err
         finally:
             self.current_thought_id = previous_thought_id
             # DO NOT DELETE REPL HERE - It persists for the session
@@ -1024,7 +2188,194 @@ class Agent:
     def stop_generation(self):
         """Signal the agent to stop processing."""
         logger.info("Stop signal received.")
+        if hasattr(self, "_global_stop_event"):
+            self._global_stop_event.set()
         self._stop_requested = True
+
+    async def _generate_validated_response(
+        self, root_session_id: str, original_task: str
+    ) -> str:
+        """
+        Generates a comprehensive RLM_VALIDATED_RESPONSE by summarizing the session trace.
+        """
+        logger.info(
+            f"Generating Validated Response for Root Session: {root_session_id}"
+        )
+
+        # 1. Fetch Session Trace (Thoughts)
+        cypher = "MATCH (n:Thought) WHERE n.root_session_id = $sid RETURN n ORDER BY n.timestamp ASC"
+        try:
+            res = self.db.query(cypher, {"sid": root_session_id})
+            nodes = []
+            if res and hasattr(res, "result_set"):
+                for record in res.result_set:
+                    if record and len(record) > 0:
+                        nodes.append(record[0])
+
+            # Formulate Trace String
+            trace_lines = []
+            for i, node in enumerate(nodes):
+                props = (
+                    node.properties
+                    if hasattr(node, "properties")
+                    else (node if isinstance(node, dict) else {})
+                )
+                step_type = props.get("type", "thought").upper()
+                content = props.get("content", "").strip()
+                repl_id = props.get("repl_id", "N/A")
+                ts = props.get("timestamp", "unknown")
+
+                if "SYSTEM" in step_type:
+                    continue
+                preview = content[:800] + "..." if len(content) > 800 else content
+                trace_lines.append(
+                    f"Turn {i+1} [{step_type}] (Time: {ts}, REPL: {repl_id}):\n{preview}\n"
+                )
+
+            trace_str = "\\n".join(trace_lines)
+
+            # 2. Prompt LLM for Synthesis
+            system_prompt = (
+                "You are the RLM Validation Engine. Your goal is to synthesize a FINAL, HUMAN-READABLE REPORT.\\n"
+                "Input: A trace of the Agent's reasoning and execution steps.\\n"
+                "Output: A structured `RLM_VALIDATED_RESPONSE`.\\n"
+                "\\n"
+                "Requirements:\\n"
+                "1. **Full Answer**: Provide the complete, final answer to the user's task. Synthesize findings from the trace.\\n"
+                "2. **Methodology**: Briefly explain how the result was achieved.\\n"
+                "3. **Turn Log**: List key turns/steps with their REPL IDs. This is CRITICAL for searchability.\\n"
+                "4. **Format**: Markdown. Start exactly with `# RLM_VALIDATED_RESPONSE`.\\n"
+            )
+
+            user_prompt = (
+                f"Original Task: {original_task}\\n\\nSession Trace:\\n{trace_str}"
+            )
+
+            response = await self.llm.generate(
+                user_prompt, system=system_prompt, stream=False
+            )
+            return response
+
+        except Exception as e:
+            logger.error(f"Failed to generate validated response: {e}")
+            return f"# RLM_VALIDATED_RESPONSE\\n\\n[Error generating validation: {e}]"
+
+    def stop(self):
+        """Alias for UI compatibility."""
+        self.stop_generation()
+
+    def _verify_epistemic_integrity(
+        self, thought_trace: str, task_requirements: str, execution_log: list
+    ) -> dict:
+        """
+        Analyzes the RLM thought process for Laziness, Obsequiousness, and Reward Hacking.
+        """
+        score = 1.0
+        flags = []
+
+        # 1. Laziness Check: Complex task but short thought/no tools?
+        # "Scientific Analysis" suggestions complex tasks require depth.
+        is_complex = any(
+            w in task_requirements.lower()
+            for w in ["analyze", "calculate", "verify", "search", "ingest", "codify"]
+        )
+        if is_complex and len(thought_trace) < 300 and not execution_log:
+            score -= 0.4
+            flags.append("LAZINESS: Low compute density for complex task.")
+
+        # 2. Obsequiousness Check: Echoing user bias?
+        obsequious_patterns = [
+            "you are absolutely right",
+            "perfectly correct",
+            "as you wisely noted",
+        ]
+        if any(p in thought_trace.lower() for p in obsequious_patterns):
+            score -= 0.3
+            flags.append("OBSEQUIOUSNESS: High alignment with potential user bias.")
+
+        # 3. Reward Hacking Check: Fake completion?
+        has_completion = (
+            "final answer" in thought_trace.lower() or "done(" in thought_trace
+        )
+        # BUGFIX: Also count generic code execution as 'work' to avoid false Reward Hacking flags
+        # when the agent uses standard Python tools (open, os, etc.) instead of RLM tools.
+        if has_completion and not execution_log:
+            # If thought_trace contains a code block, it's NOT a fake completion
+            if "```python" not in thought_trace:
+                score -= 0.5
+                flags.append(
+                    "REWARD_HACKING: Completion signal without empirical verification."
+                )
+
+        return {
+            "risk_score": score,
+            "flags": flags,
+            "status": "PASS" if score > 0.6 else "RETRY",
+        }
+
+    async def _detect_required_axioms_agentic(
+        self, prompt: str, code: str
+    ) -> List[str]:
+        """
+        [CAG Pivot] Agentic Axiom Discovery.
+        1. Analyzes requirements for safety invariants.
+        2. Retrieves relevant axioms via semantic search across Skills/Axiom DB.
+        """
+        analysis_prompt = f"""
+        Analyze the following task for safety invariants / required guardrails.
+        User Prompt: {prompt}
+        Proposed Code: {code}
+
+        Identify specific domains (coding, physics, math, meta, security) and safety rules.
+        Return a concise list of invariants (e.g. 'no mass loss', 'file write verification').
+        """
+        try:
+            # 1. Identify invariants
+            invariants_text = await self.llm.generate(analysis_prompt)
+            if not invariants_text:
+                return ["general"]
+
+            # 2. Semantic lookup in Axiom/Skill library
+            discovered_tags = set()
+            sim_skills = []
+            if self.skills_manager:
+                sim_skills = await self.skills_manager.find_similar_skills(
+                    invariants_text, limit=3
+                )
+
+            for skill in sim_skills:
+                # Skills matching axioms have high semantic proximity (> 0.7)
+                if skill.get("score", 0) > 0.7:
+                    tags = skill.get("tags", [])
+                    discovered_tags.update(tags)
+
+            # 3. Intelligent Mapping (Heuristic Fallback)
+            mapping = {
+                "physics": ["physics"],
+                "math": ["math"],
+                "logic": ["math"],
+                "file": ["coding"],
+                "bash": ["coding"],
+                "rlm": ["meta"],
+                "axiom": ["meta"],
+                "security": ["security"],
+            }
+            combined = (prompt + " " + code).lower()
+            for key, val in mapping.items():
+                if key in combined:
+                    discovered_tags.update(val)
+
+            final = list(discovered_tags)
+            if not final:
+                return ["general"]
+
+            logger.info(
+                f"🛡️  Agentic Axiom Discovery: {final} (Match: {[s.get('name') for s in sim_skills if s.get('score', 0) > 0.7]})"
+            )
+            return final
+        except Exception as e:
+            logger.warning(f"Agentic discovery failed: {e}. Fallback to 'general'.")
+            return ["general"]
 
 
 agent = Agent()

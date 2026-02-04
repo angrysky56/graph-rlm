@@ -99,7 +99,7 @@ class SchemaBuilder:
         - Accidental properties (weight ~0.1): Missing barely affects score
 
         Slot format can be:
-        - Simple: {"wings": "bool"} → default weight 0.5
+        - Simple: {"wings": "bool"} -> default weight 0.5
         - Weighted: {"wings": {"type": "bool", "weight": 0.9}}
         """
         schema = self.registry[schema_name]

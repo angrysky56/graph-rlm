@@ -73,60 +73,69 @@ Use this tool for complex reasoning that benefits from:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if thought is not None:
-        params["thought"] = thought
+        mcp_args["thought"] = thought
     if nextThoughtNeeded is not None:
-        params["nextThoughtNeeded"] = nextThoughtNeeded
+        mcp_args["nextThoughtNeeded"] = nextThoughtNeeded
     if thoughtNumber is not None:
-        params["thoughtNumber"] = thoughtNumber
+        mcp_args["thoughtNumber"] = thoughtNumber
     if totalThoughts is not None:
-        params["totalThoughts"] = totalThoughts
+        mcp_args["totalThoughts"] = totalThoughts
     if confidence is not None:
-        params["confidence"] = confidence
+        mcp_args["confidence"] = confidence
     if reasoning_quality is not None:
-        params["reasoning_quality"] = reasoning_quality
+        mcp_args["reasoning_quality"] = reasoning_quality
     if meta_thought is not None:
-        params["meta_thought"] = meta_thought
+        mcp_args["meta_thought"] = meta_thought
     if goal is not None:
-        params["goal"] = goal
+        mcp_args["goal"] = goal
     if progress is not None:
-        params["progress"] = progress
+        mcp_args["progress"] = progress
     if hypothesis is not None:
-        params["hypothesis"] = hypothesis
+        mcp_args["hypothesis"] = hypothesis
     if test_plan is not None:
-        params["test_plan"] = test_plan
+        mcp_args["test_plan"] = test_plan
     if test_result is not None:
-        params["test_result"] = test_result
+        mcp_args["test_result"] = test_result
     if evidence is not None:
-        params["evidence"] = evidence
+        mcp_args["evidence"] = evidence
     if session_id is not None:
-        params["session_id"] = session_id
+        mcp_args["session_id"] = session_id
     if builds_on is not None:
-        params["builds_on"] = builds_on
+        mcp_args["builds_on"] = builds_on
     if challenges is not None:
-        params["challenges"] = challenges
+        mcp_args["challenges"] = challenges
     if isRevision is not None:
-        params["isRevision"] = isRevision
+        mcp_args["isRevision"] = isRevision
     if revisesThought is not None:
-        params["revisesThought"] = revisesThought
+        mcp_args["revisesThought"] = revisesThought
     if branchFromThought is not None:
-        params["branchFromThought"] = branchFromThought
+        mcp_args["branchFromThought"] = branchFromThought
     if branchId is not None:
-        params["branchId"] = branchId
+        mcp_args["branchId"] = branchId
     if needsMoreThoughts is not None:
-        params["needsMoreThoughts"] = needsMoreThoughts
+        mcp_args["needsMoreThoughts"] = needsMoreThoughts
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="advanced_reasoning",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -153,22 +162,31 @@ Returns related memories with confidence scores and connection information.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if session_id is not None:
-        params["session_id"] = session_id
+        mcp_args["session_id"] = session_id
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="query_reasoning_memory",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -190,20 +208,29 @@ Returns success status and message.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if library_name is not None:
-        params["library_name"] = library_name
+        mcp_args["library_name"] = library_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="create_memory_library",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -221,18 +248,27 @@ Returns organized, searchable library information.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="list_memory_libraries",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -254,20 +290,29 @@ Returns success status and message.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if library_name is not None:
-        params["library_name"] = library_name
+        mcp_args["library_name"] = library_name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="switch_memory_library",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -282,18 +327,27 @@ Returns current library information.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="get_current_library_info",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -320,28 +374,37 @@ Returns success status and confirmation message.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
     if domain is not None:
-        params["domain"] = domain
+        mcp_args["domain"] = domain
     if description is not None:
-        params["description"] = description
+        mcp_args["description"] = description
     if data is not None:
-        params["data"] = data
+        mcp_args["data"] = data
     if tags is not None:
-        params["tags"] = tags
+        mcp_args["tags"] = tags
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="create_system_json",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -360,20 +423,29 @@ Returns the complete system JSON data including metadata and content.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if name is not None:
-        params["name"] = name
+        mcp_args["name"] = name
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="get_system_json",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -392,20 +464,29 @@ Returns matching files with relevance scores.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
     if query is not None:
-        params["query"] = query
+        mcp_args["query"] = query
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="search_system_json",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
@@ -418,18 +499,27 @@ Returns list of all system JSON files with their names, domains, and description
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    import asyncio
 
     # Build parameters dict, excluding None values
-    params = {}
+    mcp_args = {}
 
-
-    import asyncio
     async def _async_call():
         return await call_mcp_tool(
             server_name="advanced-reasoning",
             tool_name="list_system_json",
-            arguments=params,
+            arguments=mcp_args,
         )
+
+    try:
+        loop = asyncio.get_running_loop()
+        if loop.is_running():
+            # If we are in an async context, return the coroutine
+            return _async_call()
+    except RuntimeError:
+        pass
+
+    # If we are in a sync context (e.g. standard REPL), run to completion
     return asyncio.run(_async_call())
 
 
