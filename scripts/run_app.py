@@ -29,17 +29,30 @@ def main():
             traceback.print_exc()
 
     # Check for Ollama
+    ollama_detected = False
     try:
         import httpx
         try:
             httpx.get("http://localhost:11434/api/tags", timeout=1.0)
             print("[+] Ollama detected running.")
+            ollama_detected = True
         except:
             print("[-] Ollama not running (Local LLM will be unavailable unless started).")
             print("    To install/run Ollama: curl -fsSL https://ollama.com/install.sh | sh")
             print("    (You can still use the app with embedded Graph logic, but generation will fail or require Cloud API key)")
     except ImportError:
         pass
+
+    # Auto-Configure Provider
+    current_provider = os.environ.get("LLM_PROVIDER")
+    if not current_provider:
+        if ollama_detected:
+            print("[+] Auto-Config: Setting LLM_PROVIDER=ollama (Ollama detected)")
+            os.environ["LLM_PROVIDER"] = "ollama"
+        else:
+            print("[!] Warning: LLM_PROVIDER not set and Ollama not found.")
+            print("    Defaulting to 'openrouter' (requires OPENROUTER_API_KEY).")
+            # We don't set it, letting config.py default handle it, but we warned the user.
 
     # Check for Database
     print("[+] Database Mode: Auto-Detect (FalkorDB -> NetworkX Fallback)")

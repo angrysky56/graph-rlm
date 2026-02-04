@@ -38,30 +38,40 @@ class AgentWorker(QThread):
         # Initialize Agent in the thread context
         try:
             self.statusChanged.emit("Initializing Agent...")
-            self.agent = Agent()
-
-            # Run async initialization synchronously
-            # Wrap in try/except to prevent blocking on network errors
+            # We delay Agent instantiation until inside the thread to avoid context issues,
+            # but wrapping it in try/except catches config/import errors immediately.
             try:
-                # Set a timeout for initialization
-                # We can't easily timeout asyncio.run without wrapping the coroutine
-                async def init_with_timeout():
-                    try:
-                        await asyncio.wait_for(self.agent.initialize_system(), timeout=5.0)
-                    except asyncio.TimeoutError:
-                        self.logMessage.emit("WARNING", "Agent initialization timed out (Network slow/offline?). Proceeding.")
-                    except Exception as e:
-                        self.logMessage.emit("ERROR", f"Agent init error: {e}")
-
-                asyncio.run(init_with_timeout())
-                self.statusChanged.emit("Agent Ready")
+                self.agent = Agent()
             except Exception as e:
-                self.logMessage.emit("ERROR", f"Agent init failed: {e}")
-                self.statusChanged.emit("Agent Error")
+                self.logMessage.emit("ERROR", f"CRITICAL: Agent instantiation failed: {e}")
+                self.statusChanged.emit("Startup Failed")
+                # We continue to run so the UI doesn't freeze, but agent features will be broken
+                # Returning here would kill the worker thread
+
+            if self.agent:
+                # Run async initialization synchronously
+                # Wrap in try/except to prevent blocking on network errors
+                try:
+                    # Set a timeout for initialization
+                    # We can't easily timeout asyncio.run without wrapping the coroutine
+                    async def init_with_timeout():
+                        try:
+                            # 30 seconds should be enough even for cold-booting local LLMs
+                            await asyncio.wait_for(self.agent.initialize_system(), timeout=30.0)
+                        except asyncio.TimeoutError:
+                            self.logMessage.emit("WARNING", "Agent initialization timed out (Network slow/offline?). Proceeding.")
+                        except Exception as e:
+                            self.logMessage.emit("ERROR", f"Agent init error: {e}")
+
+                    asyncio.run(init_with_timeout())
+                    self.statusChanged.emit("Agent Ready")
+                except Exception as e:
+                    self.logMessage.emit("ERROR", f"Agent init failed: {e}")
+                    self.statusChanged.emit("Agent Error")
 
         except Exception as e:
-            self.logMessage.emit("ERROR", f"Failed to instantiate Agent: {e}")
-            self.statusChanged.emit("Agent Error")
+            self.logMessage.emit("ERROR", f"Unexpected error in AgentWorker: {e}")
+            self.statusChanged.emit("System Error")
             # Don't return, keep running so UI stays responsive to logs/graph interactions
 
         # Start Event Polling Loop
@@ -73,7 +83,8 @@ class AgentWorker(QThread):
                     if self.agent:
                         self._handle_query(payload)
                     else:
-                        self.logMessage.emit("ERROR", "Agent not initialized.")
+                        self.logMessage.emit("ERROR", "Agent not initialized. Cannot execute query.")
+                        self.chatMessage.emit("assistant", "[System Error]: Agent failed to start. Check logs.")
                 elif cmd_type == "STOP":
                     if self.agent:
                         self.agent.stop()
@@ -127,6 +138,7 @@ class AgentWorker(QThread):
                     self._dispatch_event(event)
             except Exception as e:
                 self.logMessage.emit("ERROR", f"Query Execution Error: {e}")
+                self.chatMessage.emit("assistant", f"[System Error]: {e}")
 
         # Run the async loop
         try:
