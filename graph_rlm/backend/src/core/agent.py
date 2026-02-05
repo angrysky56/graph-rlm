@@ -1,3 +1,8 @@
+"""
+Recursive Logic Machine (RLM) Agent.
+Handles the core execution loop, recursive querying, and tool integration.
+"""
+
 import asyncio
 import contextvars
 import datetime
@@ -61,11 +66,14 @@ execution_events: contextvars.ContextVar[Optional[queue.Queue]] = (
 
 @dataclass
 class ExecutionState:
+    """Thread-local state for the agent's execution loop."""
+
     final_result: Optional[str] = None
     stop_requested: bool = False
     synthesis_triggered: bool = False
     current_thought_id: Optional[str] = None
     depth: int = 0
+    turn_id: int = 1
 
 
 def broadcast_trace(msg: str):
@@ -110,6 +118,10 @@ class MCPServerNamespace:
         self._tools = {}
         self._docs = {}
 
+    def set_rlm_interface(self, rlm_interface: "RLMInterface"):
+        """Update the RLM interface binding."""
+        self._rlm_interface = rlm_interface
+
     def _ensure_loaded(self):
         if self._module is False:  # Already tried and failed
             return
@@ -125,7 +137,7 @@ class MCPServerNamespace:
                             # Use actual function name, no aliases
                             def make_wrapper(f, n):
                                 async def wrapped(*args, **kwargs):
-                                    self._rlm_interface._record_tool_use(n)
+                                    self._rlm_interface.record_tool_use(n)
                                     res = f(*args, **kwargs)
                                     if inspect.isawaitable(res):
                                         return await res
@@ -138,7 +150,7 @@ class MCPServerNamespace:
                             self._tools[attr] = wrapper
                             self._docs[attr] = func.__doc__
             except Exception as e:
-                logger.warning(f"Failed to load MCP server {self._mod_name}: {e}")
+                logger.warning("Failed to load MCP server %s: %s", self._mod_name, e)
                 self._module = False  # Mark as failed
 
     def __getattr__(self, name):
@@ -163,6 +175,13 @@ class LazyMCPNamespace:
         self._aliases = {}
         self._scan_done = False
 
+    def set_rlm_interface(self, rlm_interface: "RLMInterface"):
+        """Update the RLM interface binding and propagate to children."""
+        self._rlm_interface = rlm_interface
+        for server in self._aliases.values():
+            if hasattr(server, "set_rlm_interface"):
+                server.set_rlm_interface(rlm_interface)
+
     def _scan(self):
         if not self._scan_done and is_mcp_available():
             try:
@@ -171,21 +190,21 @@ class LazyMCPNamespace:
                 logger.info("Starting MCP server discovery...")
                 for _, mod_name, _ in pkgutil.iter_modules(mcp_tools_pkg.__path__):
                     if mod_name.startswith("_") or mod_name == "skills":
-                        logger.debug(f"Skipping module: {mod_name}")
+                        logger.debug("Skipping module: %s", mod_name)
                         continue
 
-                    logger.info(f"Discovered MCP module: {mod_name}")
+                    logger.info("Discovered MCP module: %s", mod_name)
 
                     # Create MCPServerNamespace using the actual module name (no aliases)
                     # This ensures tool discovery works correctly by matching module structure
                     server = MCPServerNamespace(mod_name, mod_name, self._rlm_interface)
                     self._aliases[mod_name] = server
-                    logger.info(f"Registered MCP server: {mod_name}")
+                    logger.info("Registered MCP server: %s", mod_name)
 
                 self._scan_done = True
                 logger.info("MCP server discovery completed.")
             except Exception as e:
-                logger.warning(f"MCP Scan Error: {e}")
+                logger.warning("MCP Scan Error: %s", e)
 
     def __getattr__(self, name):
         self._scan()
@@ -207,18 +226,18 @@ class RLMInterface:
     Allows recursive queries and memory recall.
     """
 
-    def __init__(self, agent: "Agent", session_id: str, root_session_id: str):
-        self.agent = agent
+    def __init__(self, agent_instance: "Agent", session_id: str, root_session_id: str):
+        self.agent = agent_instance
         self.session_id = session_id
         self.root_session_id = root_session_id
 
-    def _record_tool_use(self, name: str):
+    def record_tool_use(self, name: str):
         # FAST STOP CHECK: If the user hit stop, we must abort immediately.
-        if getattr(self.agent, "_stop_requested", False) or (
-            hasattr(self.agent, "_global_stop_event")
-            and self.agent._global_stop_event.is_set()
+        if getattr(self.agent, "stop_requested", False) or (
+            hasattr(self.agent, "global_stop_event")
+            and self.agent.global_stop_event.is_set()
         ):
-            logger.warning(f"Stop signal detected. Aborting tool call: {name}")
+            logger.warning("Stop signal detected. Aborting tool call: %s", name)
             raise InterruptedError(f"Execution stopped by user (Attempted: {name})")
 
         if self.session_id not in self.agent.execution_logs:
@@ -231,11 +250,11 @@ class RLMInterface:
         Exposes the full thought trace of the current session as a list of dictionaries.
         Allows the agent to programmatically inspect its own reasoning history.
         """
-        self._record_tool_use("rlm.history")
+        self.record_tool_use("rlm.history")
         try:
             return self.agent.db.get_session_trace(self.root_session_id)
         except Exception as e:
-            logger.error(f"Failed to fetch history for rlm.history: {e}")
+            logger.error("Failed to fetch history for rlm.history: %s", e)
             return []
 
     async def query(
@@ -248,9 +267,13 @@ class RLMInterface:
         """
         Recursive Primitive: Spawns a recursive child agent.
         """
-        self._record_tool_use("rlm.query")
+        self.record_tool_use("rlm.query")
         # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
         new_session_id = session_id or str(uuid.uuid4())
+
+        # Turn tracking: Inherit from parent turn
+        current_state = agent_state.get()
+        current_turn = current_state.turn_id if current_state else 1
 
         # Depth tracking: Increment depth for children
         current_depth = (
@@ -280,6 +303,7 @@ class RLMInterface:
             parent_id=self.agent.current_thought_id,
             session_id=new_session_id,
             depth=new_depth,
+            turn_id=current_turn,
         ):
             # Pipe child events up to parent's queue
             # We prefix the type or content to show it's a sub-agent
@@ -322,8 +346,8 @@ class RLMInterface:
         """
         Active Recall: Search the Graph for similar past thoughts.
         """
-        self._record_tool_use("rlm.recall")
-        logger.info(f"Thought {self.agent.current_thought_id}: Recalling '{query}'")
+        self.record_tool_use("rlm.recall")
+        logger.info("Thought %s: Recalling '%s'", self.agent.current_thought_id, query)
         self.agent.emit_event(
             "thinking", content=f"\n🧠 RLM: Recalling memories for '{query}'..."
         )
@@ -378,13 +402,13 @@ class RLMInterface:
                 else "No relevant past thoughts found."
             )
 
-        except Exception as e:
-            logger.error(f"Recall Error: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Recall Error: %s", e)
             return f"Error during memory recall: {e}"
 
     async def search(self, query: str, limit: int = 10):
         """Topological search across the graph (alias for graph_search)."""
-        self._record_tool_use("rlm.search")
+        self.record_tool_use("rlm.search")
         vec = await self.agent.llm.get_embedding(query)
         if vec:
             results = self.agent.db.find_similar_thoughts(vec, limit)
@@ -395,7 +419,7 @@ class RLMInterface:
 
     async def ingest_document(self, path: str, domain: str = "general"):
         """Ingests a document and codifies its knowledge into Axioms (CAG)."""
-        self._record_tool_use("rlm.ingest_document")
+        self.record_tool_use("rlm.ingest_document")
         from .dream import dreamer
 
         res = await dreamer.ingest_document(path, domain)
@@ -405,7 +429,7 @@ class RLMInterface:
 
     async def save_skill(self, name: str, code: str, description: Optional[str] = None):
         """Saves a code snippet as a persistent skill."""
-        self._record_tool_use("rlm.save_skill")
+        self.record_tool_use("rlm.save_skill")
         if not is_skills_available():
             return "Skills system not available."
         from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
@@ -416,7 +440,7 @@ class RLMInterface:
 
     async def run_skill(self, name: str = "", args: Optional[dict] = None, **kwargs):
         """Executes a registered skill."""
-        self._record_tool_use("rlm.run_skill")
+        self.record_tool_use("rlm.run_skill")
         # Handle 'title' as an alias for 'name' if the agent hallucinates it
         skill_name = name or kwargs.get("title") or ""
         if not skill_name:
@@ -428,22 +452,72 @@ class RLMInterface:
 
         return await execute_skill(skill_name, args or {})
 
+    async def get_axiom(self, name: str):
+        """Retrieves an axiom's code and metadata by name."""
+        self.record_tool_use("rlm.get_axiom")
+        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
+
+        mgr = get_axioms_manager()
+        axiom = mgr.get_axiom(name)
+        if not axiom:
+            return f"Axiom '{name}' not found."
+        return axiom
+
+    async def recall_axioms(self, query: str, limit: int = 5):
+        """High-precision semantic search for domain rules and axioms."""
+        self.record_tool_use("rlm.recall_axioms")
+        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
+
+        mgr = get_axioms_manager()
+        results = await mgr.find_similar_axioms(query, limit)
+        if not results:
+            return "No relevant axioms found."
+
+        formatted = []
+        for a in results:
+            type_tag = f" ({a.get('axiom_type')})" if a.get("axiom_type") else ""
+            formatted.append(
+                f"Axiom: {a.get('name')}{type_tag}\n"
+                f"Description: {a.get('description')}\n"
+                f"Code: {a.get('code')}"
+            )
+        return "\n\n---\n\n".join(formatted)
+
+    async def execute_axiom(self, name: str, args: Optional[dict] = None):
+        """Executes a 'solver' or 'heuristic' axiom directly."""
+        self.record_tool_use("rlm.execute_axiom")
+        from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
+        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
+
+        mgr = get_axioms_manager()
+        axiom = mgr.get_axiom(name)
+        if not axiom:
+            return f"Axiom '{name}' not found."
+
+        if axiom.get("axiom_type") == "validator":
+            return (
+                "Warning: This is a 'validator' axiom. It should be used via rlm.verify_axiom "
+                "or by the Sheaf monitor. Running as a skill might not have the intended effect."
+            )
+
+        return await execute_skill(name, args or {})
+
     async def install_package(self, package_name: str):
         """Install a Python package into the agent's REPL environment."""
-        self._record_tool_use("rlm.install_package")
+        self.record_tool_use("rlm.install_package")
         return self.agent.install_package(package_name)
 
     async def install_skill_package(self, package_name: str):
         """Install a package specifically for the AGENT skills (agent_venv) environment."""
-        self._record_tool_use("rlm.install_skill_package")
+        self.record_tool_use("rlm.install_skill_package")
         return self.agent.install_skill_package(package_name)
 
     async def done(self, final_answer: str = ""):
-        """Signal that the task is complete."""
-        self._record_tool_use("rlm.done")
-        self.agent._stop_requested = True
+        """Signifies the agent has reached a final conclusion."""
+        self.record_tool_use("rlm.done")
+        self.agent.stop_requested = True
         if final_answer:
-            self.agent._final_result = final_answer
+            self.agent.final_result = final_answer
 
         # Log a summary to console, but return full confirmation
         summary = final_answer
@@ -457,12 +531,12 @@ class RLMInterface:
 
     async def stop(self, final_answer: str = ""):
         """Alias for done()."""
-        self._record_tool_use("rlm.stop")
+        self.record_tool_use("rlm.stop")
         return await self.done(final_answer)
 
     async def help(self):
         """Broad discovery of available commands within the 'rlm' namespace."""
-        self._record_tool_use("rlm.help")
+        self.record_tool_use("rlm.help")
 
         # Core RLM Commands
         help_dict = {
@@ -472,15 +546,14 @@ class RLMInterface:
             "ingest_document(path, domain)": "CAG: Codify docs into Axioms.",
             "save_skill(name, code, desc)": "Persist a code block.",
             "run_skill(name, args)": "Run a saved code block.",
+            "get_axiom(name)": "Retrieve axiom code and metadata.",
+            "recall_axioms(query, limit)": "Semantic search for domain rules.",
+            "execute_axiom(name, args)": "Execute a solver or healing axiom.",
             "install_package(name)": "Install Python dependencies.",
         }
 
         # Dynamic MCP Tool Discovery
         try:
-            import importlib
-            import inspect
-            from pathlib import Path
-
             # Resolve backend root to find mcp_tools
             backend_root = Path(__file__).parent.parent.parent
             tools_dir = backend_root / "mcp_tools"
@@ -501,14 +574,14 @@ class RLMInterface:
                             sig = str(inspect.signature(obj))
                             key = f"mcp.{module_name}.{name}{sig}"
                             doc = inspect.getdoc(obj) or "No description."
-                            help_dict[key] = doc.split("\n")[0]  # Brief doc
+                            help_dict[key] = doc.split("\n", maxsplit=1)[0]  # Brief doc
                 except Exception as e:
                     logger.warning(
                         f"Failed to load module '{module_name}' for help: {e}"
                     )
                     continue
-        except Exception as e:
-            logger.warning(f"Error discovering MCP tools for help(): {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Error discovering MCP tools for help(): %s", e)
 
         return help_dict
 
@@ -517,6 +590,11 @@ class RLMInterface:
 
 
 class Agent:
+    """
+    The core Recursive Logic Machine (RLM) agent.
+    Handles the main execution loop, epistemic health checks, and dreamer integration.
+    """
+
     skills_manager: Optional["SkillsManager"]
 
     def __init__(self):
@@ -532,11 +610,11 @@ class Agent:
         mcp_tools_path = backend_path / "mcp_tools"
 
         if str(project_root) not in sys.path:
-            logger.info(f"Injecting Project Root: {project_root}")
+            logger.info("Injecting Project Root: %s", project_root)
             sys.path.append(str(project_root))
 
         if str(backend_path) not in sys.path:
-            logger.info(f"Injecting Backend Path: {backend_path}")
+            logger.info("Injecting Backend Path: %s", backend_path)
             sys.path.append(str(backend_path))
 
         if str(skills_path) not in sys.path:
@@ -555,9 +633,18 @@ class Agent:
         self.current_task_input: Optional[str] = (
             None  # Tracks active goal for Sheaf Teleology
         )
-        self._global_stop_event = (
+        self.global_stop_event = (
             threading.Event()
         )  # Shared event for cross-thread stopping
+
+        # --- STATE INITIALIZATION (Linter safety) ---
+        self.last_dream_insight: Optional[str] = None
+        self.stop_requested: bool = False
+        self.final_result: Optional[str] = None
+        self.synthesis_triggered: bool = False
+        self.step_id: int = 0
+        self.current_turn: int = 1
+        self.current_thought_id: Optional[str] = None
 
         if is_skills_available():
             from graph_rlm.backend.src.mcp_integration.skills import (
@@ -575,15 +662,13 @@ class Agent:
         # 1. Core Agent / REPL: Runs in the active project environment (sys.prefix).
         # 2. Skills / Tools: Run in the dedicated 'agent_venv' for isolation.
         # 3. MCP Servers: Run in their own independent environments (managed by uv or configured venvs).
-        logger.info(f"Agent initialized using active environment: {sys.prefix}")
+        logger.info("Agent initialized using active environment: %s", sys.prefix)
         logger.info("Agent initialized with Persistent REPL support")
         logger.info("RepE Safety Layer & Sheaf Topology Monitor Loaded.")
 
     def _ensure_kb_structure(self):
         """Creates the Knowledge Base directory structure if it doesn't exist."""
         try:
-            from pathlib import Path
-
             kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
 
             # Subfolders referenced in System Prompt
@@ -605,9 +690,9 @@ class Agent:
                     "- `workspace/`: General scratchpad.\n"
                 )
 
-            logger.info(f"Knowledge Base structure verified at: {kb_root}")
-        except Exception as e:
-            logger.warning(f"Failed to verify Knowledge Base structure: {e}")
+            logger.info("Knowledge Base structure verified at: %s", kb_root)
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Failed to verify Knowledge Base structure: %s", e)
 
     # --- SESSION-ISOLATED PROPERTIES ---
     def _get_state(self) -> ExecutionState:
@@ -619,28 +704,28 @@ class Agent:
         return state
 
     @property
-    def _final_result(self) -> Optional[str]:
+    def final_result(self) -> Optional[str]:
         return self._get_state().final_result
 
-    @_final_result.setter
-    def _final_result(self, value: Optional[str]):
+    @final_result.setter
+    def final_result(self, value: Optional[str]):
         self._get_state().final_result = value
 
     @property
-    def _stop_requested(self) -> bool:
+    def stop_requested(self) -> bool:
         # Check both local context AND global signal
-        return self._get_state().stop_requested or self._global_stop_event.is_set()
+        return self._get_state().stop_requested or self.global_stop_event.is_set()
 
-    @_stop_requested.setter
-    def _stop_requested(self, value: bool):
+    @stop_requested.setter
+    def stop_requested(self, value: bool):
         self._get_state().stop_requested = value
 
     @property
-    def _synthesis_triggered(self) -> bool:
+    def synthesis_triggered(self) -> bool:
         return self._get_state().synthesis_triggered
 
-    @_synthesis_triggered.setter
-    def _synthesis_triggered(self, value: bool):
+    @synthesis_triggered.setter
+    def synthesis_triggered(self, value: bool):
         self._get_state().synthesis_triggered = value
 
     @property
@@ -689,20 +774,20 @@ class Agent:
                 ]
 
             # trunk-ignore(bandit/B603)
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode == 0:
-                logger.info(f"Successfully installed {package_name}")
+                logger.info("Successfully installed %s", package_name)
                 self.emit_event("thinking", content="  -> Installation successful.")
                 return f"Successfully installed {package_name}\n{result.stdout}"
             else:
-                logger.error(f"Failed to install {package_name}: {result.stderr}")
+                logger.error("Failed to install %s: %s", package_name, result.stderr)
                 self.emit_event(
                     "error", content=f"Installation failed: {result.stderr}"
                 )
                 return f"Failed to install {package_name}\nError: {result.stderr}"
-        except Exception as e:
-            logger.error(f"Installation error: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Installation error: %s", e)
             return f"Installation error: {e}"
 
     def _install_to_agent_venv(self, package_name: str) -> str:
@@ -750,20 +835,20 @@ class Agent:
                 cmd = [str(python_exe), "-m", "pip", "install", package_name]
 
             # trunk-ignore(bandit/B603)
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
 
             if result.returncode == 0:
-                logger.info(f"Successfully installed {package_name} in Agent Venv")
+                logger.info("Successfully installed %s in Agent Venv", package_name)
                 self.emit_event("thinking", content="  -> Installation successful.")
                 return f"Successfully installed {package_name}\n{result.stdout}"
             else:
-                logger.error(f"Failed to install {package_name}: {result.stderr}")
+                logger.error("Failed to install %s: %s", package_name, result.stderr)
                 self.emit_event(
                     "error", content=f"Installation failed: {result.stderr}"
                 )
                 return f"Failed to install {package_name}\nError: {result.stderr}"
-        except Exception as e:
-            logger.error(f"Installation error: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Installation error: %s", e)
             return f"Installation error: {e}"
 
     def install_package(self, package_name: str) -> str:
@@ -791,7 +876,7 @@ class Agent:
                 self.emit_event("error", content=f"Skill '{name}' not found.")
                 return f"Error: Skill '{name}' not found."
             return skill["code"]
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             self.emit_event("error", content=f"Error reading skill: {e}")
             return f"Error reading skill: {e}"
 
@@ -818,11 +903,11 @@ class Agent:
         if event_type == "thinking" and content:
             # Use tag if available for better log mirroring
             log_prefix = f"[THINKING] [{tag}]" if tag else "[THINKING]"
-            logger.info(f"{prefix}{log_prefix} {content.strip()}")
+            logger.info("%s%s %s", prefix, log_prefix, content.strip())
         elif event_type == "code_output" and content:
-            logger.info(f"{prefix}[REPL OUTPUT] >>\n{content}")
+            logger.info("%s[REPL OUTPUT] >>\n%s", prefix, content)
         elif event_type == "error" and content:
-            logger.error(f"{prefix}[AGENT ERROR] {content}")
+            logger.error("%s[AGENT ERROR] %s", prefix, content)
 
         q = execution_events.get()
         if q:
@@ -845,32 +930,35 @@ class Agent:
         session_id: str = "default",
         depth: int = 0,
         root_session_id: Optional[str] = None,
+        turn_id: int = 1,
     ):
         """
         Streaming entry point.
         launches the sync execution in a thread and yields events from a queue.
         """
         q = queue.Queue()
-        self._stop_requested = False
-        self._global_stop_event.clear()  # Reset global flag
-        self._final_result = None
+        self.stop_requested = False
+        self.global_stop_event.clear()  # Reset global flag
+        self.final_result = None
 
         def run_logic():
             # Set the context vars for this thread
             q_token = execution_events.set(q)
             state_token = agent_state.set(
-                ExecutionState(depth=depth, current_thought_id=parent_id)
+                ExecutionState(
+                    depth=depth, current_thought_id=parent_id, turn_id=turn_id
+                )
             )
             try:
                 # Set initial depth for this agent run
                 self.current_depth = depth
                 asyncio.run(
                     self.query_sync(
-                        prompt, parent_id, session_id, depth, root_session_id
+                        prompt, parent_id, session_id, depth, root_session_id, turn_id
                     )
                 )
-            except Exception as e:
-                logger.error(f"Error in execution thread: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Error in execution thread: %s", e)
                 q.put({"type": "error", "content": str(e)})
             finally:
                 q.put(None)  # Signal done
@@ -902,6 +990,7 @@ class Agent:
         session_id: str = "default",
         depth: int = 0,
         root_session_id: Optional[str] = None,
+        turn_id: int = 1,
     ) -> str:
         """
         Synchronous Recursive Logic with Stateless Graph Memory.
@@ -917,10 +1006,18 @@ class Agent:
 
         # 0. Reset scoped State for this specific call (redundant if already set in stream_query but safe)
         if not agent_state.get():
-            agent_state.set(ExecutionState(depth=depth, current_thought_id=parent_id))
+            agent_state.set(
+                ExecutionState(
+                    depth=depth, current_thought_id=parent_id, turn_id=turn_id
+                )
+            )
 
-        self._final_result = None
-        self._stop_requested = False
+        state = agent_state.get()
+        if state:
+            self.current_turn = state.turn_id
+
+        self.final_result = None
+        self.stop_requested = False
 
         # Ensure REPL is initialized for this session
         if session_id not in self.active_repls:
@@ -930,7 +1027,7 @@ class Agent:
         if is_mcp_available():
             from graph_rlm.backend.src.mcp_integration.runtime import set_stop_event
 
-            set_stop_event(self._global_stop_event)
+            set_stop_event(self.global_stop_event)
 
         # 0. Initial "Task" Node (Root of this query)
         # Wrap everything in try/except to prevent DB crashes from killing the agent
@@ -941,7 +1038,10 @@ class Agent:
         try:
             task_id = str(uuid.uuid4())
             logger.info(
-                f"Session {session_id}: Starting Task {task_id} (Round {current_round_id})"
+                "Session %s: Starting Task %s (Round %s)",
+                session_id,
+                task_id,
+                current_round_id,
             )
 
             self.db.create_thought_node(
@@ -952,6 +1052,8 @@ class Agent:
                 session_id=session_id,
                 root_session_id=final_root_id,
                 round_id=current_round_id,
+                turn_id=self.current_turn,
+                step_id=0,  # Root task is step 0
             )
 
             # Update current pointer
@@ -973,8 +1075,8 @@ class Agent:
                     },
                 },
             )
-        except Exception as e:
-            logger.error(f"Failed to initialize Task node: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Failed to initialize Task node: %s", e)
             task_id = str(uuid.uuid4())
             self.current_thought_id = task_id
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
@@ -989,7 +1091,7 @@ class Agent:
             )
 
         # 1. Base System Prompt
-        base_system_prompt = self._build_system_prompt()
+        base_system_prompt = await self._build_system_prompt()
 
         max_steps = 1000
         step = 0
@@ -999,12 +1101,12 @@ class Agent:
 
         while step < max_steps:
             # 0.5 CHECK STOP SIGNAL
-            if getattr(self, "_stop_requested", False) or (
-                hasattr(self, "_global_stop_event") and self._global_stop_event.is_set()
+            if getattr(self, "stop_requested", False) or (
+                hasattr(self, "global_stop_event") and self.global_stop_event.is_set()
             ):
                 logger.info("Agent loop breaking due to stop request.")
                 # Ensure the flag is set if the event was
-                self._stop_requested = True
+                self.stop_requested = True
                 break
             step += 1
             thought_id = str(uuid.uuid4())
@@ -1023,8 +1125,8 @@ class Agent:
                     current_round_id=current_round_id,
                 )
                 self.emit_event("scratchpad_text", content=context_scratchpad)
-            except Exception as e:
-                logger.error(f"Failed to build scratchpad: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to build scratchpad: %s", e)
                 context_scratchpad = f"Error: Scratchpad unavailable ({e})"
 
             system_prompt = f"{base_system_prompt}\n\n{context_scratchpad}"
@@ -1051,8 +1153,8 @@ class Agent:
                     if isinstance(props, dict) and "id" in props:
                         # We do NOT filter current round; Sheaf needs full local topology
                         frontier_ids.append(props["id"])
-            except Exception as e:
-                logger.error(f"Context loading failed (Sheaf IDs): {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Context loading failed (Sheaf IDs): %s", e)
 
             # 3. Construct LLM Context using XML isolation for Gemini safety
             # [STABILITY] Explicitly prefix all paths and wrap in XML to avoid command hallucination
@@ -1102,23 +1204,23 @@ class Agent:
                         axioms = axioms_mgr.list_axioms()
                         sorted_keys = sorted(axioms.keys())[:20]
                         axioms_list_str = ", ".join(sorted_keys)
-                except Exception as ex:
-                    logger.warning(f"Failed to load axioms async: {ex}")
+                except Exception as ex:  # pylint: disable=broad-except
+                    logger.warning("Failed to load axioms async: %s", ex)
 
             # --- HOT SEAT INJECTION ---
             hot_seat_warning = ""
-            if getattr(self, "_last_dream_insight", None):
+            if getattr(self, "last_dream_insight", None):
                 hot_seat_warning = (
                     "\n\n--- ⚠️ HOT SEAT: EPISTEMIC RECOVERY ACTIVE ---\n"
                     "Your previous response was REJECTED by the Dreamer Gatekeeper for Hallucination/Trace Contradiction.\n"
-                    f"CRITIQUE: {self._last_dream_insight}\n"
+                    f"CRITIQUE: {self.last_dream_insight}\n"
                     "You MUST explicitly address the contradiction, explain why you failed, "
                     "and provide a GROUNDED response based strictly on the execution trace.\n"
                     "Failure to align will result in a recursive block.\n---"
                 )
 
             system_prompt = (
-                f"{self._build_system_prompt(axioms_list_str=axioms_list_str)}\n\n"
+                f"{await self._build_system_prompt(axioms_list_str=axioms_list_str)}\n\n"
                 f"{context_scratchpad}{hot_seat_warning}"
             )
 
@@ -1146,8 +1248,8 @@ class Agent:
                 )
 
                 # Pre-gen stop check
-                if self._stop_requested or self._global_stop_event.is_set():
-                    self._stop_requested = True
+                if self.stop_requested or self.global_stop_event.is_set():
+                    self.stop_requested = True
                     break
 
                 response_text = await self.llm.generate(
@@ -1158,14 +1260,14 @@ class Agent:
                 )
 
                 # Post-gen stop check
-                if self._stop_requested or self._global_stop_event.is_set():
-                    self._stop_requested = True
+                if self.stop_requested or self.global_stop_event.is_set():
+                    self.stop_requested = True
                     break
                 # self.emit_event("token", content=response_text) # Redundant with thinking output
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except
                 response_text = f"LLM Error: {e}"
                 # Log exception to standard logger
-                logger.error(f"LLM Generative Error: {e}")
+                logger.error("LLM Generative Error: %s", e)
 
             # Raw response logging removed for stability
 
@@ -1192,13 +1294,15 @@ class Agent:
                         status="error",
                         parent_id=self.current_thought_id,
                         round_id=current_round_id,
+                        turn_id=self.current_turn,
+                        step_id=step,
                     )
-                except Exception as db_err:
-                    logger.error(f"Failed to commit error node: {db_err}")
+                except Exception as db_err:  # pylint: disable=broad-except
+                    logger.error("Failed to commit error node: %s", db_err)
                 break
 
             # 3c. Final check for stop request before committing
-            if getattr(self, "_stop_requested", False):
+            if getattr(self, "stop_requested", False):
                 break
 
             # Emit the full thought for the UI scratchpad with metadata
@@ -1240,6 +1344,8 @@ class Agent:
                     status="running",
                     parent_id=self.current_thought_id,
                     round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
                 )
                 # Emit early graph update
                 self.emit_event(
@@ -1264,8 +1370,8 @@ class Agent:
                         "parent_id": self.current_thought_id,
                     },
                 )
-            except Exception as e:
-                logger.error(f"Failed to pre-commit thought: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to pre-commit thought: %s", e)
 
             # --- 6. EPISTEMIC HEALTH CHECK (Dual-Process Monitoring) ---
             # We run this BEFORE executing code to prevent "hallucinated actions."
@@ -1279,8 +1385,8 @@ class Agent:
                     self.session_cache["task_embedding"] = await self.llm.get_embedding(
                         self.current_task_input or prompt
                     )
-                except Exception as e:
-                    logger.warning(f"Failed to embed task for Health Check: {e}")
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.warning("Failed to embed task for Health Check: %s", e)
 
             if current_vec:
                 # B. Run Monitors in Parallel
@@ -1337,7 +1443,7 @@ class Agent:
                     intervention_prompt = (
                         f"SYSTEM INTERVENTION (Field Check): You are confident, but you are drifting away from the Goal. "
                         f"Teleological Gradient: {sheaf_diag.get('energy', 0):.2f} (Diverging). "
-                        f"Re-read the original user request and justify how this step helps."
+                        "Re-read the original user request and justify how this step helps."
                     )
 
                 # SCENARIO 4: LOOPING (Confident repetition)
@@ -1359,7 +1465,7 @@ class Agent:
 
                 # D. EXECUTE INTERVENTION (Steering)
                 if intervention_prompt:
-                    logger.warning(f"🛡️ Triggering Intervention: {intervention_type}")
+                    logger.warning("🛡️ Triggering Intervention: %s", intervention_type)
                     self.emit_event(
                         "thinking",
                         content=f"⚠️ {intervention_type}: {intervention_prompt}",
@@ -1376,6 +1482,8 @@ class Agent:
                         status="reflexion",
                         round_id=current_round_id,
                         prompt_embedding=vec,
+                        turn_id=self.current_turn,
+                        step_id=step,
                     )
 
                     # Steering Action: Force the pointer to this intervention
@@ -1408,7 +1516,8 @@ class Agent:
             if code:
                 # [Actionable Advice]: Explicit State Checksumming
                 logger.info(
-                    f"Atomic Action Checksum: Parent={self.current_thought_id} -> Executing Action"
+                    "Atomic Action Checksum: Parent=%s -> Executing Action",
+                    self.current_thought_id,
                 )
 
                 # 6b. [CAG Pivot] Axiomatic Consistency Check
@@ -1422,9 +1531,9 @@ class Agent:
                     )
                     if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
                         axiom_critique = axiom_diag.get("critique")
-                        logger.warning(f"🛡️  CAG Blocked execution: {axiom_critique}")
-                except Exception as e:
-                    logger.warning(f"Axiomatic check failed to run: {e}")
+                        logger.warning("🛡️  CAG Blocked execution: %s", axiom_critique)
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.warning("Axiomatic check failed to run: %s", e)
 
                 execution_failed = False
                 if axiom_critique:
@@ -1439,8 +1548,8 @@ class Agent:
                     execution_failed = True
                 else:
                     # Pre-execution stop check
-                    if self._stop_requested or self._global_stop_event.is_set():
-                        self._stop_requested = True
+                    if self.global_stop_event.is_set() or self.stop_requested:
+                        self.stop_requested = True
                         break
 
                     # Check code safety?
@@ -1453,8 +1562,8 @@ class Agent:
                     )
 
                     # Post-execution stop check
-                    if self._stop_requested or self._global_stop_event.is_set():
-                        self._stop_requested = True
+                    if self.stop_requested or self.global_stop_event.is_set():
+                        self.stop_requested = True
                         break
 
                 if repl_id:
@@ -1477,8 +1586,8 @@ class Agent:
             if output and len(output) > 100:
                 try:
                     final_vec = await self.llm.get_embedding(full_content)
-                except Exception as e:
-                    logger.warning(f"Failed to generate final embedding: {e}")
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.warning("Failed to generate final embedding: %s", e)
 
             # Generate execution summary for scratchpad display
             # Summary is brief (first ~200 chars), full result stored in 'result' field
@@ -1510,7 +1619,10 @@ class Agent:
 
                     if grandparent_id:
                         logger.info(
-                            f"♻️ Active Pruning Trigger: Rewiring {thought_id} to Grandparent {grandparent_id} and deleting Failure {failed_node_id}"
+                            "♻️ Active Pruning Trigger: Rewiring %s to Grandparent %s and deleting Failure %s",
+                            thought_id,
+                            grandparent_id,
+                            failed_node_id,
                         )
                         final_parent_id = grandparent_id
                         node_to_prune = failed_node_id
@@ -1528,6 +1640,8 @@ class Agent:
                     execution_summary=exec_summary,
                     result=output if output else None,
                     round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
                 )
 
                 # Execute Pruning
@@ -1536,7 +1650,7 @@ class Agent:
                         self.db.delete_thought_node(node_to_prune)
                     except Exception as prune_err:
                         logger.error(
-                            f"Failed to prune node {node_to_prune}: {prune_err}"
+                            "Failed to prune node %s: %s", node_to_prune, prune_err
                         )
 
                 # Emit immediate scratchpad update for UI responsiveness
@@ -1545,10 +1659,10 @@ class Agent:
                     self.emit_event(
                         "scratchpad_update", data=sp_data, is_sub_event=False
                     )
-                except Exception as ex:
-                    logger.warning(f"Failed to emit scratchpad update: {ex}")
-            except Exception as e:
-                logger.error(f"Failed to commit thought to graph: {e}")
+                except Exception as ex:  # pylint: disable=broad-except
+                    logger.warning("Failed to emit scratchpad update: %s", ex)
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to commit thought to graph: %s", e)
 
             # Update Frontier Pointer
             # Update previous status for next iteration
@@ -1556,18 +1670,18 @@ class Agent:
             self.current_thought_id = thought_id
 
             # 1. Answer Detection & Terminal Triggers
-            code_result = getattr(self, "_final_result", None)
+            code_result = getattr(self, "final_result", None)
 
             # --- FORCED SYNTHESIS FOR CODE RESULTS ---
             # If we obtained a result via code (rlm.done or heuristic) but haven't explained it yet,
             # we force the agent to perform a "Synthesis Turn" to provide a readable summary.
-            if code_result and not getattr(self, "_synthesis_triggered", False):
+            if code_result and not getattr(self, "synthesis_triggered", False):
                 logger.info("🛡️ Triggering Final Synthesis Step for Code Result...")
-                self._synthesis_triggered = True
+                self.synthesis_triggered = True
 
                 # Clear the "hard" result so we don't break the loop yet.
                 # We store it in the prompt so the agent sees it.
-                self._final_result = None
+                self.final_result = None
 
                 synthesis_prompt = (
                     f"SYSTEM: Execution complete. Code returned: '{code_result}'. "
@@ -1582,13 +1696,15 @@ class Agent:
                     root_session_id=final_root_id,
                     parent_id=self.current_thought_id,
                     round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
                 )
                 # Skip the rest of the loop to let the Agent generate the synthesis
                 continue
 
             if (
                 "RLM_FINAL_OUTPUT" in response_text
-                or getattr(self, "_final_result", None)
+                or getattr(self, "final_result", None)
             ) and thought_status == "success":
                 # --- EPISTEMIC VERIFICATION ---
                 # Check for Laziness, Obsequiousness, and Reward Hacking before breaking.
@@ -1599,22 +1715,22 @@ class Agent:
                 )
 
                 if integrity_check["status"] == "RETRY" and not getattr(
-                    self, "_final_result", None
+                    self, "final_result", None
                 ):
                     # SAFETY: Don't reset if the user hit STOP
-                    if self._global_stop_event.is_set() or self._stop_requested:
+                    if self.global_stop_event.is_set() or self.stop_requested:
                         logger.info(
                             "Integrity failure observed, but stop requested. Breaking."
                         )
-                        self._stop_requested = True
+                        self.stop_requested = True
                         break
 
                     logger.warning(
-                        f"🛡️ Epistemic Failure detected: {integrity_check['flags']}"
+                        "🛡️ Epistemic Failure detected: %s", integrity_check["flags"]
                     )
                     # Reset final answer and inject critique
-                    self._final_result = None
-                    self._stop_requested = False
+                    self.final_result = None
+                    self.stop_requested = False
 
                     critique = (
                         "🛡️ SYSTEM INTEGRITY ALERT: Your response was flagged for: "
@@ -1630,25 +1746,27 @@ class Agent:
                         root_session_id=final_root_id,
                         prompt_embedding=vec,
                         round_id=current_round_id,
+                        turn_id=self.current_turn,
+                        step_id=step,
                     )
                     continue  # Keep the loop running
                 # --- END VERIFICATION ---
 
-                if not self._final_result:
-                    self._final_result = response_text
+                if not self.final_result:
+                    self.final_result = response_text
 
                 # 1. Generate Candidate Validated Response (Draft)
                 # We do this BEFORE Dreamer so Dreamer can validate whether this response resolves prior failures.
                 final_response_candidate = None
-                if self._final_result:
+                if self.final_result:
                     try:
                         final_response_candidate = (
                             await self._generate_validated_response(
                                 final_root_id, prompt
                             )
                         )
-                    except Exception as e:
-                        logger.warning(f"Failed to generate candidate response: {e}")
+                    except Exception as e:  # pylint: disable=broad-except
+                        logger.warning("Failed to generate candidate response: %s", e)
 
                 # 2. Dreamer Trigger (Auto-Consolidate before exit)
                 try:
@@ -1680,10 +1798,11 @@ class Agent:
                             context=scratchpad_content,  # Pass the full context
                         )
                         logger.info(
-                            f"💤 Dream Cycle Completed. Status: {dream_res.get('status')}"
+                            "💤 Dream Cycle Completed. Status: %s",
+                            dream_res.get("status"),
                         )
-                    except Exception as e:
-                        logger.warning(f"Dream cycle failed during execution: {e}")
+                    except Exception as e:  # pylint: disable=broad-except
+                        logger.warning("Dream cycle failed during execution: %s", e)
                         dream_res = {}
 
                     # GATEKEEPER LOGIC: Check Dreamer Status
@@ -1709,21 +1828,24 @@ class Agent:
                                             "msg": f"\n\n---\n{dreamer_msg}",
                                         },
                                     )
-                                except Exception as db_err:
+                                except (
+                                    Exception
+                                ) as db_err:  # pylint: disable=broad-except
                                     logger.error(
-                                        f"Failed to persist Dreamer msg: {db_err}"
+                                        "Failed to persist Dreamer msg: %s", db_err
                                     )
 
                         # 2. Check if we've already tried to fix this exact issue to prevent infinite loops
-                        last_insight = getattr(self, "_last_dream_insight", None)
+                        last_insight = getattr(self, "last_dream_insight", None)
                         if last_insight != insight:
                             # 3. REJECT EXIT. Force Self-Healing.
                             logger.info(
                                 "🛡️ Dreamer Gatekeeper REJECTED exit. Injecting insight for self-healing."
                             )
-                            self._last_dream_insight = insight
-                            self._final_result = None  # Cancel valid result
-                            self._stop_requested = False
+                            self.last_dream_insight = insight
+                            self.final_result = None  # Cancel valid result
+                            self.stop_requested = False
+                            self.synthesis_triggered = False
 
                             # Inject the Insight as a High-Priority Thought
                             rejection_msg = (
@@ -1741,9 +1863,11 @@ class Agent:
                                 dreamer_analysis=insight,
                                 round_id=current_round_id,
                                 status="rejected",
+                                turn_id=self.current_turn,
+                                step_id=step,
                             )
                             # Set internal state to force recovery behavior
-                            self._synthesis_triggered = False
+                            self.synthesis_triggered = False
                             continue  # Loop back
                         else:
                             logger.warning(
@@ -1759,15 +1883,17 @@ class Agent:
                             root_session_id=final_root_id,
                             dreamer_analysis=insight,  # Store the full insight
                             round_id=current_round_id,
+                            turn_id=self.current_turn,
+                            step_id=step,
                         )
-                except Exception as e:
-                    logger.warning(f"Dream cycle failed on exit: {e}")
+                except Exception as e:  # pylint: disable=broad-except
+                    logger.warning("Dream cycle failed on exit: %s", e)
 
                 # 3. Store the final response (If we passed the Gatekeeper)
                 if final_response_candidate:
                     try:
                         # CRITICAL FIX: Adopt the Dreamer-validated response as the Final Result
-                        self._final_result = final_response_candidate
+                        self.final_result = final_response_candidate
 
                         # EMIT IT SO USER SEES IT IMMEDIATELY
                         self.emit_event(
@@ -1782,12 +1908,14 @@ class Agent:
                             session_id=session_id,
                             root_session_id=final_root_id,
                             status="success",
-                            final_response=self._final_result,
+                            final_response=self.final_result,
                             round_id=current_round_id,
+                            turn_id=self.current_turn,
+                            step_id=step,
                         )
 
-                    except Exception as e:
-                        logger.warning(f"Failed to store final response: {e}")
+                    except Exception as e:  # pylint: disable=broad-except
+                        logger.warning("Failed to store final response: %s", e)
 
                 break
 
@@ -1817,6 +1945,8 @@ class Agent:
                     prompt_embedding=vec,
                     parent_id=self.current_thought_id,
                     round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
                 )
 
                 # Update pointer
@@ -1827,9 +1957,9 @@ class Agent:
 
         # 8. Loop Exit: Emit Final Answer if available
         # 8. Loop Exit: Emit Final Answer if available
-        if self._final_result:
-            self.emit_event("RLM_FINAL_RESPONSE", content=self._final_result)
-        elif self._stop_requested:
+        if self.final_result:
+            self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
+        elif self.stop_requested:
             # Stop requested by user or tool
             self.emit_event(
                 "RLM_FINAL_RESPONSE",
@@ -1841,7 +1971,7 @@ class Agent:
                 content=f"AGENT LIMIT REACHED: Reached max_steps ({max_steps}). Stopping execution.",
             )
             logger.warning(
-                f"Session {session_id} reached max steps ({max_steps}) and aborted."
+                "Session %s reached max steps (%s) and aborted.", session_id, max_steps
             )
         else:
             # Fallback: Emit a system notice if the loop exits without a result (e.g. error/circuit breaker)
@@ -1855,7 +1985,7 @@ class Agent:
             )
 
         # 9. ARCHIVE ROUND (If we have a result or just to save state)
-        if self._final_result:
+        if self.final_result:
             try:
                 # Reconstruct full scratchpad for archive
                 final_scratchpad = scratchpad_builder.build_scratchpad(
@@ -1890,17 +2020,17 @@ class Agent:
                     root_session_id=final_root_id,
                     user_prompt=prompt,
                     repl_ids=repl_ids,
-                    final_response=self._final_result,
+                    final_response=self.final_result,
                     full_scratchpad=final_scratchpad,
                     started_at=int(current_round_started),
                     ended_at=int(datetime.datetime.now().timestamp() * 1000),
                 )
             except Exception as e:
-                logger.error(f"Failed to archive round: {e}")
+                logger.error("Failed to archive round: %s", e)
 
-        return self._final_result or "Task processing stopped."
+        return self.final_result or "Task processing stopped."
 
-    def _build_system_prompt(self, axioms_list_str: str = "None") -> str:
+    async def _build_system_prompt(self, axioms_list_str: str = "None") -> str:
         # Extracted system prompt builder for cleanliness
         # Resolve paths for transparency
         backend_root = Path(__file__).parent.parent.parent
@@ -1923,7 +2053,7 @@ class Agent:
                 skills_list_str = ", ".join(skills.keys()) if skills else "None"
 
         except Exception as e:
-            logger.warning(f"Failed to load skills for prompt: {e}")
+            logger.warning("Failed to load skills for prompt: %s", e)
             skills_list_str = "None"
 
         prompt = (
@@ -2040,7 +2170,7 @@ class Agent:
                     f"\n\n**System Rules (Dreamer Guardrails)**:\n{rules_content}\n"
                 )
             except Exception as e:
-                logger.warning(f"Failed to load rules.md: {e}")
+                logger.warning("Failed to load rules.md: %s", e)
 
         return prompt
 
@@ -2123,20 +2253,20 @@ class Agent:
             if "mcp" not in repl.namespace:
                 repl.namespace["mcp"] = LazyMCPNamespace(repl.namespace["rlm"])
             elif "mcp" in repl.namespace and hasattr(
-                repl.namespace["mcp"], "_rlm_interface"
+                repl.namespace["mcp"], "set_rlm_interface"
             ):
-                repl.namespace["mcp"]._rlm_interface = repl.namespace["rlm"]
+                repl.namespace["mcp"].set_rlm_interface(repl.namespace["rlm"])
 
             # Log the namespace state for debugging
-            logger.debug(f"REPL namespace keys: {list(repl.namespace.keys())}")
+            logger.debug("REPL namespace keys: %s", list(repl.namespace.keys()))
             # CRITICAL DEBUG: Check if session_id is ACTUALLY usable
             try:
                 # We try to eval it in the namespace to see if it's accessible
                 # This mimics what exec() sees
                 check_sid = repl.namespace.get("session_id", "MISSING")
-                logger.debug(f"Pre-flight check: session_id = {check_sid}")
-            except Exception as e:
-                logger.error(f"Pre-flight namespace check failed: {e}")
+                logger.debug("Pre-flight check: session_id = %s", check_sid)
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Pre-flight namespace check failed: %s", e)
 
             # 3. Execute with Streaming
             # Define callback to stream stdout to UI
@@ -2179,7 +2309,6 @@ class Agent:
             # --- AUTO-INSTALLATION SELF-HEALING ---
             if "ModuleNotFoundError" in output:
                 # Use regex to find "No module named 'package_name'"
-                import re
 
                 match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
                 if match:
@@ -2217,9 +2346,9 @@ class Agent:
                     output += f"\n[Execution Result]: {result}"
                 else:
                     output = str(result)
-            elif getattr(self, "_final_result", None):
+            elif getattr(self, "final_result", None):
                 # If the variable was set but not returned (common with asyncio.run wrapper)
-                final_snippet = str(self._final_result)
+                final_snippet = str(self.final_result)
                 if output:
                     output += f"\n[System]: Final Answer Captured: {final_snippet}"
                 else:
@@ -2236,9 +2365,9 @@ class Agent:
     def stop_generation(self):
         """Signal the agent to stop processing."""
         logger.info("STOP SIGNAL RECEIVED: Setting stop flags.")
-        if hasattr(self, "_global_stop_event"):
-            self._global_stop_event.set()
-        self._stop_requested = True
+        if hasattr(self, "global_stop_event"):
+            self.global_stop_event.set()
+        self.stop_requested = True
 
     async def _generate_validated_response(
         self, root_session_id: str, original_task: str
@@ -2247,18 +2376,16 @@ class Agent:
         Generates a comprehensive RLM_VALIDATED_RESPONSE by summarizing the session trace.
         """
         logger.info(
-            f"Generating Validated Response for Root Session: {root_session_id}"
+            "Generating Validated Response for Root Session: %s", root_session_id
         )
 
         # 1. Fetch Session Trace (Thoughts)
         cypher = "MATCH (n:Thought) WHERE n.root_session_id = $sid RETURN n ORDER BY n.timestamp ASC"
         try:
             res = self.db.query(cypher, {"sid": root_session_id})
-            nodes = []
-            if res and hasattr(res, "result_set"):
-                for record in res.result_set:
-                    if record and len(record) > 0:
-                        nodes.append(record[0])
+            nodes = (
+                [r["n"] for r in res if isinstance(r, dict) and "n" in r] if res else []
+            )
 
             # Formulate Trace String
             trace_lines = []
@@ -2304,8 +2431,8 @@ class Agent:
             )
             return response
 
-        except Exception as e:
-            logger.error(f"Failed to generate validated response: {e}")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Failed to generate validated response: %s", e)
             return f"# RLM_VALIDATED_RESPONSE\\n\\n[Error generating validation: {e}]"
 
     def stop(self):
@@ -2418,11 +2545,13 @@ class Agent:
                 return ["general"]
 
             logger.info(
-                f"🛡️  Agentic Axiom Discovery: {final} (Match: {[s.get('name') for s in sim_skills if s.get('score', 0) > 0.7]})"
+                "🛡️  Agentic Axiom Discovery: %s (Match: %s)",
+                final,
+                [s.get("name") for s in sim_skills if s.get("score", 0) > 0.7],
             )
             return final
-        except Exception as e:
-            logger.warning(f"Agentic discovery failed: {e}. Fallback to 'general'.")
+        except Exception as e:  # pylint: disable=broad-except
+            logger.warning("Agentic discovery failed: %s. Fallback to 'general'.", e)
             return ["general"]
 
 

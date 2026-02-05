@@ -1,3 +1,8 @@
+"""
+Configuration management for Graph-RLM using Pydantic Settings.
+Handles environment variables and LLM provider configurations.
+"""
+
 from pathlib import Path
 from typing import Optional
 
@@ -96,7 +101,7 @@ class Settings(BaseSettings):
             # 1. Read existing .env lines
             lines = []
             try:
-                with open(".env", "r") as f:
+                with open(".env", "r", encoding="utf-8") as f:
                     lines = f.readlines()
             except FileNotFoundError:
                 pass
@@ -138,7 +143,7 @@ class Settings(BaseSettings):
                     new_lines.append(f"{key}={value}\n")
 
             # 4. Write back
-            with open(".env", "w") as f:
+            with open(".env", "w", encoding="utf-8") as f:
                 f.writelines(new_lines)
 
             # 5. Hot Reload in-memory (Partial)

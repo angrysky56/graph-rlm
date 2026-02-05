@@ -14,8 +14,6 @@ logger = get_logger("graph_rlm.core.guardrails")
 class GuardrailError(Exception):
     """Exception raised when a graph invariant is violated."""
 
-    pass
-
 
 def validate_thought_node(
     thought_id: str,

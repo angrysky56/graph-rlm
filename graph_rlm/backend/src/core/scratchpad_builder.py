@@ -155,8 +155,7 @@ class ScratchpadBuilder:
     ) -> str:
         """
         Build progress for ONLY the current round (not archived rounds).
-
-        If current_round_id is empty, get thoughts with no round_id assigned yet.
+        Filters by session_id to maintain recursive branch isolation.
         """
         try:
             # Get thoughts for current round only
@@ -164,6 +163,7 @@ class ScratchpadBuilder:
             q = """
             MATCH (n:Thought)
             WHERE n.root_session_id = $rsid
+            AND n.session_id = $sid
             AND (n.round_id IS NULL OR n.round_id = $crid)
             RETURN n.id as id,
                    n.prompt as prompt,
@@ -174,11 +174,15 @@ class ScratchpadBuilder:
                    n.execution_summary as execution_summary,
                    n.next_action as next_action,
                    n.dreamer_analysis as dreamer_analysis,
-                   n.final_response as final_response
-            ORDER BY n.created_at ASC
+                   n.final_response as final_response,
+                   n.turn_id as turn_id,
+                   n.step_id as step_id,
+                   n.code_hash as code_hash
+            ORDER BY n.turn_id ASC, n.step_id ASC, n.created_at ASC
             """
             results = self.db.query(
-                q, {"rsid": root_session_id, "crid": current_round_id}
+                q,
+                {"rsid": root_session_id, "crid": current_round_id, "sid": session_id},
             )
 
             if not results:
@@ -218,17 +222,35 @@ class ScratchpadBuilder:
                         "next_action": row[7],
                         "dreamer_analysis": row[8],
                         "final_response": row[9],
+                        "turn_id": row[10],
+                        "step_id": row[11],
+                        "code_hash": row[12],
                     }
                 )
 
-        # 2. Group and Format
+        # 2. Group by Turn and Format
         i = 0
+        current_turn = None
         while i < len(processed_data):
             row = processed_data[i]
+            turn_id = row.get("turn_id")
+            repl_id = row.get("repl_id") or "unknown"
+            node_id = row.get("id")
+
+            # Check for Turn boundary
+            if turn_id != current_turn:
+                current_turn = turn_id
+                turn_label = (
+                    f"Turn {turn_id}" if turn_id is not None else "Initial Setup"
+                )
+                lines.append(f"\n### 🛠️ {turn_label} [Environment: {repl_id}]")
+                lines.append("---")
+
             status = row.get("status") or "unknown"
             dreamer_analysis = (row.get("dreamer_analysis") or "").strip()
 
             # Condensation Logic: Group consecutive rejections with same analysis
+            # (Keeping this but making it within the turn)
             if status == "rejected" and dreamer_analysis:
                 group_start_idx = i
                 while (
@@ -236,6 +258,7 @@ class ScratchpadBuilder:
                     and processed_data[i + 1].get("status") == "rejected"
                     and (processed_data[i + 1].get("dreamer_analysis") or "").strip()
                     == dreamer_analysis
+                    and processed_data[i + 1].get("turn_id") == turn_id
                 ):
                     i += 1
                 group_count = i - group_start_idx + 1
@@ -243,7 +266,7 @@ class ScratchpadBuilder:
                 if group_count > 1:
                     lines.append(
                         f"FAIL Step {group_start_idx+1}-{i+1} (DREAMER): "
-                        f"REJECTED {group_count} TIMES for same pattern: {dreamer_analysis[:200]}..."
+                        f"REJECTED {group_count} TIMES for same pattern: {dreamer_analysis}"
                     )
                     i += 1
                     continue
@@ -290,29 +313,27 @@ class ScratchpadBuilder:
                 if len(clean_prompt) > 100:
                     summary += "..."
 
-            step_line = f"{status_sym} Step {i+1}{ts_str} ({action_type}): {summary}"
-
-            repl_id = row.get("repl_id")
-            if repl_id:
-                step_line += f" (REPL: {repl_id})"
+            step_label = (
+                f"Step {row.get('step_id')}"
+                if row.get("step_id") is not None
+                else f"Step {i+1}"
+            )
+            step_line = f"{status_sym} {step_label}{ts_str} ({action_type}): {summary} [Node: {node_id}]"
 
             exec_summary = row.get("execution_summary")
             if exec_summary:
                 clean_res = str(exec_summary).strip()
-                if len(clean_res) > 200:
-                    step_line += (
-                        f"\n    -> Result: {clean_res[:200]}... (See rlm.history)"
-                    )
-                else:
+                # Lossless for errors or short results, truncation only for long success logs
+                if status in ["failed", "error"] or len(clean_res) < 500:
                     step_line += f"\n    -> Result: {clean_res}"
+                else:
+                    step_line += f"\n    -> Result: {clean_res[:500]}... (See rlm.recall('{repl_id}'))"
 
             next_action = row.get("next_action")
             if next_action and str(next_action).strip():
-                step_line += f"\n    -> Next: {next_action.strip()}"
+                step_line += f"\n    -> Next Action: {next_action.strip()}"
 
-            if (
-                dreamer_analysis and status != "rejected"
-            ):  # Only show if not already summarized in group
+            if dreamer_analysis and status != "rejected":
                 step_line += f"\n    -> Dreamer Analysis: {dreamer_analysis}"
 
             final_response = row.get("final_response")

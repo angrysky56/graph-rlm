@@ -1,13 +1,21 @@
-from typing import Dict, Optional, List
-from .core import PythonREPL
+"""
+REPL Manager for Graph-RLM.
+Manages lifecycle and state of multiple PythonREPL instances.
+"""
+
 import logging
+from typing import Dict, List, Optional
+
+from .core import PythonREPL
 
 logger = logging.getLogger("graph_rlm.repl.manager")
+
 
 class REPLManager:
     """
     Manages multiple PythonREPL instances.
     """
+
     def __init__(self):
         self._repls: Dict[str, PythonREPL] = {}
 
@@ -23,7 +31,7 @@ class REPLManager:
         """
         repl = PythonREPL(repl_id)
         self._repls[repl.repl_id] = repl
-        logger.info(f"Created REPL session: {repl.repl_id}")
+        logger.info("Created REPL session: %s", repl.repl_id)
         return repl.repl_id
 
     def get_repl(self, repl_id: str) -> Optional[PythonREPL]:

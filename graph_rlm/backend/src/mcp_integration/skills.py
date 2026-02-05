@@ -67,7 +67,7 @@ class SkillsManager:
                         count += 1
 
         if count > 0:
-            logger.info(f"Synced {count} skills from disk to FalkorDB.")
+            logger.info("Synced %d skills from disk to FalkorDB.", count)
 
     async def _sync_python_skill(self, file_path: Path) -> bool:
         try:
@@ -118,7 +118,7 @@ class SkillsManager:
             try:
                 vec = await llm.get_embedding(text_to_embed)
             except Exception as e:
-                logger.warning(f"Failed to generate embedding for skill {name}: {e}")
+                logger.warning("Failed to generate embedding for skill %s: %s", name, e)
                 vec = None
 
             # Upsert into Graph
@@ -147,7 +147,7 @@ class SkillsManager:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to sync python skill {file_path.name}: {e}")
+            logger.error("Failed to sync python skill %s: %s", file_path.name, e)
             return False
 
     async def _sync_instructional_skill(self, dir_path: Path, md_path: Path) -> bool:
@@ -200,7 +200,7 @@ class SkillsManager:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to sync instructional skill {dir_path.name}: {e}")
+            logger.error("Failed to sync instructional skill %s: %s", dir_path.name, e)
             return False
 
     async def save_skill(
@@ -214,8 +214,6 @@ class SkillsManager:
         Save a skill function to the skills library.
         """
         # Sanitize and limit name length for OS compatibility
-        import re
-
         name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
         try:
             tree = ast.parse(code)
@@ -238,7 +236,7 @@ class SkillsManager:
             text_to_embed = f"{name}: {description}" if description else name
             vec = await llm.get_embedding(text_to_embed)
         except Exception as e:
-            logger.warning(f"Failed to generate embedding for skill {name}: {e}")
+            logger.warning("Failed to generate embedding for skill %s: %s", name, e)
             vec = None
 
         # Update Graph
@@ -273,7 +271,7 @@ class SkillsManager:
             skill_file = self.skills_dir / f"{name}.py"
             skill_file.write_text(code, encoding="utf-8")
         except Exception as e:
-            logger.error(f"Failed to write skill to disk: {e}")
+            logger.error("Failed to write skill to disk: %s", e)
 
         return name
 
@@ -475,14 +473,15 @@ class AxiomsManager:
                 if await self._sync_axiom(item):
                     count += 1
         if count > 0:
-            logger.info(f"Synced {count} axioms from disk to FalkorDB.")
+            logger.info("Synced %d axioms from disk to FalkorDB.", count)
 
     async def _sync_axiom(self, file_path: Path) -> bool:
         try:
             code = file_path.read_text(encoding="utf-8")
             if "\x00" in code:
                 logger.warning(
-                    f"Skipping axiom {file_path.name}: Contains null bytes (DB incompatible)."
+                    "Skipping axiom %s: Contains null bytes (DB incompatible).",
+                    file_path.name,
                 )
                 return False
             tree = ast.parse(code)
@@ -532,16 +531,21 @@ class AxiomsManager:
                 },
             )
             return True
+        except (ValueError, KeyError, RuntimeError) as e:
+            logger.error("Axiom logic error during sync of %s: %s", file_path.name, e)
+            return False
         except Exception as e:
-            logger.error(f"Failed to sync axiom {file_path.name}: {e}")
+            logger.error("Unexpected error during axiom sync %s: %s", file_path.name, e)
             return False
 
-    def save_axiom(
+    async def save_axiom(
         self,
         name: str,
         code: str,
         description: str | None = None,
         tags: list[str] | None = None,
+        axiom_type: str = "validator",
+        healing_code: str | None = None,
     ) -> str:
         """Save an axiom to the axioms library."""
         name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
@@ -561,16 +565,30 @@ class AxiomsManager:
         except SyntaxError as e:
             raise ValueError(f"Invalid Python syntax: {e}") from e
 
+        # Generate embedding
+        try:
+            text_to_embed = f"{name}: {description}" if description else name
+            vec = await llm.get_embedding(text_to_embed)
+        except Exception as e:
+            logger.warning("Failed to generate embedding for axiom %s: %s", name, e)
+            vec = None
+
         cypher = """
         MERGE (a:Axiom {name: $name})
         SET a.code = $code,
             a.description = $desc,
             a.function_name = $func,
             a.tags = $tags,
+            a.axiom_type = $type,
+            a.healing_code = $healing,
             a.version = COALESCE(a.version, 0) + 1,
             a.updated_at = timestamp()
-        RETURN a.version
         """
+        if vec:
+            cypher += ", a.embedding = vecf32($vec)"
+
+        cypher += " RETURN a.version"
+
         self.db.query(
             cypher,
             {
@@ -579,6 +597,9 @@ class AxiomsManager:
                 "desc": description or "",
                 "func": function_name,
                 "tags": tags or ["general"],
+                "type": axiom_type,
+                "healing": healing_code,
+                "vec": vec,
             },
         )
 
@@ -587,7 +608,7 @@ class AxiomsManager:
             axiom_file = self.axioms_dir / f"{name}.py"
             axiom_file.write_text(code, encoding="utf-8")
         except Exception as e:
-            logger.error(f"Failed to write axiom to disk: {e}")
+            logger.error("Failed to write axiom to disk: %s", e)
 
         return name
 
@@ -609,6 +630,7 @@ class AxiomsManager:
                 "description": props.get("description"),
                 "tags": props.get("tags", []),
                 "function_name": props.get("function_name"),
+                "axiom_type": props.get("axiom_type", "validator"),
             }
         return axioms
 
@@ -625,6 +647,8 @@ class AxiomsManager:
         props = node.properties if hasattr(node, "properties") else node
         if not isinstance(props, dict):
             return None
+
+        return props
 
     async def find_similar_axioms(
         self, query: str, limit: int = 3
@@ -652,6 +676,36 @@ class AxiomsManager:
                 final.append({**props, "score": score})
         return final
 
+    async def find_healing_axiom(
+        self, violation_description: str, limit: int = 1
+    ) -> List[Dict[str, Any]]:
+        """
+        Semantic search for an axiom that can 'heal' or fix a specific violation.
+        Looks for axioms of type 'solver' or 'advisor' related to the error.
+        """
+        vec = await llm.get_embedding(violation_description)
+        if not vec:
+            return []
+
+        params = {"vec": vec, "limit": limit}
+        cypher = (
+            "CALL db.idx.vector.queryNodes('Axiom', 'embedding', $limit, vecf32($vec)) "
+            "YIELD node, score "
+            "WHERE node.healing_code IS NOT NULL "
+            "OR node.axiom_type IN ['solver', 'advisor'] "
+            "RETURN node, score"
+        )
+
+        results = self.db.query(cypher, params)
+        final = []
+        for row in results:
+            node = row.get("node")
+            score = row.get("score")
+            if node:
+                props = node.properties if hasattr(node, "properties") else node
+                final.append({**props, "score": score})
+        return final
+
 
 # Global axioms manager instance
 _global_axioms_manager: AxiomsManager | None = None
@@ -667,3 +721,80 @@ def get_axioms_manager() -> AxiomsManager:
         _global_axioms_manager = AxiomsManager(axioms_dir)
 
     return _global_axioms_manager
+
+
+# =============================================================================
+# MCP PSEUDO-SERVER INTEGRATION
+# =============================================================================
+
+TOOLS = [
+    {
+        "name": "run_skill",
+        "description": "Execute a registered skill with optional arguments.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "Name of the skill to execute",
+                },
+                "args": {
+                    "type": "object",
+                    "description": "Dictionary of arguments for the skill",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "save_skill",
+        "description": "Save a Python code block as a persistent skill.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Name for the skill"},
+                "code": {"type": "string", "description": "Python source code"},
+                "description": {
+                    "type": "string",
+                    "description": "Optional description",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional tags",
+                },
+            },
+            "required": ["name", "code"],
+        },
+    },
+    {
+        "name": "list_skills",
+        "description": "List all available skills with metadata.",
+        "input_schema": {"type": "object", "properties": {}},
+    },
+]
+
+
+async def run_skill(name: str, args: dict | None = None, **kwargs) -> Any:
+    """MCP Wrapper for executing a skill."""
+    from .skill_harness import execute_skill
+
+    return await execute_skill(name, args or {})
+
+
+async def save_skill(
+    name: str,
+    code: str,
+    description: str | None = None,
+    tags: list[str] | None = None,
+    **kwargs,
+) -> str:
+    """MCP Wrapper for saving a skill."""
+    mgr = get_skills_manager()
+    return await mgr.save_skill(name, code, description, tags)
+
+
+async def list_skills(**kwargs) -> dict[str, dict[str, Any]]:
+    """MCP Wrapper for listing all skills."""
+    mgr = get_skills_manager()
+    return mgr.list_skills()

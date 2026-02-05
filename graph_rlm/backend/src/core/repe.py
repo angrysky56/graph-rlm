@@ -1,3 +1,8 @@
+"""
+Representation Engineering (RepE) v2: Gestalt Vector Monitor.
+Provides psychological profiling of agent thoughts using steering axes.
+"""
+
 from typing import Dict, List
 
 import numpy as np
@@ -32,6 +37,9 @@ class GestaltMonitor:
                     "I am confused",
                     "lost the thread",
                     "simulating success",
+                    "I will now proceed as if",
+                    "acting as if",
+                    "performing the task by",
                 ],
                 # Grounded (Contact with Reality)
                 [
@@ -119,7 +127,7 @@ class GestaltMonitor:
                 # Normalize for consistent scoring (-1 to 1)
                 norm = np.linalg.norm(axis)
                 self.steering_axes[concept] = axis / norm if norm > 0 else axis
-                logger.info(f"   -> Calibrated Axis: {concept}")
+                logger.info("   -> Calibrated Axis: %s", concept)
 
         self.is_calibrated = True
 

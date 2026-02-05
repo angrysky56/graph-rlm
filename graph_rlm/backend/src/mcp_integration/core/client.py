@@ -423,7 +423,7 @@ class McpClientManager:
         """Call an MCP tool with lazy server connection and auto-reconnect."""
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from graph_rlm.backend.mcp_tools import skills as skills_tool
+            from .. import skills as skills_tool
 
             func = getattr(skills_tool, tool_name, None)
             if not func:
@@ -513,8 +513,10 @@ class McpClientManager:
                     stripped.startswith("[") and stripped.endswith("]")
                 ):
                     return json.loads(stripped)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(
+                    f"Failed to parse tool result as JSON, falling back to raw text: {e}"
+                )
             return text
         return result
 
@@ -522,7 +524,7 @@ class McpClientManager:
         """List tools for a server, using cache if available."""
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from graph_rlm.backend.mcp_tools import skills as skills_tool
+            from .. import skills as skills_tool
 
             # Synthesize Tool objects
             tools = []

@@ -1,3 +1,8 @@
+"""
+Observability and Tracing layer for Graph-RLM.
+Provides high-fidelity logging of agent actions and system state transitions.
+"""
+
 import logging
 from typing import Any, Optional
 
@@ -14,13 +19,13 @@ BOLD = "\033[1m"
 logger = logging.getLogger("graph_rlm.trace")
 
 # Global monitor callback (e.g. for streaming to UI)
-_monitor_callback = None
+_MONITOR_CALLBACK = None
 
 
 def register_monitor(callback):
     """Registers a callback(msg: str) to receive trace logs in real-time."""
-    global _monitor_callback
-    _monitor_callback = callback
+    global _MONITOR_CALLBACK
+    _MONITOR_CALLBACK = callback
 
 
 def trace_action(
@@ -64,9 +69,9 @@ def trace_action(
         logger.info(msg)
 
     # Stream to UI if monitor is registered
-    if _monitor_callback:
+    if _MONITOR_CALLBACK:
         try:
-            _monitor_callback(msg)
+            _MONITOR_CALLBACK(msg)
         except Exception as e:
             # Write to stderr to avoid logger recursion, but don't crash
             import sys
@@ -76,6 +81,6 @@ def trace_action(
 
 def banner(title: str):
     """Prints a bright banner to find transitions easily in logs."""
-    bar = "✨" + "=" * 60 + "✨"
-    msg = f"\n{BOLD}{CYAN}{bar}\n {title}\n{bar}{RESET}\n"
+    bar_symbols = "✨" + "=" * 60 + "✨"
+    msg = f"\n{BOLD}{CYAN}{bar_symbols}\n {title}\n{bar_symbols}{RESET}\n"
     print(msg)

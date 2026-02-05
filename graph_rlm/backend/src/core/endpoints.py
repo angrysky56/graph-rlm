@@ -1,3 +1,8 @@
+"""
+FastAPI Endpoints for Graph-RLM.
+Handles chat completions, session management, and system configuration.
+"""
+
 import asyncio
 import json
 from typing import List, Optional
@@ -101,9 +106,9 @@ async def update_config(request: Request):
     # TODO: Trigger LLM re-init.
     # Quick fix: Modifying settings.py in-place works for future calls if LLMService reads on usage?
     # LLMService reads provider in __init__. So we need to re-init it.
-    from .llm import llm
+    from .llm import llm as llm_service
 
-    llm.__init__()
+    llm_service.__init__()
 
     return {"status": "updated", "config": settings.get_llm_config()}
 
@@ -156,7 +161,7 @@ async def reembed_graph():
             "count": count,
         }
     except Exception as e:
-        logger.error(f"Re-embedding failed: {e}")
+        logger.error("Re-embedding failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -412,14 +417,6 @@ async def get_graph(session_id: Optional[str] = None):
                 # Let's assume object with .id and .properties or dict
                 return {}
 
-            def get_id(entity):
-                if hasattr(entity, "id"):  # internal ID
-                    if "id" in entity.properties:
-                        return entity.properties["id"]
-                if isinstance(entity, dict):
-                    return entity.get("id")
-                return str(entity)
-
             # Process Source Node
             s_props = get_props(source)
             s_id = s_props.get("id")
@@ -474,13 +471,10 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
     sid = chat_req.session_id or "default"
     model_name = llm.config.get("model")
 
-    banner(f"SESSION START: {sid} | MODEL: {model_name}")
+    banner("SESSION START: %s | MODEL: %s" % (sid, model_name))
     trace_action("API", "QUERY", result=prompt, tag="AGENT")
 
-    import logging
-
-    logger = logging.getLogger("graph_rlm.endpoints")
-    logger.info(f"Processing Prompt: {prompt}")
+    logger.info("Processing Prompt: %s", prompt)
 
     async def response_stream():
         # 1. Start Event
@@ -510,7 +504,7 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
 
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
-            logger.error(f"Exception in response_stream: {e}")
+            logger.error("Exception in response_stream: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
         # 3. Finish
@@ -526,7 +520,6 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
 async def mcp_status():
     """List detected MCP servers and tools (Optimized)."""
     import importlib
-    import json
     import re
     from pathlib import Path
 

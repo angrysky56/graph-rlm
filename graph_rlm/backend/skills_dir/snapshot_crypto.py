@@ -10,7 +10,7 @@ def snapshot_crypto(symbols: list[str]) -> dict:
         Dict of market data for each symbol.
     """
     try:
-        from coinbase_trade_assistant import get_market_data
+        from graph_rlm.backend.mcp_tools.coinbase_trade_assistant import get_market_data
 
         product_ids = ",".join(symbols)
         raw_result = get_market_data(product_ids=product_ids)

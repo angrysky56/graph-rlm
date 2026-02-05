@@ -1,3 +1,8 @@
+"""
+LLM Service Layer for Graph-RLM.
+Provides a unified interface for multiple LLM providers and embedding models.
+"""
+
 import asyncio
 from typing import Any, Dict, List, Optional
 

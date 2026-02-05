@@ -1,3 +1,7 @@
+"""
+Structured Logging utility with ANSI color support for Graph-RLM.
+"""
+
 import logging
 import sys
 

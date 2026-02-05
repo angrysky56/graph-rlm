@@ -1,3 +1,11 @@
+"""
+Database core module for Graph-RLM.
+Handles interactions with FalkorDB, including thought node creation,
+vector indexing, and session management.
+"""
+
+import time
+import traceback
 from typing import Any, Dict, List, Optional
 
 from falkordb import FalkorDB
@@ -11,6 +19,11 @@ logger = get_logger("graph_rlm.db")
 
 
 class GraphClient:
+    """
+    Client for interacting with FalkorDB.
+    Provides methods for querying, creating thoughts, and managing the graph state.
+    """
+
     def __init__(self):
         self.graph = FalkorDBGraph(
             database=settings.GRAPH_NAME,
@@ -46,10 +59,10 @@ class GraphClient:
                 results.append(dict(zip(column_names, row, strict=True)))
             return results
         except Exception as e:
-            logger.error(f"FalkorDB Query Error: {e}\nQuery: {query}\nParams: {params}")
-            import traceback
-
-            logger.error(traceback.format_exc())
+            logger.error(
+                "FalkorDB Query Error: %s\nQuery: %s\nParams: %s", e, query, params
+            )
+            logger.error("%s", traceback.format_exc())
             return []
 
     def create_thought_node(
@@ -68,18 +81,32 @@ class GraphClient:
         dreamer_analysis: Optional[str] = None,
         final_response: Optional[str] = None,
         round_id: Optional[str] = None,
+        turn_id: Optional[int] = None,
+        step_id: Optional[int] = None,
+        code_hash: Optional[str] = None,
     ):
         """
         Creates a 'Thought' node in the graph.
         If parent_id is provided, creates a DECOMPOSES_INTO edge from parent to child.
 
         Args:
+            thought_id: Unique ID for the thought
+            prompt: Reasoning/action prompt
+            parent_id: Optional ID of parent thought
+            prompt_embedding: Optional vector representation
+            session_id: Active session ID
+            root_session_id: Root of the reasoning tree
+            repl_id: Associated REPL ID
+            status: Execution status
             execution_summary: Brief summary of execution result
             result: Full execution output
             next_action: What the agent should do next
             dreamer_analysis: Analysis from dreamer cycle
             final_response: RLM_FINAL_RESPONSE if terminal step
-            round_id: ID of the current round (for context grouping)
+            round_id: ID of the current round
+            turn_id: High-level turn counter
+            step_id: Atomic step counter
+            code_hash: SHA256 of executed code block
         """
         # If root_session_id is not provided, default to the session_id (implies this IS the root)
         final_root = root_session_id if root_session_id else session_id
@@ -90,7 +117,8 @@ class GraphClient:
             parent_meta = None
             if parent_id:
                 p_res = self.query(
-                    "MATCH (p:Thought {id: $pid}) RETURN p.session_id as session_id, p.root_session_id as root_session_id",
+                    "MATCH (p:Thought {id: $pid}) "
+                    "RETURN p.session_id as session_id, p.root_session_id as root_session_id",
                     {"pid": parent_id},
                 )
                 if p_res:
@@ -105,10 +133,10 @@ class GraphClient:
                 parent_metadata=parent_meta,
             )
         except GuardrailError as ge:
-            logger.error(f"Guardrail Violation: {ge}")
+            logger.error("Guardrail Violation: %s", ge)
             raise
-        except Exception as e:
-            logger.error(f"Guardrail internal error: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Guardrail internal error: %s", e)
 
         params: Dict[str, Any] = {
             "tid": thought_id,
@@ -119,10 +147,11 @@ class GraphClient:
         }
 
         # Create the node
-        cypher = """
-        MERGE (t:Thought {id: $tid})
-        SET t.prompt = $prompt, t.status = $status, t.created_at = timestamp(), t.session_id = $sid, t.root_session_id = $rsid
-        """
+        cypher = (
+            "MERGE (t:Thought {id: $tid}) "
+            "SET t.prompt = $prompt, t.status = $status, t.created_at = timestamp(), "
+            "t.session_id = $sid, t.root_session_id = $rsid"
+        )
         if prompt_embedding:
             params["vec"] = prompt_embedding
             cypher += ", t.embedding = vecf32($vec)"
@@ -154,6 +183,18 @@ class GraphClient:
         if final_response:
             params["final_response"] = final_response
             cypher += ", t.final_response = $final_response"
+
+        if turn_id is not None:
+            params["turn_id"] = turn_id
+            cypher += ", t.turn_id = $turn_id"
+
+        if step_id is not None:
+            params["step_id"] = step_id
+            cypher += ", t.step_id = $step_id"
+
+        if code_hash:
+            params["code_hash"] = code_hash
+            cypher += ", t.code_hash = $code_hash"
 
         self.query(cypher, params)
 
@@ -190,7 +231,7 @@ class GraphClient:
         # Detach delete removes the node and all connected edges
         cypher = "MATCH (n:Thought {id: $tid}) DETACH DELETE n"
         self.query(cypher, {"tid": thought_id})
-        logger.info(f"♻️ Graph Hygiene: Pruned thought node {thought_id}")
+        logger.info("♻️ Graph Hygiene: Pruned thought node %s", thought_id)
 
     def update_thought_result(
         self,
@@ -200,6 +241,9 @@ class GraphClient:
         repl_id: Optional[str] = None,
         status: str = "complete",
     ):
+        """
+        Updates the execution result and status of an existing thought node.
+        """
         params: Dict[str, Any] = {
             "tid": thought_id,
             "result": result,
@@ -230,13 +274,17 @@ class GraphClient:
         # Ensure embedding is the correct length
         if len(query_embedding) != 3072:
             logger.warning(
-                f"Vector search failed: Embedding dimension mismatch (expected 3072, got {len(query_embedding)})"
+                "Vector search failed: Embedding dimension mismatch (expected 3072, got %d)",
+                len(query_embedding),
             )
             return []
 
-        params: Dict[str, Any] = {"vec": query_embedding}
+        params: Dict[str, Any] = {"vec": query_embedding, "limit": limit}
         # FalkorDB syntax requires quoted strings for label and property name
-        cypher = f"CALL db.idx.vector.queryNodes('Thought', 'embedding', {limit}, vecf32($vec)) YIELD node, score RETURN node.id, node.prompt, node.result, score"
+        cypher = (
+            "CALL db.idx.vector.queryNodes('Thought', 'embedding', $limit, vecf32($vec)) "
+            "YIELD node, score RETURN node.id, node.prompt, node.result, score"
+        )
 
         try:
             res = self.raw_graph.query(cypher, params)
@@ -246,8 +294,8 @@ class GraphClient:
                     {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
                 )
             return results
-        except Exception as e:
-            logger.warning(f"Vector search failed: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.warning("Vector search failed: %s", e)
             return []
 
     def create_vector_indexes(self):
@@ -258,30 +306,41 @@ class GraphClient:
 
         # 1. Thought Index
         try:
-            cypher = f"CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            cypher = (
+                f"CREATE VECTOR INDEX FOR (t:Thought) ON (t.embedding) "
+                f"OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            )
             self.raw_graph.query(cypher)
-            logger.info(f"Sync: Vector Index on Thought(embedding) created (dim={dim})")
-        except Exception as e:
+            logger.info(
+                "Sync: Vector Index on Thought(embedding) created (dim=%d)", dim
+            )
+        except Exception as e:  # pylint: disable=broad-exception-caught
             if "already indexed" not in str(e).lower():
-                logger.warning(f"Thought vector index creation skipped: {e}")
+                logger.warning("Thought vector index creation skipped: %s", e)
 
         # 2. Skill Index
         try:
-            cypher = f"CREATE VECTOR INDEX FOR (s:Skill) ON (s.embedding) OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            cypher = (
+                f"CREATE VECTOR INDEX FOR (s:Skill) ON (s.embedding) "
+                f"OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            )
             self.raw_graph.query(cypher)
-            logger.info(f"Sync: Vector Index on Skill(embedding) created (dim={dim})")
-        except Exception as e:
+            logger.info("Sync: Vector Index on Skill(embedding) created (dim=%d)", dim)
+        except Exception as e:  # pylint: disable=broad-exception-caught
             if "already indexed" not in str(e).lower():
-                logger.warning(f"Skill vector index creation skipped: {e}")
+                logger.warning("Skill vector index creation skipped: %s", e)
 
         # 3. Axiom Index
         try:
-            cypher = f"CREATE VECTOR INDEX FOR (a:Axiom) ON (a.embedding) OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            cypher = (
+                f"CREATE VECTOR INDEX FOR (a:Axiom) ON (a.embedding) "
+                f"OPTIONS {{dimension:{dim}, similarityFunction:'cosine'}}"
+            )
             self.raw_graph.query(cypher)
-            logger.info(f"Sync: Vector Index on Axiom(embedding) created (dim={dim})")
-        except Exception as e:
+            logger.info("Sync: Vector Index on Axiom(embedding) created (dim=%d)", dim)
+        except Exception as e:  # pylint: disable=broad-exception-caught
             if "already indexed" not in str(e).lower():
-                logger.warning(f"Axiom vector index creation skipped: {e}")
+                logger.warning("Axiom vector index creation skipped: %s", e)
 
     def drop_vector_index(self):
         """
@@ -291,12 +350,13 @@ class GraphClient:
             # FalkorDB standard index drop syntax
             self.query("DROP INDEX FOR (t:Thought) ON (t.embedding)")
             logger.info("Dropped Vector Index on Thought.embedding")
-        except Exception as e:
-            logger.info(f"Vector index drop skipped: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.debug("Vector index drop skipped: %s", e)
 
     def wait_for_index(self, label: str):
-        import time
-
+        """
+        Polls the database until the specified vector index is OPERATIONAL.
+        """
         # Poll db.indexes() until status is OPERATIONAL
         for _ in range(20):
             try:
@@ -316,8 +376,8 @@ class GraphClient:
 
                     if r_label == label and r_status == "OPERATIONAL":
                         return
-            except Exception as e:
-                logger.debug(f"Index check polling error: {e}")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.debug("Index check polling error: %s", e)
             time.sleep(0.5)
 
     def get_graph_state(self):
@@ -343,24 +403,20 @@ class GraphClient:
 
         Used by the Stateless Agent to 'Wake Up' and load context.
         """
-        # Simplified Strategy: Just get the most recent N thoughts in this session.
-        # This works for both linear chains (A->B->C) and flat logs.
-        # It ensures we always see the "Recent History".
-
         params = {"sid": repl_id, "limit": limit}
 
-        cypher = f"""
+        cypher = """
         MATCH (n:Thought)
         WHERE n.session_id = $sid
         RETURN n
         ORDER BY n.created_at DESC
-        LIMIT {limit}
+        LIMIT $limit
         """
 
         try:
             return self.query(cypher, params)
-        except Exception as e:
-            logger.error(f"Failed to get context frontier: {e}")
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error("Failed to get context frontier: %s", e)
             return []
 
     def reembed_all_thoughts(self, llm_service: Any):
@@ -408,10 +464,10 @@ class GraphClient:
                         status="complete",
                     )
                     count += 1
-            except Exception as e:
-                logger.error(f"Failed to re-embed thought {node_id}: {e}")
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Failed to re-embed thought %s: %s", node_id, e)
 
-        logger.info(f"Re-embedding complete. Updated {count} thoughts.")
+        logger.info("Re-embedding complete. Updated %d thoughts.", count)
         return count
 
     # ===== ROUND MANAGEMENT (for stateless agent context compression) =====
@@ -457,7 +513,7 @@ class GraphClient:
         })
         """
         self.query(cypher, params)
-        logger.info(f"Archived Round {round_id} for session {root_session_id}")
+        logger.info("Archived Round %s for session %s", round_id, root_session_id)
 
     def get_completed_rounds(self, root_session_id: str) -> List[Dict[str, Any]]:
         """
@@ -495,7 +551,10 @@ class GraphClient:
                n.next_action as next_action,
                n.dreamer_analysis as dreamer_analysis,
                n.final_response as final_response,
-               n.round_id as round_id
+               n.round_id as round_id,
+               n.turn_id as turn_id,
+               n.step_id as step_id,
+               n.code_hash as code_hash
         ORDER BY n.created_at ASC
         """
         return self.query(q, {"rsid": root_session_id})
@@ -516,7 +575,7 @@ class GraphClient:
         )
         self.query(cypher_rounds, {"rsid": root_session_id})
 
-        logger.info(f"🗑️ Deleted session {root_session_id}")
+        logger.info("🗑️ Deleted session %s", root_session_id)
 
     def prune_orphans(self, older_than_hours: int = 1) -> int:
         """
@@ -524,14 +583,6 @@ class GraphClient:
         Returns count of deleted nodes.
         """
         # Timestamp in milliseconds
-
-        # We need to use system time or DB timestamp() logic.
-        # Ideally, we pass the generic timestamp from Python to be safe.
-        # But 'timestamp()' in Cypher is current time.
-        # We'll use a parameter for the cutoff timestamp.
-
-        # Note: Cypher's timestamp() returns milliseconds.
-
         cypher = """
         MATCH (n:Thought)
         WHERE NOT (n)--()
@@ -539,18 +590,14 @@ class GraphClient:
         DETACH DELETE n
         RETURN count(n) as count
         """
-        # Calculate cutoff based on current time (approx) if created_at is compatible.
-        # created_at in create_thought_node is `timestamp()`.
-
-        # Let's get current millis in python
-        import time
-
         current_millis = int(time.time() * 1000)
         cutoff_millis = current_millis - (older_than_hours * 3600 * 1000)
 
         res = self.query(cypher, {"cutoff": cutoff_millis})
         count = res[0]["count"] if res else 0
-        logger.info(f"🧹 Pruned {count} orphan nodes (older than {older_than_hours}h)")
+        logger.info(
+            "🧹 Pruned %d orphan nodes (older than %dh)", count, older_than_hours
+        )
         return count
 
     def reset_graph(self):
@@ -585,9 +632,6 @@ class GraphClient:
         We 'downscale' (delete) detailed thought chains that have been
         consolidated into Insights, preserving global plasticity.
         """
-        # Calculate timestamp threshold (ms)
-        import time
-
         # Current time in ms
         current_ms = int(time.time() * 1000)
         cutoff = current_ms - (retention_window * 3600 * 1000)
@@ -603,7 +647,7 @@ class GraphClient:
         count = res[0]["count"] if res else 0
         if count > 0:
             logger.info(
-                f"🧠 Synaptic Homeostasis: Pruned {count} saturated memory traces."
+                "🧠 Synaptic Homeostasis: Pruned %d saturated memory traces.", count
             )
 
 

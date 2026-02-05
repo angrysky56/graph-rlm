@@ -1,3 +1,8 @@
+"""
+Context Indexer for Graph-RLM.
+Maintains a topological summary of active contexts to prevent context rot.
+"""
+
 from .db import GraphClient, db
 
 
@@ -185,7 +190,10 @@ class ContextIndex:
                        n.dreamer_analysis as dreamer_analysis,
                        n.final_response as final_response,
                        n.repl_id as repl_id,
-                       n.session_id as session_id
+                       n.session_id as session_id,
+                       n.turn_id as turn_id,
+                       n.step_id as step_id,
+                       n.code_hash as code_hash
                 ORDER BY n.created_at ASC
                 """
             else:
@@ -203,7 +211,10 @@ class ContextIndex:
                        n.dreamer_analysis as dreamer_analysis,
                        n.final_response as final_response,
                        n.repl_id as repl_id,
-                       n.session_id as session_id
+                       n.session_id as session_id,
+                       n.turn_id as turn_id,
+                       n.step_id as step_id,
+                       n.code_hash as code_hash
                 ORDER BY n.created_at ASC
                 """
 
@@ -228,6 +239,10 @@ class ContextIndex:
                             "dreamer_analysis": row[7] if len(row) > 7 else None,
                             "final_response": row[8] if len(row) > 8 else None,
                             "repl_id": row[9] if len(row) > 9 else None,
+                            "session_id": row[10] if len(row) > 10 else None,
+                            "turn_id": row[11] if len(row) > 11 else None,
+                            "step_id": row[12] if len(row) > 12 else None,
+                            "code_hash": row[13] if len(row) > 13 else None,
                         }
                     )
             return data

@@ -1,3 +1,8 @@
+"""
+Sheaf Monitor: Topological Field Analyzer and Axiomatic Consistency Checker.
+Provides diagnostics for holonomy (loop detection) and teleology (drift detection).
+"""
+
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -53,7 +58,7 @@ class SheafMonitor:
 
     def __init__(self):
         # Thresholds for "Pathology"
-        self.loop_threshold = 0.85
+        self.loop_threshold = 0.75
         self.drift_threshold = 0.3
 
     def _normalize(self, vec: List[float]) -> np.ndarray:
@@ -85,7 +90,7 @@ class SheafMonitor:
         cypher = """
         MATCH (n:Thought)
         WHERE n.id IN $fids
-        RETURN n.id as id, n.embedding as embedding, n.status as status
+        RETURN n.id as id, n.embedding as embedding, n.status as status, n.prompt as prompt
         ORDER BY n.created_at DESC LIMIT 5
         """
         history_nodes = db.query(cypher, {"fids": frontier_ids})
@@ -116,8 +121,22 @@ class SheafMonitor:
                 "energy": max_similarity,
                 "critique": f"Holonomy Detected: You are circling the same semantic point (Similarity {max_similarity:.2f}). Break the loop.",
                 "should_halt": False,
-                "loop_nodes": history_nodes,  # [Dreamer Link] Pass context for deep analysis
+                "loop_nodes": history_nodes,
             }
+
+        # --- Semantic Echoing Check (Direct String Comparison) ---
+        response_text = (hypothetical_node.get("prompt") or "").strip().lower()
+        if response_text:
+            for prev in history_nodes:
+                prev_text = (prev.get("prompt") or "").strip().lower()
+                if response_text == prev_text:
+                    return {
+                        "status": "LOGICAL_KNOT",
+                        "energy": 1.0,
+                        "critique": "Semantic Echoing: You are repeating an identical prompt block. Break the loop.",
+                        "should_halt": False,
+                        "loop_nodes": history_nodes,
+                    }
 
         # --- DIAGNOSTIC 2: TELEOLOGY (The Goal Gradient) ---
         teleological_energy = 0.0
@@ -191,7 +210,7 @@ class SheafMonitor:
         results = self.compute_sheaf_surprise_score(limit=5)
         for res in results:
             if res.get("surprise_score", 0) > 0.8:
-                logger.info(f"Sheaf Monitor Alert: High surprise edge detected: {res}")
+                logger.info("Sheaf Monitor Alert: High surprise edge detected: %s", res)
         return results
 
     async def check_axiomatic_consistency(
@@ -228,11 +247,13 @@ class SheafMonitor:
 
         if not axioms:
             logger.info(
-                f"🛡️ Axiomatic Check: No specific guardrails for tags {task_tags}."
+                "🛡️ Axiomatic Check: No specific guardrails for tags %s.", task_tags
             )
             return {"status": "HEALTHY", "energy": 0.0, "axioms_run": []}
 
-        logger.info(f"🛡️ Axiomatic Check: Running {len(axioms)} relevant guardrails...")
+        logger.info(
+            "🛡️ Axiomatic Check: Running %d relevant guardrails...", len(axioms)
+        )
 
         # 2. Spawn temporary sandbox REPL (Clean Environment)
         repl = PythonREPL()
@@ -255,9 +276,9 @@ class SheafMonitor:
         )
 
         violations = []
+        healing_suggestions = []
         try:
             # 4. Run Proposed Code in Sandbox
-            # Unpacking 4 values: stdout, stderr, result, is_err
             stdout, stderr, result, is_err = await repl.execute(proposed_code)
 
             # Check for hard crashes
@@ -287,21 +308,17 @@ class SheafMonitor:
 
                     func_name = axiom.get("function_name")
                     if not func_name:
-                        match = re.search(r"def (validate_\w+)", axiom["code"])
+                        match = re.search(r"def ([\w_]+)", axiom["code"])
                         func_name = match.group(1) if match else None
 
                     if not func_name:
                         continue
 
                     # Execute validator against result or state
-                    # If the code (e.g. assignments) returns None, we pass the local variables (state)
-                    # so the validator can check side-effects (e.g. x=5).
                     if result is not None:
-                        # Bind result to temporary variable to avoid massive f-string injection
                         repl.namespace["_axiom_target"] = result
                         val_call = f"{func_name}(_axiom_target)"
                     else:
-                        # Pass a copy of locals (excluding internal vars)
                         repl.namespace["_axiom_target"] = {
                             k: v
                             for k, v in repl.namespace.items()
@@ -309,24 +326,47 @@ class SheafMonitor:
                         }
                         val_call = f"{func_name}(_axiom_target)"
 
-                    _, val_err, val_res, _ = await repl.execute(val_call, silent=True)
+                    _, _, val_res, _ = await repl.execute(val_call, silent=True)
 
                     if val_res is False:
-                        violations.append(
-                            f"Axiom '{axiom_name}' violated: {axiom.get('description', 'No description')}"
-                        )
+                        violation_msg = f"Axiom '{axiom_name}' violated: {axiom.get('description', 'No description')}"
+                        violations.append(violation_msg)
+
+                        # Add Healing Suggestion if available
+                        if axiom.get("healing_code"):
+                            healing_suggestions.append(
+                                f"### Proposed Fix for {axiom_name}:\n```python\n{axiom['healing_code']}\n```"
+                            )
+                        else:
+                            # Semantic search for a similar healing axiom
+                            similar_healers = await axioms_mgr.find_healing_axiom(
+                                violation_msg, limit=1
+                            )
+                            if similar_healers:
+                                h = similar_healers[0]
+                                healing_suggestions.append(
+                                    f"### Suggested Healing Strategy (from {h.get('name')}):\n```python\n{h.get('healing_code') or h.get('code')}\n```"
+                                )
+
                 except Exception as e:
-                    logger.warning(f"Error processing axiom {axiom_name}: {e}")
+                    logger.warning("Error processing axiom %s: %s", axiom_name, e)
 
             if violations:
-                logger.warning(f"🚫 Axiomatic Violation detected: {violations}")
+                critique = "🚫 AXIOMATIC VIOLATIONS DETECTED:\n" + "\n".join(violations)
+                if healing_suggestions:
+                    critique += "\n\n💡 PROACTIVE HEALING SUGGESTIONS:\n" + "\n".join(
+                        healing_suggestions
+                    )
+
+                logger.warning("🚫 Axiomatic Violation detected: %s", violations)
                 return {
                     "status": "AXIOMATIC_VIOLATION",
                     "energy": 1.0,
-                    "critique": "\n".join(violations),
+                    "critique": critique,
                     "details": violations,
+                    "healing_suggestions": healing_suggestions,
                     "axioms_run": axioms,
-                    "should_halt": False,  # Changed to False to prioritize Self-Healing
+                    "should_halt": False,
                 }
 
             return {
@@ -337,7 +377,7 @@ class SheafMonitor:
                 "should_halt": False,
             }
         except Exception as e:
-            logger.error(f"Axiomatic validation system failure: {e}")
+            logger.error("Axiomatic validation system failure: %s", e)
             return {"status": "HEALTHY", "energy": 0.0, "error": str(e)}
 
 
