@@ -1030,7 +1030,7 @@ except Exception as e:
             f"Classify the technical domain of the following engineering insight.\n"
             f"Examples: 'Arithmetic', 'Network', 'Database', 'Validation', 'Security'.\n"
             f"Output ONE word only.\n\n"
-            f"Insight: {insight[:50000]}"
+            f"Insight: {insight[:16000]}"
         )
         domain = await self.llm.generate(
             prompt=prompt, system="Output a single CamelCase domain name.", stream=False

@@ -93,10 +93,64 @@ class IPCToolProxy:
         raise RuntimeError(f"Protocol Violation: {response_line[:100]}")
 
 
+class KBProxy:
+    """Proxy for knowledge base paths and directories."""
+
+    def __init__(self, base_path: str = None):
+        """Initialize knowledge base proxy with project paths."""
+        import os
+
+        # Default to project root if no base path provided
+        self._base_path = base_path or os.environ.get(
+            "PROJECT_ROOT", "/home/ty/Repositories/ai_workspace/graph-rlm"
+        )
+        self._kb_root = os.path.join(self._base_path, "knowledge_base")
+
+    @property
+    def reports_dir(self):
+        """Path to reports directory."""
+        import os
+
+        return os.path.join(self._kb_root, "reports")
+
+    @property
+    def plans_dir(self):
+        """Path to plans directory."""
+        import os
+
+        return os.path.join(self._kb_root, "plans")
+
+    @property
+    def outputs_dir(self):
+        """Path to outputs directory."""
+        import os
+
+        return os.path.join(self._kb_root, "outputs")
+
+    @property
+    def axioms_dir(self):
+        """Path to axioms directory."""
+        import os
+
+        return os.path.join(self._kb_root, "axioms")
+
+    @property
+    def root(self):
+        """Knowledge base root path."""
+        return self._kb_root
+
+
 class RLMClient:
     """Mock RLM client for proxying agent interface calls."""
 
+    def __init__(self):
+        """Initialize RLM client with KB proxy."""
+        self.kb = KBProxy()
+
     def __getattr__(self, name: str):
+        # Don't proxy 'kb' through IPCRLMProxy - it's handled in __init__
+        if name == "kb":
+            return self.kb
         return IPCRLMProxy(name)
 
 
@@ -164,6 +218,25 @@ async def kernel_loop():
     # Persistent Globals
     # We populate it with the modules we've imported and our helper clients
     user_globals = globals().copy()
+
+    # Add scientific computing modules for kernel execution
+    try:
+        import numpy as np
+        import scipy.sparse as sp
+        import scipy.sparse.linalg as spla
+
+        user_globals.update(
+            {
+                "np": np,
+                "sp": sp,
+                "spla": spla,
+            }
+        )
+    except ImportError:
+        logger.warning(
+            "Scientific computing modules (numpy, scipy) not available in kernel"
+        )
+
     user_globals.update(
         {
             "mcp": mcp,
