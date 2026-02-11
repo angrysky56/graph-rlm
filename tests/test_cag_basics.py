@@ -9,7 +9,7 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 from graph_rlm.backend.src.core.sheaf import sheaf
-from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+from graph_rlm.backend.src.mcp_integration.skill_storage import get_skills_manager
 
 
 async def test_axiom_blocking():

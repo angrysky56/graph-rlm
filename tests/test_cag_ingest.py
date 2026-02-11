@@ -8,7 +8,7 @@ if str(project_root) not in sys.path:
     sys.path.append(str(project_root))
 
 from graph_rlm.backend.src.core.dream import dreamer
-from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+from graph_rlm.backend.src.mcp_integration.skill_storage import get_skills_manager
 
 
 async def test_ingestion():

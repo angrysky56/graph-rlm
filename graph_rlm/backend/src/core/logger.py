@@ -17,6 +17,10 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
 
         # ANSI Colors
         class ColorFormatter(logging.Formatter):
+            """
+            Custom formatter to add ANSI colors to log levels.
+            """
+
             LEVEL_COLORS = {
                 logging.DEBUG: "\033[90m",  # Grey
                 logging.INFO: "\033[94m",  # Blue
@@ -31,7 +35,6 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
                 record.levelname = f"{color}{record.levelname}{self.RESET}"
                 return super().format(record)
 
-        # Format: Timestamp - Level - LoggerName - Message
         formatter = ColorFormatter(
             "%(asctime)s - %(levelname)s - [%(name)s] - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
@@ -39,6 +42,6 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         logger.setLevel(level)
-        logger.propagate = False
+        logger.propagate = True
 
     return logger

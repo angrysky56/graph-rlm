@@ -1,9 +1,10 @@
+import argparse
 import asyncio
 import os
 import sys
-from typing import Any, Dict, List, Optional
+import uuid
+from typing import Optional
 
-import numpy as np
 from dotenv import load_dotenv
 
 # --- PATH SETUP ---
@@ -41,20 +42,17 @@ else:
 
 # --- IMPORTS ---
 try:
-    from src.core.agent import agent  # DIAGNOSTIC IMPORT
-    from src.core.db import db
+    from .core.agent import agent  # DIAGNOSTIC IMPORT
+    from .core.db import db
 
     # Lazy import dreamer to avoid potential circular deps if any, though cli is top level
-    from src.core.dream import dreamer
-    from src.core.llm import llm
-    from src.core.repe import repe
-    from src.core.sheaf import sheaf
+    from .core.dream import dreamer
+    from .core.llm import llm
+    from .core.repe import repe
+    from .core.sheaf import sheaf
 except ImportError as e:
     print(f"❌ critical import error: {e}")
     sys.exit(1)
-
-import argparse
-import uuid
 
 
 async def test_live_repe():
@@ -108,6 +106,8 @@ async def test_live_sheaf():
 
     # Creating a unique test session ID to avoid pollution
     test_session_id = f"CLI_TEST_SHEAF_{uuid.uuid4().hex[:8]}"
+    import numpy as np
+
     test_vec = np.random.rand(1536).tolist()
 
     print(f"2. Seeding DB for Loop (Session: {test_session_id})...")
@@ -196,7 +196,7 @@ async def test_live_dreamer():
         "MATCH (a:Thought {id: 'node_a'}), (b:Thought {id: 'node_b'}) MERGE (a)-[:DECOMPOSES_INTO]->(b)"
     )
 
-    from src.core.scratchpad_builder import scratchpad_builder
+    from .core.scratchpad_builder import scratchpad_builder
 
     print("2. Constructing Real Scratchpad Context (via Builder)...")
     # Dynamically build context from the DB nodes we just created
@@ -211,12 +211,20 @@ async def test_live_dreamer():
     print("3. Triggering Dream Cycle with Context...")
 
     # Define a callback to see internal thoughts
-    def cli_emit(type, content, tag=None):
-        if type == "thinking" and tag == "DREAMER":
+    def cli_emit(
+        event_type,
+        data=None,
+        content=None,
+        code=None,
+        is_sub_event=False,
+        tag=None,
+        is_internal=False,
+    ):
+        if event_type == "thinking" and tag == "DREAMER":
             print(f"   [Dreamer Internal]: {content}...")
 
     try:
-        # Call Dreamer with the NEW context argument
+        # Call Dreamer with the current session context for verification
         res = await dreamer.dream_cycle(
             emit_callback=cli_emit, session_id=test_session_id, context=real_context
         )
@@ -224,7 +232,7 @@ async def test_live_dreamer():
         print(f"4. Dream Result: {res.get('status')}")
 
         if res.get("status") == "lucid":
-            print(f"✅ PASS: Dreamer woke up ('lucid'). Insight generated.")
+            print("✅ PASS: Dreamer woke up ('lucid'). Insight generated.")
             print(f"   Insight Preview: {res.get('insight')}")
 
             # [METABOLISM CHECK]
@@ -243,7 +251,7 @@ async def test_live_dreamer():
         elif res.get("status") == "peaceful":
             # It might be peaceful if it thinks the error is handled, but usually failure = surprise
             print(
-                f"⚠️ NOTE: Dreamer returned 'peaceful'. Check logs if this was intended."
+                "⚠️ NOTE: Dreamer returned 'peaceful'. Check logs if this was intended."
             )
         else:
             print(f"❌ FAIL: Dreamer status '{res.get('status')}' unexpected.")
@@ -282,17 +290,25 @@ async def test_live_agent(custom_prompt: Optional[str] = None):
         original_emit = agent.emit_event
 
         def verbose_emit(
-            type, content=None, data=None, code=None, tag=None, is_sub_event=False
+            event_type,
+            data=None,
+            content=None,
+            code=None,
+            is_sub_event=False,
+            tag=None,
+            is_internal=False,
         ):
-            if type in [
+            if event_type in [
                 "thinking",
                 "code_output",
                 "error",
                 "debug_thought",
                 "debug_code",
             ]:
-                print(f"   [{type.upper()}] {content or ''}")
-            original_emit(type, content, data, code, tag, is_sub_event)
+                print(f"   [{event_type.upper()}] {content or ''}")
+            original_emit(
+                event_type, data, content, code, is_sub_event, tag, is_internal
+            )
 
         agent.emit_event = verbose_emit
 
@@ -317,7 +333,7 @@ async def test_live_agent(custom_prompt: Optional[str] = None):
 async def inspect_session(session_id: str):
     """Prints the scratchpad context Gemini sees for a given session."""
     print(f"\n--- INSPECTING SESSION: {session_id} ---")
-    from src.core.scratchpad_builder import scratchpad_builder
+    from .core.scratchpad_builder import scratchpad_builder
 
     try:
         context = scratchpad_builder.build_scratchpad(

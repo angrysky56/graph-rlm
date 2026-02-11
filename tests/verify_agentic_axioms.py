@@ -8,7 +8,7 @@ sys.path.append(str(project_root))
 
 from graph_rlm.backend.src.core.agent import Agent
 from graph_rlm.backend.src.core.llm import llm
-from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+from graph_rlm.backend.src.mcp_integration.skill_storage import get_skills_manager
 
 
 async def verify_discovery():

@@ -4,7 +4,10 @@ Handles chat completions, session management, and system configuration.
 """
 
 import asyncio
+import importlib
 import json
+import re
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -12,6 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from graph_rlm.backend.src.core.context_index import context_index
+from graph_rlm.backend.src.mcp_integration.skill_storage import get_skills_manager
 
 from .agent import agent
 from .config import settings
@@ -28,15 +32,24 @@ router = APIRouter()
 
 # --- Data Models ---
 class ChatMessage(BaseModel):
+    """
+    Representation of a single message in a chat conversation.
+    """
+
     role: str
     content: str
 
 
 class ChatCompletionRequest(BaseModel):
+    """
+    Schema for an OpenAI-compatible chat completion request.
+    """
+
     model: str
     messages: List[ChatMessage]
     stream: bool = False
     session_id: Optional[str] = None
+    metadata: Optional[dict] = None
 
 
 # --- Endpoints ---
@@ -65,6 +78,7 @@ async def get_config():
         "OPENROUTER_API_KEY": settings.OPENROUTER_API_KEY,  # Return it so it populates UI (over OS SSL if needed, but this is local)
         "OPENROUTER_MODEL": settings.OPENROUTER_MODEL,
         "OPENROUTER_EMBEDDING_MODEL": settings.OPENROUTER_EMBEDDING_MODEL,
+        "SUMMARY_MODEL": settings.SUMMARY_MODEL,
         # "OPENAI_API_KEY": settings.OPENAI_API_KEY,
         # "OPENAI_MODEL": settings.OPENAI_MODEL,
         "provider": settings.LLM_PROVIDER,  # Alias for UI
@@ -73,6 +87,10 @@ async def get_config():
 
 @router.post("/system/config")
 async def update_config(request: Request):
+    """
+    Update system configuration settings and persist them to the .env file.
+    Only strictly allowed keys are updated for security.
+    """
     data = await request.json()
     # Validate allowed keys (security overlap)
     allowed_keys = {
@@ -83,6 +101,7 @@ async def update_config(request: Request):
         "OPENROUTER_API_KEY",
         "OPENROUTER_MODEL",
         "OPENROUTER_EMBEDDING_MODEL",
+        "SUMMARY_MODEL",
         # "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_EMBEDDING_MODEL"
     }
 
@@ -99,16 +118,8 @@ async def update_config(request: Request):
                 status_code=500, detail="Failed to persist config to .env"
             )
 
-    # Refresh llm service if needed (re-init singleton?)
-    # ideally we re-init the llm client here if provider changed
-    # For MVP, we might need to rely on next request reading settings,
-    # but llm.py init happens once.
-    # TODO: Trigger LLM re-init.
-    # Quick fix: Modifying settings.py in-place works for future calls if LLMService reads on usage?
-    # LLMService reads provider in __init__. So we need to re-init it.
-    from .llm import llm as llm_service
-
-    llm_service.__init__()
+    # Refresh llm service
+    await llm.refresh()
 
     return {"status": "updated", "config": settings.get_llm_config()}
 
@@ -135,7 +146,7 @@ async def get_system_status(session_id: Optional[str] = None):
         if not session_id:
             return {"scratchpad": []}
 
-        state = agent._get_state()
+        state = agent.get_state()
         scratchpad = context_index.get_active_scratchpad_data(session_id)
 
         return {
@@ -144,6 +155,7 @@ async def get_system_status(session_id: Optional[str] = None):
             "scratchpad": scratchpad,
         }
     except Exception as e:
+        logger.error("System status check failed: %s", e)
         return {"scratchpad": [], "error": str(e)}
 
 
@@ -215,7 +227,7 @@ async def list_sessions():
             )
         return sessions
     except Exception as e:
-        print(f"Session list error: {e}")
+        logger.error("Session list error: %s", e)
         return []
 
 
@@ -357,6 +369,25 @@ async def reset_database():
         raise HTTPException(status_code=500, detail=f"Failed to reset DB: {e}") from e
 
 
+@router.get("/system/eval")
+async def get_eval_metrics():
+    """
+    Get agent evaluation metrics.
+    Returns success/failure counts, step counts, and dreamer interventions.
+    """
+    total = agent.eval_success_count + agent.eval_failure_count
+    success_rate = (agent.eval_success_count / total * 100) if total > 0 else 0.0
+
+    return {
+        "success_count": agent.eval_success_count,
+        "failure_count": agent.eval_failure_count,
+        "total_tasks": total,
+        "success_rate": round(success_rate, 2),
+        "dreamer_interventions": agent.eval_dreamer_interventions,
+        "step_count": agent.eval_step_count,
+    }
+
+
 @router.get("/chat/graph")
 async def get_graph(session_id: Optional[str] = None):
     """
@@ -429,6 +460,9 @@ async def get_graph(session_id: Optional[str] = None):
                     "group": 2 if "DECOMPOSES_INTO" in str(rel) else 1,  # heuristic
                     "val": 5,
                     "status": s_props.get("status", "pending"),
+                    "sheaf_score": s_props.get("sheaf_score"),
+                    "spectral_energy": s_props.get("spectral_energy"),
+                    "h0_rank": s_props.get("h0_rank"),
                 }
 
             # Process Relationship
@@ -447,6 +481,9 @@ async def get_graph(session_id: Optional[str] = None):
                             "group": 2,  # Child
                             "val": 3,
                             "status": t_props.get("status", "pending"),
+                            "sheaf_score": t_props.get("sheaf_score"),
+                            "spectral_energy": t_props.get("spectral_energy"),
+                            "h0_rank": t_props.get("h0_rank"),
                         }
 
                     links.append({"source": s_id, "target": t_id})
@@ -471,21 +508,21 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
     sid = chat_req.session_id or "default"
     model_name = llm.config.get("model")
 
-    banner("SESSION START: %s | MODEL: %s" % (sid, model_name))
+    banner(f"SESSION START: {sid} | MODEL: {model_name}")
     trace_action("API", "QUERY", result=prompt, tag="AGENT")
 
     logger.info("Processing Prompt: %s", prompt)
 
     async def response_stream():
         # 1. Start Event
-        yield f"data: {json.dumps({'type': 'thinking', 'data': 'Initializing agent recursion...'})}\n\n"
+        yield f"data: {json.dumps({'type': 'thinking', 'ui_target': 'TERMINAL_RAW', 'data': 'Initializing agent recursion...'})}\n\n"
 
         # 2. Execute Stream (Yields real events from nested recursion)
         try:
             # Use provided session_id or fallback to default
             sid = chat_req.session_id or "default"
             async for event in agent.stream_query(
-                prompt, parent_id=None, session_id=sid
+                prompt, parent_id=None, session_id=sid, metadata=chat_req.metadata
             ):
                 if await req.is_disconnected():
                     logger.info("Client disconnected. Stopping agent.")
@@ -519,9 +556,6 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
 @router.get("/mcp/status")
 async def mcp_status():
     """List detected MCP servers and tools (Optimized)."""
-    import importlib
-    import re
-    from pathlib import Path
 
     # Resolve project root
     project_root = Path(__file__).parent.parent.parent.parent.parent.resolve()
@@ -532,7 +566,7 @@ async def mcp_status():
 
     try:
         # 1. Read Config
-        with open(config_path) as f:
+        with open(config_path, encoding="utf-8") as f:
             data = json.load(f)
 
         configured_servers = data.get("mcpServers", {}).keys()
@@ -584,7 +618,6 @@ async def mcp_status():
 async def list_skills_endpoint():
     """List available skills from the library."""
     try:
-        from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
 
         mgr = get_skills_manager()
         # Returns dict {name: metadata}
@@ -602,7 +635,7 @@ async def list_skills_endpoint():
             )
         return skills_list
     except Exception as e:
-        print(f"Error listing skills: {e}")
+        logger.error("Error listing skills: %s", e)
         return []
 
 

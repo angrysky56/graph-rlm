@@ -193,6 +193,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ sessionId }) => {
             } else if (event.type === "thinking") {
               lastMsg.thinking =
                 (lastMsg.thinking || "") + (event.content || "");
+            } else if (
+              event.type === "answer" ||
+              event.type === "final_answer" ||
+              event.type === "RLM_FINAL_RESPONSE" ||
+              event.type === "AGENT_SUMMARY" ||
+              event.type === "synthesis"
+            ) {
+              // Final response types - append to content
+              lastMsg.content = (lastMsg.content || "") + (event.content || "");
+            } else if (event.type === "code_output" || event.type === "code_output_chunk") {
+              // Code execution results - show as content with formatting
+              const output = event.content || "";
+              if (output.trim()) {
+                lastMsg.content = (lastMsg.content || "") + "\n```\n" + output + "\n```\n";
+              }
+            } else if (event.type === "error" || event.type === "warning") {
+              // Errors and warnings - show prominently
+              lastMsg.content = (lastMsg.content || "") + "\n⚠️ " + (event.content || "") + "\n";
             } else if (event.type === "tool_call_chunk") {
               // Properly accumulate tool call chunks by index
               const toolCalls = event.tool_calls || [];
@@ -246,6 +264,8 @@ export const ChatArea: React.FC<ChatAreaProps> = ({ sessionId }) => {
             } else if (event.type === "done") {
               setIsStreaming(false);
             }
+            // Note: TERMINAL_RAW events (ui_target) are handled implicitly -
+            // if event.type doesn't match above, it's simply not displayed in chat
 
             return newHistory;
           });

@@ -4,95 +4,58 @@ Handles the core execution loop, recursive querying, and tool integration.
 """
 
 import asyncio
-import contextvars
 import datetime
+import hashlib
 import importlib.util
-import inspect
-import pkgutil
 import queue
 import re
 import shutil
+import subprocess
 import sys
 import threading
 import uuid
-from dataclasses import dataclass
-from importlib import import_module
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
+from ..mcp_integration.runtime import AgentRuntime, set_stop_event
+from ..mcp_integration.skill_storage import get_axioms_manager, get_skills_manager
 from .config import settings
 from .context_index import context_index
 from .db import GraphClient, db
-from .llm import LLMService, llm
+from .dream import dreamer
+from .llm import llm
 from .logger import get_logger
-from .manager import REPLManager
+from .mcp_runtime import is_mcp_available
+from .navigator import Navigator
+from .omcd import omcd
+from .prompts import build_system_prompt
 from .repe import repe
+from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
 from .sheaf import sheaf
+from .state import (
+    ExecutionState,
+    agent_state,
+    broadcast_trace,
+    execution_events,
+)
 from .trace import register_monitor, trace_action
 
 if TYPE_CHECKING:
-    from graph_rlm.backend.src.mcp_integration.skills import SkillsManager
-
-# ... existing imports ...
-
-
-# MCP Integration
-def is_mcp_available():
-    """Defensive check for MCP tools availability."""
-    return (
-        importlib.util.find_spec("mcp_tools") is not None
-        or importlib.util.find_spec("graph_rlm.backend.mcp_tools") is not None
-    )
+    from graph_rlm.backend.src.mcp_integration.skill_storage import SkillsManager
 
 
 # Skills System
 def is_skills_available():
     """Defensive check for Skills system availability."""
     return (
-        importlib.util.find_spec("graph_rlm.backend.src.mcp_integration.skills")
+        importlib.util.find_spec("graph_rlm.backend.src.mcp_integration.skill_storage")
         is not None
-        or importlib.util.find_spec("mcp_integration.skills") is not None
+        or importlib.util.find_spec("mcp_integration.skill_storage") is not None
     )
 
 
 logger = get_logger("graph_rlm.agent")
-
-# Context Variable to hold the event queue for the current execution thread/chain
-execution_events: contextvars.ContextVar[Optional[queue.Queue]] = (
-    contextvars.ContextVar("execution_events", default=None)
-)
-
-
-@dataclass
-class ExecutionState:
-    """Thread-local state for the agent's execution loop."""
-
-    final_result: Optional[str] = None
-    stop_requested: bool = False
-    synthesis_triggered: bool = False
-    current_thought_id: Optional[str] = None
-    depth: int = 0
-    turn_id: int = 1
-
-
-def broadcast_trace(msg: str):
-    """Monitor callback to push trace logs to the active event loop."""
-    try:
-        q = execution_events.get()
-        if q:
-            # Clean ANSI codes for UI (optional, but UI handles raw text better usually)
-            # For now sending raw, UI can render or strip if needed.
-            # Actually, let's keep ANSI for terminal but strip for UI?
-            # Or send as is and let UI ignore colors or parse them.
-            # Simple approach: Strip ANSI for cleaner UI text
-            clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
-            q.put_nowait({"type": "trace", "content": clean_msg})
-    except LookupError:
-        pass
-    except Exception as e:
-        # Fallback log to avoid recursion loop if logging fails
-        sys.stderr.write(f"Failed to broadcast trace: {e}\n")
 
 
 # Register the monitor
@@ -101,498 +64,11 @@ trace_action(context="AGENT", action="Initializing Trace Monitor...", level="deb
 register_monitor(broadcast_trace)
 
 
-# Session-specific state isolated by thread/context
-agent_state: contextvars.ContextVar[Optional[ExecutionState]] = contextvars.ContextVar(
-    "agent_state", default=None
-)
-
-
-class MCPServerNamespace:
-    """Lazy-loaded namespace for a single MCP server."""
-
-    def __init__(self, mod_name: str, alias: str, rlm_interface: "RLMInterface"):
-        self._mod_name = mod_name
-        self._alias = alias
-        self._rlm_interface = rlm_interface
-        self._module = None
-        self._tools = {}
-        self._docs = {}
-
-    def set_rlm_interface(self, rlm_interface: "RLMInterface"):
-        """Update the RLM interface binding."""
-        self._rlm_interface = rlm_interface
-
-    def _ensure_loaded(self):
-        if self._module is False:  # Already tried and failed
-            return
-        if self._module is None:
-            try:
-                self._module = import_module(
-                    f"graph_rlm.backend.mcp_tools.{self._mod_name}"
-                )
-                for attr in dir(self._module):
-                    if not attr.startswith("_"):
-                        func = getattr(self._module, attr)
-                        if callable(func):
-                            # Use actual function name, no aliases
-                            def make_wrapper(f, n):
-                                async def wrapped(*args, **kwargs):
-                                    self._rlm_interface.record_tool_use(n)
-                                    res = f(*args, **kwargs)
-                                    if inspect.isawaitable(res):
-                                        return await res
-                                    return res
-
-                                wrapped.__doc__ = f.__doc__
-                                return wrapped
-
-                            wrapper = make_wrapper(func, f"mcp.{self._alias}.{attr}")
-                            self._tools[attr] = wrapper
-                            self._docs[attr] = func.__doc__
-            except Exception as e:
-                logger.warning("Failed to load MCP server %s: %s", self._mod_name, e)
-                self._module = False  # Mark as failed
-
-    def __getattr__(self, name):
-        self._ensure_loaded()
-        if name in self._tools:
-            return self._tools[name]
-        raise AttributeError(f"MCP Server '{self._alias}' has no tool '{name}'")
-
-    def __dir__(self):
-        self._ensure_loaded()
-        return list(self._tools.keys())
-
-    def __repr__(self):
-        return f"<MCPServerNamespace '{self._alias}' (from {self._mod_name})>"
-
-
-class LazyMCPNamespace:
-    """Lazy-loaded root namespace for all MCP servers."""
-
-    def __init__(self, rlm_interface: "RLMInterface"):
-        self._rlm_interface = rlm_interface
-        self._aliases = {}
-        self._scan_done = False
-
-    def set_rlm_interface(self, rlm_interface: "RLMInterface"):
-        """Update the RLM interface binding and propagate to children."""
-        self._rlm_interface = rlm_interface
-        for server in self._aliases.values():
-            if hasattr(server, "set_rlm_interface"):
-                server.set_rlm_interface(rlm_interface)
-
-    def _scan(self):
-        if not self._scan_done and is_mcp_available():
-            try:
-                import graph_rlm.backend.mcp_tools as mcp_tools_pkg
-
-                logger.info("Starting MCP server discovery...")
-                for _, mod_name, _ in pkgutil.iter_modules(mcp_tools_pkg.__path__):
-                    if mod_name.startswith("_") or mod_name == "skills":
-                        logger.debug("Skipping module: %s", mod_name)
-                        continue
-
-                    logger.info("Discovered MCP module: %s", mod_name)
-
-                    # Create MCPServerNamespace using the actual module name (no aliases)
-                    # This ensures tool discovery works correctly by matching module structure
-                    server = MCPServerNamespace(mod_name, mod_name, self._rlm_interface)
-                    self._aliases[mod_name] = server
-                    logger.info("Registered MCP server: %s", mod_name)
-
-                self._scan_done = True
-                logger.info("MCP server discovery completed.")
-            except Exception as e:
-                logger.warning("MCP Scan Error: %s", e)
-
-    def __getattr__(self, name):
-        self._scan()
-        if name in self._aliases:
-            return self._aliases[name]
-        raise AttributeError(f"No MCP server found with name or alias '{name}'")
-
-    def __dir__(self):
-        self._scan()
-        return list(self._aliases.keys())
-
-    def __repr__(self):
-        return f"<LazyMCPNamespace with {len(self._aliases)} server aliases>"
-
-
-class RLMInterface:
-    """
-    The object exposed to the REPL as 'rlm'.
-    Allows recursive queries and memory recall.
-    """
-
-    def __init__(self, agent_instance: "Agent", session_id: str, root_session_id: str):
-        self.agent = agent_instance
-        self.session_id = session_id
-        self.root_session_id = root_session_id
-
-    def record_tool_use(self, name: str):
-        # FAST STOP CHECK: If the user hit stop, we must abort immediately.
-        if getattr(self.agent, "stop_requested", False) or (
-            hasattr(self.agent, "global_stop_event")
-            and self.agent.global_stop_event.is_set()
-        ):
-            logger.warning("Stop signal detected. Aborting tool call: %s", name)
-            raise InterruptedError(f"Execution stopped by user (Attempted: {name})")
-
-        if self.session_id not in self.agent.execution_logs:
-            self.agent.execution_logs[self.session_id] = []
-        self.agent.execution_logs[self.session_id].append(name)
-
-    @property
-    def history(self):
-        """
-        Exposes the full thought trace of the current session as a list of dictionaries.
-        Allows the agent to programmatically inspect its own reasoning history.
-        """
-        self.record_tool_use("rlm.history")
-        try:
-            return self.agent.db.get_session_trace(self.root_session_id)
-        except Exception as e:
-            logger.error("Failed to fetch history for rlm.history: %s", e)
-            return []
-
-    async def query(
-        self,
-        prompt: str,
-        context: Optional[str] = None,
-        session_id: Optional[str] = None,
-        depth: Optional[int] = None,
-    ):
-        """
-        Recursive Primitive: Spawns a recursive child agent.
-        """
-        self.record_tool_use("rlm.query")
-        # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
-        new_session_id = session_id or str(uuid.uuid4())
-
-        # Turn tracking: Inherit from parent turn
-        current_state = agent_state.get()
-        current_turn = current_state.turn_id if current_state else 1
-
-        # Depth tracking: Increment depth for children
-        current_depth = (
-            depth if depth is not None else getattr(self.agent, "current_depth", 0)
-        )
-        new_depth = current_depth + 1
-
-        trace_action(
-            "RLM",
-            "RECURSE",
-            result=f"Spawning child session (Depth: {new_depth}) for: {prompt}",
-            tag="AGENT",
-        )
-        self.agent.emit_event(
-            "thinking",
-            content=f"\n⚡ RLM: Spawning Recursive Agent (Depth: {new_depth}) for: '{prompt}'",
-        )
-
-        full_prompt = prompt
-        if context:
-            full_prompt = f"Context:\n{context}\n\nTask: {prompt}"
-
-        # stream_query is async, so we await it
-        results = ""
-        async for event in self.agent.stream_query(
-            full_prompt,
-            parent_id=self.agent.current_thought_id,
-            session_id=new_session_id,
-            depth=new_depth,
-            turn_id=current_turn,
-        ):
-            # Pipe child events up to parent's queue
-            # We prefix the type or content to show it's a sub-agent
-            if event["type"] == "done":
-                results = event["content"]
-                # DO NOT pipe "done" to parent's UI, it kills the stream
-                continue
-
-            if event["type"] == "error":
-                self.agent.emit_event(
-                    "thinking",
-                    content=f"⚠️ [RLM Child Error]: {event.get('content')}",
-                    is_sub_event=True,
-                )
-                continue
-
-            # Prefix content for better visibility
-            content = event.get("content", "")
-            if event["type"] == "code_output_chunk":
-                content = f"[RLM Child Output] {content}"
-            elif event["type"] == "thinking" and content:
-                content = f"⚡ [RLM Child]: {content}"
-
-            self.agent.emit_event(
-                event["type"],
-                data=event.get("data"),
-                content=content,
-                code=event.get("code"),
-                is_sub_event=True,
-            )
-        if not results:
-            msg = "Recursion completed without a final answer."
-            print(f"\n[RLM] {msg}")
-            raise RuntimeError(msg)
-
-        print(f"\n[RLM] Recursion completed with results: {results}")
-        return results
-
-    async def recall(self, query: str, limit: int = 5):
-        """
-        Active Recall: Search the Graph for similar past thoughts.
-        """
-        self.record_tool_use("rlm.recall")
-        logger.info("Thought %s: Recalling '%s'", self.agent.current_thought_id, query)
-        self.agent.emit_event(
-            "thinking", content=f"\n🧠 RLM: Recalling memories for '{query}'..."
-        )
-        try:
-            vec = await self.agent.llm.get_embedding(query)
-            if not vec:
-                trace_action(
-                    "RLM",
-                    "RECALL_FAIL",
-                    result="Failed to generate embedding",
-                    tag="AGENT",
-                    level="error",
-                )
-                return "Failed to generate embedding for recall query."
-
-            # Use db.find_similar_thoughts
-            results = self.agent.db.find_similar_thoughts(vec, limit=limit)
-
-            trace_action(
-                "RLM",
-                "RECALL",
-                result=f"Found {len(results)} past thoughts for query '{query}'",
-                tag="AGENT",
-                level="info" if results else "warning",
-            )
-
-            # Format results for the LLM
-            formatted = []
-            for row in results:
-                # Results from find_similar_thoughts: {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
-
-                tid = row.get("id", "Unknown")
-                prompt = row.get("prompt", "No prompt")
-                result = row.get("result", "No result")
-                score = float(row.get("score", 0.0))
-
-                formatted.append(
-                    f"- [Similarity: {score:.2f}] (ID: {tid}) Thought: {prompt} -> Result: {result}"
-                )
-
-            if not formatted:
-                self.agent.emit_event(
-                    "thinking", content="\n🧠 RLM: No matching memories found."
-                )
-                return "No semantically similar thoughts found in memory."
-
-            output = f"Recall found {len(formatted)} relevant entries."
-            print(f"\n[RLM] {output}")
-            return (
-                "\n\n".join(formatted)
-                if formatted
-                else "No relevant past thoughts found."
-            )
-
-        except Exception as e:  # pylint: disable=broad-except
-            logger.error("Recall Error: %s", e)
-            return f"Error during memory recall: {e}"
-
-    async def search(self, query: str, limit: int = 10):
-        """Topological search across the graph (alias for graph_search)."""
-        self.record_tool_use("rlm.search")
-        vec = await self.agent.llm.get_embedding(query)
-        if vec:
-            results = self.agent.db.find_similar_thoughts(vec, limit)
-            if not results:
-                return "No results found."
-            return results
-        return "Failed to generate embedding."
-
-    async def ingest_document(self, path: str, domain: str = "general"):
-        """Ingests a document and codifies its knowledge into Axioms (CAG)."""
-        self.record_tool_use("rlm.ingest_document")
-        from .dream import dreamer
-
-        res = await dreamer.ingest_document(path, domain)
-        if res.get("status") == "success":
-            return f"Successfully codified {len(res.get('codified_axioms', []))} axioms: {res.get('codified_axioms')}"
-        return f"Ingestion failed: {res.get('message', 'Unknown error')}"
-
-    async def save_skill(self, name: str, code: str, description: Optional[str] = None):
-        """Saves a code snippet as a persistent skill."""
-        self.record_tool_use("rlm.save_skill")
-        if not is_skills_available():
-            return "Skills system not available."
-        from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
-
-        mgr = get_skills_manager()
-        await mgr.save_skill(name, code, description)
-        return f"Skill '{name}' saved successfully."
-
-    async def run_skill(self, name: str = "", args: Optional[dict] = None, **kwargs):
-        """Executes a registered skill."""
-        self.record_tool_use("rlm.run_skill")
-        # Handle 'title' as an alias for 'name' if the agent hallucinates it
-        skill_name = name or kwargs.get("title") or ""
-        if not skill_name:
-            return "Error: No skill name or title provided."
-
-        if not is_skills_available():
-            return "Skills system not available."
-        from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
-
-        return await execute_skill(skill_name, args or {})
-
-    async def get_axiom(self, name: str):
-        """Retrieves an axiom's code and metadata by name."""
-        self.record_tool_use("rlm.get_axiom")
-        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
-
-        mgr = get_axioms_manager()
-        axiom = mgr.get_axiom(name)
-        if not axiom:
-            return f"Axiom '{name}' not found."
-        return axiom
-
-    async def recall_axioms(self, query: str, limit: int = 5):
-        """High-precision semantic search for domain rules and axioms."""
-        self.record_tool_use("rlm.recall_axioms")
-        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
-
-        mgr = get_axioms_manager()
-        results = await mgr.find_similar_axioms(query, limit)
-        if not results:
-            return "No relevant axioms found."
-
-        formatted = []
-        for a in results:
-            type_tag = f" ({a.get('axiom_type')})" if a.get("axiom_type") else ""
-            formatted.append(
-                f"Axiom: {a.get('name')}{type_tag}\n"
-                f"Description: {a.get('description')}\n"
-                f"Code: {a.get('code')}"
-            )
-        return "\n\n---\n\n".join(formatted)
-
-    async def execute_axiom(self, name: str, args: Optional[dict] = None):
-        """Executes a 'solver' or 'heuristic' axiom directly."""
-        self.record_tool_use("rlm.execute_axiom")
-        from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
-        from graph_rlm.backend.src.mcp_integration.skills import get_axioms_manager
-
-        mgr = get_axioms_manager()
-        axiom = mgr.get_axiom(name)
-        if not axiom:
-            return f"Axiom '{name}' not found."
-
-        if axiom.get("axiom_type") == "validator":
-            return (
-                "Warning: This is a 'validator' axiom. It should be used via rlm.verify_axiom "
-                "or by the Sheaf monitor. Running as a skill might not have the intended effect."
-            )
-
-        return await execute_skill(name, args or {})
-
-    async def install_package(self, package_name: str):
-        """Install a Python package into the agent's REPL environment."""
-        self.record_tool_use("rlm.install_package")
-        return self.agent.install_package(package_name)
-
-    async def install_skill_package(self, package_name: str):
-        """Install a package specifically for the AGENT skills (agent_venv) environment."""
-        self.record_tool_use("rlm.install_skill_package")
-        return self.agent.install_skill_package(package_name)
-
-    async def done(self, final_answer: str = ""):
-        """Signifies the agent has reached a final conclusion."""
-        self.record_tool_use("rlm.done")
-        self.agent.stop_requested = True
-        if final_answer:
-            self.agent.final_result = final_answer
-
-        # Log a summary to console, but return full confirmation
-        summary = final_answer
-        msg = f"Task Marked Complete. Summary: {summary}"
-        print(f"\n[RLM] {msg}")
-
-        # Emit final answer to UI
-        self.agent.emit_event("answer", content=final_answer)
-
-        return "Task completed successfully."
-
-    async def stop(self, final_answer: str = ""):
-        """Alias for done()."""
-        self.record_tool_use("rlm.stop")
-        return await self.done(final_answer)
-
-    async def help(self):
-        """Broad discovery of available commands within the 'rlm' namespace."""
-        self.record_tool_use("rlm.help")
-
-        # Core RLM Commands
-        help_dict = {
-            "query(prompt, context)": "Spawn a recursive child agent.",
-            "recall(query, limit)": "Semantic search through memory.",
-            "search(query, limit)": "Graph search (alias for recall).",
-            "ingest_document(path, domain)": "CAG: Codify docs into Axioms.",
-            "save_skill(name, code, desc)": "Persist a code block.",
-            "run_skill(name, args)": "Run a saved code block.",
-            "get_axiom(name)": "Retrieve axiom code and metadata.",
-            "recall_axioms(query, limit)": "Semantic search for domain rules.",
-            "execute_axiom(name, args)": "Execute a solver or healing axiom.",
-            "install_package(name)": "Install Python dependencies.",
-        }
-
-        # Dynamic MCP Tool Discovery
-        try:
-            # Resolve backend root to find mcp_tools
-            backend_root = Path(__file__).parent.parent.parent
-            tools_dir = backend_root / "mcp_tools"
-            ignored = {"list_servers", "call_tool", "run_skill"}
-
-            for f in tools_dir.glob("*.py"):
-                if f.name.startswith("_") or f.stem in ignored:
-                    continue
-
-                module_name = f.stem
-                try:
-                    mod = importlib.import_module(
-                        f"graph_rlm.backend.mcp_tools.{module_name}"
-                    )
-                    for name, obj in inspect.getmembers(mod, inspect.isfunction):
-                        if not name.startswith("_") and name != "list_tools":
-                            # Format: mcp.server.tool(args)
-                            sig = str(inspect.signature(obj))
-                            key = f"mcp.{module_name}.{name}{sig}"
-                            doc = inspect.getdoc(obj) or "No description."
-                            help_dict[key] = doc.split("\n", maxsplit=1)[0]  # Brief doc
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to load module '{module_name}' for help: {e}"
-                    )
-                    continue
-        except Exception as e:  # pylint: disable=broad-except
-            logger.warning("Error discovering MCP tools for help(): %s", e)
-
-        return help_dict
-
-    def __repr__(self):
-        return f"<RLMInterface [Session: {self.session_id[:8]}...] Type 'rlm.help()' for tools>"
-
-
 class Agent:
     """
     The core Recursive Logic Machine (RLM) agent.
     Handles the main execution loop, epistemic health checks, and dreamer integration.
+    Manages REPL sessions, graph memory, and tool execution.
     """
 
     skills_manager: Optional["SkillsManager"]
@@ -601,33 +77,23 @@ class Agent:
         # NOTE: nest_asyncio removed - incompatible with uvloop
         # Code flow is properly async (async def + await) so not needed.
 
-        # --- PATH INJECTION (Bootstrap) ---
-        # Ensure 'skills_dir' and 'mcp_tools' are in path for imports
-        # We need the project root for 'graph_rlm' nested imports
-        project_root = Path(__file__).resolve().parents[4]
-        backend_path = Path(__file__).resolve().parents[2]
-        skills_path = backend_path / "skills_dir"
-        mcp_tools_path = backend_path / "mcp_tools"
-
-        if str(project_root) not in sys.path:
-            logger.info("Injecting Project Root: %s", project_root)
-            sys.path.append(str(project_root))
-
-        if str(backend_path) not in sys.path:
-            logger.info("Injecting Backend Path: %s", backend_path)
-            sys.path.append(str(backend_path))
-
-        if str(skills_path) not in sys.path:
-            sys.path.append(str(skills_path))
-
-        if str(mcp_tools_path) not in sys.path:
-            sys.path.append(str(mcp_tools_path))
-
         # --- CORE INITIALIZATION ---
         self.db: GraphClient = db
-        self.llm: LLMService = llm
-        self.repl_manager = REPLManager()
-        self.active_repls: Dict[str, str] = {}  # session_id -> repl_id
+        self.llm = llm
+
+        # [SECURITY] Process Isolation via uv
+        project_root = Path(__file__).resolve().parents[4]
+        # We also need backend root for path resolution if needed
+        # But AgentRuntime handles it.
+
+        self.runtime = AgentRuntime(project_root)
+
+        # Legacy REPL Manager removed in favor of strict isolation
+        # Sub-agents share the same REPL manager but have their own execution state
+        self.active_repls: Dict[str, str] = {}
+
+        # Navigator for Intelligent Curiosity
+        self.navigator = Navigator(sheaf_monitor=sheaf)
         self.execution_logs: Dict[str, list] = {}  # session_id -> [tool_ident, ...]
         self.session_cache: Dict[str, Any] = {}  # For Sheaf Monitor & shared state
         self.current_task_input: Optional[str] = (
@@ -639,6 +105,7 @@ class Agent:
 
         # --- STATE INITIALIZATION (Linter safety) ---
         self.last_dream_insight: Optional[str] = None
+        self._dreamer_retry_count: int = 0  # Counter for repeated insight escalation
         self.stop_requested: bool = False
         self.final_result: Optional[str] = None
         self.synthesis_triggered: bool = False
@@ -646,11 +113,14 @@ class Agent:
         self.current_turn: int = 1
         self.current_thought_id: Optional[str] = None
 
-        if is_skills_available():
-            from graph_rlm.backend.src.mcp_integration.skills import (
-                get_skills_manager,
-            )
+        # === EVALUATION COUNTERS ===
+        # Track success/failure for session-level and global metrics
+        self.eval_success_count: int = 0  # Successful task completions
+        self.eval_failure_count: int = 0  # Failed tasks (errors, timeouts)
+        self.eval_step_count: int = 0  # Total steps executed
+        self.eval_dreamer_interventions: int = 0  # Dreamer correction count
 
+        if is_skills_available():
             self.skills_manager = get_skills_manager()
         else:
             self.skills_manager = None
@@ -659,11 +129,10 @@ class Agent:
         self._ensure_kb_structure()
 
         # Environment Strategy:
-        # 1. Core Agent / REPL: Runs in the active project environment (sys.prefix).
-        # 2. Skills / Tools: Run in the dedicated 'agent_venv' for isolation.
-        # 3. MCP Servers: Run in their own independent environments (managed by uv or configured venvs).
-        logger.info("Agent initialized using active environment: %s", sys.prefix)
-        logger.info("Agent initialized with Persistent REPL support")
+        # 1. Core Agent: Runs in host environment.
+        # 2. Code Execution: Runs in ISOLATED 'agent_venv' via AgentRuntime (uv).
+        # 3. MCP Servers: Run in their own independent environments.
+        logger.info("Agent initialized with Strict Process Isolation (AgentRuntime)")
         logger.info("RepE Safety Layer & Sheaf Topology Monitor Loaded.")
 
     def _ensure_kb_structure(self):
@@ -691,11 +160,12 @@ class Agent:
                 )
 
             logger.info("Knowledge Base structure verified at: %s", kb_root)
-        except Exception as e:  # pylint: disable=broad-except
+        except (OSError, AttributeError) as e:
             logger.warning("Failed to verify Knowledge Base structure: %s", e)
 
     # --- SESSION-ISOLATED PROPERTIES ---
-    def _get_state(self) -> ExecutionState:
+    def get_state(self) -> ExecutionState:
+        """Retrieves or initializes the execution state for the current session."""
         state = agent_state.get()
         if state is None:
             # Fallback for out-of-session access (e.g. CLI or background tasks)
@@ -705,56 +175,65 @@ class Agent:
 
     @property
     def final_result(self) -> Optional[str]:
-        return self._get_state().final_result
+        """Provides access to the final result string stored in the current
+        execution state."""
+        return self.get_state().final_result
 
     @final_result.setter
     def final_result(self, value: Optional[str]):
-        self._get_state().final_result = value
+        self.get_state().final_result = value
 
     @property
     def stop_requested(self) -> bool:
+        """Checks if a stop signal has been issued for the current session or globally."""
         # Check both local context AND global signal
-        return self._get_state().stop_requested or self.global_stop_event.is_set()
+        return self.get_state().stop_requested or self.global_stop_event.is_set()
 
     @stop_requested.setter
     def stop_requested(self, value: bool):
-        self._get_state().stop_requested = value
+        self.get_state().stop_requested = value
 
     @property
     def synthesis_triggered(self) -> bool:
-        return self._get_state().synthesis_triggered
+        """Indicates if a synthesis operation has been triggered for the current execution."""
+        return self.get_state().synthesis_triggered
 
     @synthesis_triggered.setter
     def synthesis_triggered(self, value: bool):
-        self._get_state().synthesis_triggered = value
+        self.get_state().synthesis_triggered = value
 
     @property
     def current_thought_id(self) -> Optional[str]:
-        return self._get_state().current_thought_id
+        """Gets the ID of the current thought/task node being processed."""
+        return self.get_state().current_thought_id
 
     @current_thought_id.setter
     def current_thought_id(self, value: Optional[str]):
-        self._get_state().current_thought_id = value
+        self.get_state().current_thought_id = value
 
     @property
     def current_depth(self) -> int:
-        return self._get_state().depth
+        """Retrieves the current recursion depth of the agent's logic machine."""
+        return self.get_state().depth
 
     @current_depth.setter
     def current_depth(self, value: int):
-        self._get_state().depth = value
+        self.get_state().depth = value
 
-    def _install_to_active_env(self, package_name: str) -> str:
+    def record_turn(self, turn_id: int):
+        """Update current turn and reset context-specific tracking if needed."""
+        self.current_turn = turn_id
+
+    async def _install_to_active_env(self, package_name: str) -> str:
         """Internal helper to install a package into the CURRENT active environment."""
 
-        # trunk-ignore(bandit/B404)
-        import subprocess
-
         logger.info(
-            f"Agent requesting installation of package: {package_name} into Active Env"
+            "Agent requesting installation of package: %s into Active Env",
+            package_name,
         )
         self.emit_event(
-            "thinking", content=f"\n📦 Agent: Installing package '{package_name}'..."
+            "token",
+            content=f"\n🛠️ [Self-Healing] Installing package '{package_name}'...",
         )
 
         # Use the running python executable to ensure installed packages are visible to this process
@@ -773,28 +252,28 @@ class Agent:
                     package_name,
                 ]
 
-            # trunk-ignore(bandit/B603)
-            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
 
-            if result.returncode == 0:
+            if proc.returncode == 0:
                 logger.info("Successfully installed %s", package_name)
-                self.emit_event("thinking", content="  -> Installation successful.")
-                return f"Successfully installed {package_name}\n{result.stdout}"
+                self.emit_event("token", content=" ✅ Installation successful.\n")
+                return f"Successfully installed {package_name}\n{stdout.decode()}"
             else:
-                logger.error("Failed to install %s: %s", package_name, result.stderr)
-                self.emit_event(
-                    "error", content=f"Installation failed: {result.stderr}"
-                )
-                return f"Failed to install {package_name}\nError: {result.stderr}"
-        except Exception as e:  # pylint: disable=broad-except
+                stderr_text = stderr.decode()
+                logger.error("Failed to install %s: %s", package_name, stderr_text)
+                self.emit_event("error", content=f"Installation failed: {stderr_text}")
+                return f"Failed to install {package_name}\nError: {stderr_text}"
+        except Exception as e:  # noqa: BLE001
             logger.error("Installation error: %s", e)
             return f"Installation error: {e}"
 
     def _install_to_agent_venv(self, package_name: str) -> str:
         """Internal helper to install a package into the DEDICATED AGENT VENV."""
-
-        # trunk-ignore(bandit/B404)
-        import subprocess
 
         # Resolve agent_venv path relative to this file
         # __file__ = backend/src/core/agent.py
@@ -809,14 +288,20 @@ class Agent:
             python_exe = agent_venv_path / "bin" / "python"
 
         if not python_exe.exists():
-            return f"Error: Agent Venv not found at {agent_venv_path}. Cannot install skill dependencies."
+            return (
+                f"Error: Agent Venv not found at {agent_venv_path}. "
+                "Cannot install skill dependencies."
+            )
 
         logger.info(
-            f"Agent requesting installation of package: {package_name} into AGENT ENV ({agent_venv_path})"
+            "Agent requesting installation of package: %s into AGENT ENV (%s)",
+            package_name,
+            agent_venv_path,
         )
         self.emit_event(
             "thinking",
-            content=f"\n📦 Agent: Installing '{package_name}' into Skill/Agent Environment...",
+            content=f"\n📦 Agent: Installing '{package_name}' into Skill/Agent "
+            "Environment...",
         )
 
         try:
@@ -847,13 +332,13 @@ class Agent:
                     "error", content=f"Installation failed: {result.stderr}"
                 )
                 return f"Failed to install {package_name}\nError: {result.stderr}"
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:  # noqa: BLE001
             logger.error("Installation error: %s", e)
             return f"Installation error: {e}"
 
-    def install_package(self, package_name: str) -> str:
+    async def install_package(self, package_name: str) -> str:
         """Installs a package into the active environment (REPL compatibility)."""
-        return self._install_to_active_env(package_name)
+        return await self._install_to_active_env(package_name)
 
     def install_skill_package(self, package_name: str) -> str:
         """Installs a package into the AGENT environment (Skill compatibility)."""
@@ -868,15 +353,13 @@ class Agent:
             "thinking", content=f"\n📖 Agent: Reading skill '{name}' source..."
         )
         try:
-            from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
-
             mgr = get_skills_manager()
             skill = mgr.get_skill(name)
             if not skill:
                 self.emit_event("error", content=f"Skill '{name}' not found.")
                 return f"Error: Skill '{name}' not found."
             return skill["code"]
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:  # noqa: BLE001
             self.emit_event("error", content=f"Error reading skill: {e}")
             return f"Error reading skill: {e}"
 
@@ -888,14 +371,42 @@ class Agent:
         code: Optional[str] = None,
         is_sub_event: bool = False,
         tag: Optional[str] = None,
+        is_internal: bool = False,
     ):
         """
         Helper to emit events to the current context's queue if it exists.
         Also mirrors key events to the server logs (terminal) for visibility.
         """
-        # Determine logical REPL ID for this event tracking
-        # We try to get it from the active_repls mapping using session_id if possible
-        # but since this is called from anywhere, we rely on content prefixing for UI visibility.
+        # [PROTOCOL] Determine the UI destination based on event type
+        # FIX: Route ALL agent/dreamer LLM output to chat area for user visibility
+        ui_target = "TERMINAL_RAW"  # Default for internal/system logs
+
+        # Internal events stay in terminal only, not shown in chat
+        if is_internal:
+            ui_target = "TERMINAL_RAW"
+        elif event_type in ["code_output", "code_output_chunk"]:
+            ui_target = "CODE_RESULT"
+        elif event_type in [
+            "answer",
+            "final_answer",
+            "RLM_FINAL_RESPONSE",
+            "warning",
+            "error",
+            "thought",
+            "synthesis",
+        ]:
+            # All important agent/dreamer output goes to chat
+            ui_target = "CHAT_RESPONSE"
+        elif event_type == "thinking":
+            # Agent/Dreamer LLM thoughts and meta-cognition go to chat
+            ui_target = "CHAT_RESPONSE"
+        elif (
+            event_type == "graph_update"
+            and content
+            and ("Axiom" in content or "Critique" in content)
+        ):
+            # Show axiom-related graph updates in chat too for visibility
+            ui_target = "CHAT_RESPONSE"
 
         prefix = "↳ " if is_sub_event else ""
 
@@ -911,7 +422,14 @@ class Agent:
 
         q = execution_events.get()
         if q:
-            payload = {"type": event_type, "is_sub_event": is_sub_event}
+            payload = {
+                "type": event_type,
+                "ui_target": ui_target,  # Explicit routing tag for Frontend
+                "is_sub_event": is_sub_event,
+                "repl_id": (
+                    data.get("repl_id") if data and isinstance(data, dict) else None
+                ),
+            }
             if data:
                 payload["data"] = data
             if content:
@@ -927,14 +445,16 @@ class Agent:
         self,
         prompt: str,
         parent_id: Optional[str] = None,
-        session_id: str = "default",
+        session_id: Optional[str] = None,
         depth: int = 0,
+        turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
-        turn_id: int = 1,
+        recursion_stack: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         """
-        Streaming entry point.
-        launches the sync execution in a thread and yields events from a queue.
+        Execute a query and stream events (thinking, code, output, etc.).
+        Launches the synchronous execution in a thread and yields events from a queue.
         """
         q = queue.Queue()
         self.stop_requested = False
@@ -946,7 +466,10 @@ class Agent:
             q_token = execution_events.set(q)
             state_token = agent_state.set(
                 ExecutionState(
-                    depth=depth, current_thought_id=parent_id, turn_id=turn_id
+                    depth=depth,
+                    current_thought_id=parent_id,
+                    turn_id=turn_id or 1,
+                    recursion_stack=recursion_stack or [],
                 )
             )
             try:
@@ -954,11 +477,19 @@ class Agent:
                 self.current_depth = depth
                 asyncio.run(
                     self.query_sync(
-                        prompt, parent_id, session_id, depth, root_session_id, turn_id
+                        prompt,
+                        parent_id,
+                        session_id or "default",
+                        depth,
+                        root_session_id,
+                        turn_id or 1,
+                        recursion_stack=recursion_stack or [],
+                        metadata=metadata,
                     )
                 )
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:  # noqa: BLE001
                 logger.error("Error in execution thread: %s", e)
+                # Ensure the main loop doesn't hang if this thread dies
                 q.put({"type": "error", "content": str(e)})
             finally:
                 q.put(None)  # Signal done
@@ -991,6 +522,8 @@ class Agent:
         depth: int = 0,
         root_session_id: Optional[str] = None,
         turn_id: int = 1,
+        recursion_stack: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Synchronous Recursive Logic with Stateless Graph Memory.
@@ -1004,11 +537,15 @@ class Agent:
             tag="AGENT",
         )
 
-        # 0. Reset scoped State for this specific call (redundant if already set in stream_query but safe)
+        # 0. Reset scoped State for this specific call
+        # (redundant if already set in stream_query but safe)
         if not agent_state.get():
             agent_state.set(
                 ExecutionState(
-                    depth=depth, current_thought_id=parent_id, turn_id=turn_id
+                    depth=depth,
+                    current_thought_id=parent_id,
+                    turn_id=turn_id,
+                    recursion_stack=recursion_stack or [],
                 )
             )
 
@@ -1018,15 +555,16 @@ class Agent:
 
         self.final_result = None
         self.stop_requested = False
+        self.global_stop_event.clear()  # Ensure we don't start in a stopped state
 
         # Ensure REPL is initialized for this session
         if session_id not in self.active_repls:
-            self.active_repls[session_id] = self.repl_manager.create_repl()
+            # In strict isolation mode, we don't have persistent REPL processes.
+            # We use a placeholder ID for logging purposes.
+            self.active_repls[session_id] = f"iso-{session_id[:8]}"
 
         # MCP STOP SIGNAL REGISTRATION
         if is_mcp_available():
-            from graph_rlm.backend.src.mcp_integration.runtime import set_stop_event
-
             set_stop_event(self.global_stop_event)
 
         # 0. Initial "Task" Node (Root of this query)
@@ -1054,6 +592,7 @@ class Agent:
                 round_id=current_round_id,
                 turn_id=self.current_turn,
                 step_id=0,  # Root task is step 0
+                repl_id=self.active_repls.get(session_id),
             )
 
             # Update current pointer
@@ -1075,7 +614,7 @@ class Agent:
                     },
                 },
             )
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:  # noqa: BLE001
             logger.error("Failed to initialize Task node: %s", e)
             task_id = str(uuid.uuid4())
             self.current_thought_id = task_id
@@ -1091,13 +630,16 @@ class Agent:
             )
 
         # 1. Base System Prompt
-        base_system_prompt = await self._build_system_prompt()
+        base_system_prompt = await build_system_prompt()
 
         max_steps = 1000
         step = 0
 
         # Track previous status for topological resolution
+        # Track previous status for topological resolution
         previous_thought_status = None
+        previous_thought_status = None
+        context_scratchpad = ""
 
         while step < max_steps:
             # 0.5 CHECK STOP SIGNAL
@@ -1112,6 +654,7 @@ class Agent:
             thought_id = str(uuid.uuid4())
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
+            repl_id = self.active_repls.get(session_id)
 
             # --- DYNAMIC SCRATCHPAD REFRESH ---
             try:
@@ -1125,7 +668,7 @@ class Agent:
                     current_round_id=current_round_id,
                 )
                 self.emit_event("scratchpad_text", content=context_scratchpad)
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:  # noqa: BLE001
                 logger.error("Failed to build scratchpad: %s", e)
                 context_scratchpad = f"Error: Scratchpad unavailable ({e})"
 
@@ -1153,7 +696,7 @@ class Agent:
                     if isinstance(props, dict) and "id" in props:
                         # We do NOT filter current round; Sheaf needs full local topology
                         frontier_ids.append(props["id"])
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:  # noqa: BLE001
                 logger.error("Context loading failed (Sheaf IDs): %s", e)
 
             # 3. Construct LLM Context using XML isolation for Gemini safety
@@ -1173,10 +716,6 @@ class Agent:
             axioms_list_str = "None"
             if is_skills_available():
                 try:
-                    from graph_rlm.backend.src.mcp_integration.skills import (
-                        get_axioms_manager,
-                    )
-
                     axioms_mgr = get_axioms_manager()
 
                     # [Context Optimization] Only load relevant axioms to reduce token noise
@@ -1197,14 +736,16 @@ class Agent:
                             [a["name"] for a in relevant_axioms]
                         )
                         logger.debug(
-                            f"Loaded {len(relevant_axioms)} semantic axioms: {axioms_list_str[:100]}..."
+                            "Loaded %d semantic axioms: %s...",
+                            len(relevant_axioms),
+                            axioms_list_str[:100],
                         )
                     else:
                         # Fallback
                         axioms = axioms_mgr.list_axioms()
                         sorted_keys = sorted(axioms.keys())[:20]
                         axioms_list_str = ", ".join(sorted_keys)
-                except Exception as ex:  # pylint: disable=broad-except
+                except Exception as ex:  # noqa: BLE001
                     logger.warning("Failed to load axioms async: %s", ex)
 
             # --- HOT SEAT INJECTION ---
@@ -1212,24 +753,37 @@ class Agent:
             if getattr(self, "last_dream_insight", None):
                 hot_seat_warning = (
                     "\n\n--- ⚠️ HOT SEAT: EPISTEMIC RECOVERY ACTIVE ---\n"
-                    "Your previous response was REJECTED by the Dreamer Gatekeeper for Hallucination/Trace Contradiction.\n"
+                    "Your previous response was REJECTED by the Dreamer Gatekeeper "
+                    "for Hallucination/Trace Contradiction.\n"
                     f"CRITIQUE: {self.last_dream_insight}\n"
                     "You MUST explicitly address the contradiction, explain why you failed, "
-                    "and provide a GROUNDED response based strictly on the execution trace.\n"
+                    "and provide a GROUNDED response based strictly on the "
+                    "execution trace.\n"
                     "Failure to align will result in a recursive block.\n---"
                 )
 
             system_prompt = (
-                f"{await self._build_system_prompt(axioms_list_str=axioms_list_str)}\n\n"
+                f"{await build_system_prompt(axioms_list_str=axioms_list_str, skills_manager=self.skills_manager)}\n\n"
                 f"{context_scratchpad}{hot_seat_warning}"
             )
+
+            # --- NAVIGATOR CURIOSITY INJECTION (PRE-GEN) ---
+            # If enabled, the Navigator assesses the current history and may inject
+            # a curiosity-driven directive to guide exploration.
+            if self.navigator and step % 3 == 0:  # Check periodically to avoid noise
+                # Check for stagnation / low entropy in recent history
+                # This is a lightweight check before we generate the next thought
+                pass
 
             iso_ts = datetime.datetime.now().isoformat()
             repl_info = f"[REPL: {self.active_repls.get(session_id, 'init')}]"
 
             self.emit_event(
                 "thinking",
-                content=f"[{iso_ts}] {repl_info} Step {step}: RLM loop active (Model: {self.llm.config.get('model')}).",
+                content=(
+                    f"[{iso_ts}] {repl_info} Step {step}: RLM loop active "
+                    f"(Model: {self.llm.config.get('model')})."
+                ),
                 tag="AGENT",
             )
 
@@ -1252,10 +806,12 @@ class Agent:
                     self.stop_requested = True
                     break
 
+                # [STABILITY] Add stop sequences to prevent infinite XML loops
                 response_text = await self.llm.generate(
                     current_context,
                     system=system_prompt,
                     stream=False,
+                    stop=["</invoke>", "<|endoftext|>"],
                     on_usage=on_token_usage,
                 )
 
@@ -1263,13 +819,33 @@ class Agent:
                 if self.stop_requested or self.global_stop_event.is_set():
                     self.stop_requested = True
                     break
-                # self.emit_event("token", content=response_text) # Redundant with thinking output
-            except Exception as e:  # pylint: disable=broad-except
-                response_text = f"LLM Error: {e}"
+            except Exception as e:  # noqa: BLE001
                 # Log exception to standard logger
-                logger.error("LLM Generative Error: %s", e)
+                response_text = f"LLM Error: {str(e)}"
+                logger.error("LLM Generative Error (%s): %s", type(e).__name__, e)
+                self.emit_event("error", content=response_text)
 
-            # Raw response logging removed for stability
+            # Raw response logging restored for visibility
+            trace_action(
+                "AGENT",
+                "THOUGHT",
+                result=response_text,
+                tag="AGENT",
+            )
+
+            # --- NAVIGATOR UPDATE ---
+            if self.navigator:
+                self.navigator.update_history(response_text)
+
+            # 4. Extract Code
+            code = self._extract_code(response_text)
+            if code:
+                trace_action(
+                    "AGENT",
+                    "CODE_BLOCK",
+                    result=code,
+                    tag="REPL",
+                )
 
             # 3b. Stop if empty (prevent infinite stateless loop)
             if not response_text.strip():
@@ -1296,8 +872,9 @@ class Agent:
                         round_id=current_round_id,
                         turn_id=self.current_turn,
                         step_id=step,
+                        repl_id=repl_id,
                     )
-                except Exception as db_err:  # pylint: disable=broad-except
+                except Exception as db_err:
                     logger.error("Failed to commit error node: %s", db_err)
                 break
 
@@ -1313,7 +890,7 @@ class Agent:
                 f"[{timestamp_display}] [REPL: {repl_id_display}]\n{response_text}"
             )
 
-            self.emit_event("debug_thought", content=formatted_thought)
+            self.emit_event("thinking", content=formatted_thought, tag="LLM")
 
             # 4. Step Initialization
             # We create the ID early so it can be used in tool execution
@@ -1326,7 +903,6 @@ class Agent:
             code = self._extract_code(response_text)
 
             # --- PRE-EXECUTION DIAGNOSTICS ---
-            repl_id = self.active_repls.get(session_id)
 
             # 5. Semantic Vectorization (Early)
             # We compute the embedding for the RAW thought now, so we can check it
@@ -1370,7 +946,7 @@ class Agent:
                         "parent_id": self.current_thought_id,
                     },
                 )
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:  # noqa: BLE001
                 logger.error("Failed to pre-commit thought: %s", e)
 
             # --- 6. EPISTEMIC HEALTH CHECK (Dual-Process Monitoring) ---
@@ -1385,7 +961,7 @@ class Agent:
                     self.session_cache["task_embedding"] = await self.llm.get_embedding(
                         self.current_task_input or prompt
                     )
-                except Exception as e:  # pylint: disable=broad-except
+                except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                     logger.warning("Failed to embed task for Health Check: %s", e)
 
             if current_vec:
@@ -1409,10 +985,32 @@ class Agent:
                     goal_embedding=self.session_cache.get("task_embedding"),
                 )
 
+                # --- oMCD OPTIMAL STOPPING GATE ---
+                # Evaluate whether to commit (stop) or continue deliberating.
+                confidence = sheaf_diag.get("confidence", 0.5)
+                omcd_decision = omcd.evaluate_step(step, confidence)
+
+                if omcd_decision["should_stop"] and code:
+                    # We have high confidence AND code to execute.
+                    # oMCD says: "Commit now — further deliberation is costly."
+                    logger.info(
+                        "🛑 [oMCD] Optimal Stop at step %d: Q_stop=%.3f >= ω=%.2f. Committing.",
+                        step,
+                        omcd_decision["q_stop"],
+                        omcd_decision["threshold"],
+                    )
+                    self.emit_event(
+                        "thinking",
+                        content=f"✅ [oMCD] High confidence ({confidence:.2f}). Proceeding to execute.",
+                    )
+                    # Note: We don't break here; we let the execution proceed.
+                    # The gate is advisory. Future: could skip further analysis.
+
                 # C. SYNTHESIS & INTERVENTION LOGIC
 
                 intervention_prompt = None
                 intervention_type = None
+                dream_critique = None
 
                 # SCENARIO 1: TOTAL COLLAPSE (Shaky + Drifting)
                 if (
@@ -1448,8 +1046,6 @@ class Agent:
 
                 # SCENARIO 4: LOOPING (Confident repetition)
                 elif sheaf_diag.get("status") == "LOGICAL_KNOT":
-                    from .dream import dreamer  # Deferred import to avoid circular dep
-
                     intervention_type = "REFLEXION_BREAK"
                     loop_nodes = sheaf_diag.get("loop_nodes", [])
 
@@ -1466,6 +1062,7 @@ class Agent:
                 # D. EXECUTE INTERVENTION (Steering)
                 if intervention_prompt:
                     logger.warning("🛡️ Triggering Intervention: %s", intervention_type)
+                    self.eval_dreamer_interventions += 1  # Track intervention count
                     self.emit_event(
                         "thinking",
                         content=f"⚠️ {intervention_type}: {intervention_prompt}",
@@ -1484,6 +1081,8 @@ class Agent:
                         prompt_embedding=vec,
                         turn_id=self.current_turn,
                         step_id=step,
+                        dreamer_analysis=dream_critique,
+                        repl_id=repl_id,
                     )
 
                     # Steering Action: Force the pointer to this intervention
@@ -1520,56 +1119,39 @@ class Agent:
                     self.current_thought_id,
                 )
 
-                # 6b. [CAG Pivot] Axiomatic Consistency Check
-                # Before executing, run the proposed code through all verified Axiom Skills
-                try:
-                    # Agentic Axiom Discovery
-                    task_tags = await self._detect_required_axioms_agentic(prompt, code)
-
-                    axiom_diag = await sheaf.check_axiomatic_consistency(
-                        code, task_tags=task_tags
-                    )
-                    if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
-                        axiom_critique = axiom_diag.get("critique")
-                        logger.warning("🛡️  CAG Blocked execution: %s", axiom_critique)
-                except Exception as e:  # pylint: disable=broad-except
-                    logger.warning("Axiomatic check failed to run: %s", e)
-
                 execution_failed = False
-                if axiom_critique:
-                    # Self-Healing: Inject Reflexion Node instead of executing
-                    self.emit_event(
-                        "warning",
-                        content=f"🛡️ [REPL: {repl_id}] AXIOMATIC VIOLATION: Execution Blocked.\nCritique: {axiom_critique}",
-                    )
-                    # We skip execution but we MUST update current_thought_id to ensure chaining
-                    output = f"Axiomatic Violation: Execution Blocked.\nCritique: {axiom_critique}"
-                    thought_status = "failed"
-                    execution_failed = True
-                else:
-                    # Pre-execution stop check
-                    if self.global_stop_event.is_set() or self.stop_requested:
-                        self.stop_requested = True
-                        break
+                # Pre-execution stop check
+                if self.global_stop_event.is_set() or self.stop_requested:
+                    self.stop_requested = True
+                    break
 
-                    # Check code safety?
-                    output, execution_failed = await self._execute_code(
-                        code,
-                        thought_id,
-                        session_id,
-                        root_session_id=final_root_id,
-                        task_input=prompt,
-                    )
+                # Compute Code Hash for Atomic Traceability
+                code_hash = hashlib.sha256(code.encode("utf-8")).hexdigest()
+                logger.info(
+                    "[Turn %s][Step %s] Executing Code (Hash: %s...)",
+                    self.current_turn,
+                    step,
+                    code_hash[:8],
+                )
 
-                    # Post-execution stop check
-                    if self.stop_requested or self.global_stop_event.is_set():
-                        self.stop_requested = True
-                        break
+                # Check code safety?
+                output, execution_failed = await self._execute_code(
+                    code,
+                    thought_id,
+                    session_id,
+                    root_session_id=final_root_id,
+                    task_input=prompt,
+                    turn_id=self.current_turn,
+                    step_id=step,
+                )
 
-                if repl_id:
-                    self.repl_manager.get_repl(repl_id)
+                # Post-execution stop check
+                if self.stop_requested or self.global_stop_event.is_set():
+                    self.stop_requested = True
+                    break
 
-                self.emit_event("debug_code", content=output, code=code)
+                # if repl_id:
+                #    self.repl_manager.get_repl(repl_id) # Removed for isolation
 
                 if execution_failed:
                     thought_status = "failed"
@@ -1586,22 +1168,38 @@ class Agent:
             if output and len(output) > 100:
                 try:
                     final_vec = await self.llm.get_embedding(full_content)
-                except Exception as e:  # pylint: disable=broad-except
+                except Exception as e:  # noqa: BLE001
                     logger.warning("Failed to generate final embedding: %s", e)
 
-            # Generate execution summary for scratchpad display
-            # Summary is brief (first ~200 chars), full result stored in 'result' field
+            # Generate execution summary for scratchpad display using SUMMARY_MODEL
+            # LLM-generated summary provides semantic understanding vs. simple truncation
             exec_summary = None
             if output:
-                # Truncate to first meaningful line(s), max 200 chars
-                clean_output = output.strip()
-                if len(clean_output) > 200:
-                    exec_summary = clean_output[:200] + "..."
-                else:
-                    exec_summary = clean_output
-                # Mark success/failure in summary
-                if thought_status == "failed":
-                    exec_summary = f"[FAILED] {exec_summary}"
+                try:
+                    # Use SUMMARY_MODEL if configured, otherwise fallback to main model
+                    summary_model = (
+                        settings.SUMMARY_MODEL or settings.get_llm_config().get("model")
+                    )
+                    summary_prompt = f"""Summarize this agent step in ONE sentence (max 100 chars):
+ACTION: {code[:300] if code else response_text[:300]}
+RESULT: {output[:500]}
+STATUS: {thought_status}
+
+Summary (describe WHAT was done and KEY outcome):"""
+                    exec_summary = await self.llm.generate(
+                        summary_prompt, model=summary_model
+                    )
+                    exec_summary = exec_summary.strip()[:150]
+
+                    # Mark failure in summary
+                    if thought_status == "failed":
+                        exec_summary = f"[FAILED] {exec_summary}"
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Failed to generate step summary: %s", e)
+                    # Fallback to first line of output
+                    exec_summary = output.strip().split("\n")[0][:100]
+                    if thought_status == "failed":
+                        exec_summary = f"[FAILED] {exec_summary}"
 
             try:
                 # Active Pruning Logic
@@ -1642,13 +1240,36 @@ class Agent:
                     round_id=current_round_id,
                     turn_id=self.current_turn,
                     step_id=step,
+                    code_hash=(
+                        hashlib.sha256(code.encode("utf-8")).hexdigest()
+                        if code
+                        else None
+                    ),
+                    validate=False,
+                    sheaf_score=(
+                        cast(Optional[float], sheaf_diag.get("consistency_energy"))
+                        if sheaf_diag
+                        else None
+                    ),
+                    spectral_energy=(
+                        cast(Optional[float], sheaf_diag.get("energy"))
+                        if sheaf_diag
+                        else None
+                    ),
+                    h0_rank=(
+                        cast(Optional[int], sheaf_diag.get("h0_rank"))
+                        if sheaf_diag
+                        else None
+                    ),
                 )
 
                 # Execute Pruning
                 if node_to_prune:
                     try:
                         self.db.delete_thought_node(node_to_prune)
-                    except Exception as prune_err:
+                    except (
+                        Exception
+                    ) as prune_err:  # pylint: disable=broad-except # noqa: BLE001
                         logger.error(
                             "Failed to prune node %s: %s", node_to_prune, prune_err
                         )
@@ -1659,9 +1280,9 @@ class Agent:
                     self.emit_event(
                         "scratchpad_update", data=sp_data, is_sub_event=False
                     )
-                except Exception as ex:  # pylint: disable=broad-except
+                except Exception as ex:  # noqa: BLE001
                     logger.warning("Failed to emit scratchpad update: %s", ex)
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:  # noqa: BLE001
                 logger.error("Failed to commit thought to graph: %s", e)
 
             # Update Frontier Pointer
@@ -1698,12 +1319,20 @@ class Agent:
                     round_id=current_round_id,
                     turn_id=self.current_turn,
                     step_id=step,
+                    repl_id=repl_id,
                 )
                 # Skip the rest of the loop to let the Agent generate the synthesis
                 continue
 
             if (
-                "RLM_FINAL_OUTPUT" in response_text
+                any(
+                    t in response_text
+                    for t in [
+                        "RLM_FINAL_OUTPUT",
+                        "RLM_FINAL_REPORT",
+                        "RLM_FINAL_RESPONSE",
+                    ]
+                )
                 or getattr(self, "final_result", None)
             ) and thought_status == "success":
                 # --- EPISTEMIC VERIFICATION ---
@@ -1735,7 +1364,8 @@ class Agent:
                     critique = (
                         "🛡️ SYSTEM INTEGRITY ALERT: Your response was flagged for: "
                         + ", ".join(integrity_check["flags"])
-                        + "\nI MUST show my work, avoid being overly obsequious, and verify results with tools."
+                        + "\nI MUST show my work, avoid being overly obsequious, "
+                        + "and verify results with tools."
                     )
                     # EMIT to UI so the user sees this correction
                     self.emit_event("warning", content=critique)
@@ -1748,6 +1378,7 @@ class Agent:
                         round_id=current_round_id,
                         turn_id=self.current_turn,
                         step_id=step,
+                        repl_id=repl_id,
                     )
                     continue  # Keep the loop running
                 # --- END VERIFICATION ---
@@ -1756,7 +1387,8 @@ class Agent:
                     self.final_result = response_text
 
                 # 1. Generate Candidate Validated Response (Draft)
-                # We do this BEFORE Dreamer so Dreamer can validate whether this response resolves prior failures.
+                # We do this BEFORE Dreamer so Dreamer can validate whether
+                # this response resolves prior failures.
                 final_response_candidate = None
                 if self.final_result:
                     try:
@@ -1765,19 +1397,28 @@ class Agent:
                                 final_root_id, prompt
                             )
                         )
-                    except Exception as e:  # pylint: disable=broad-except
+                    except (
+                        Exception
+                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
                         logger.warning("Failed to generate candidate response: %s", e)
 
                 # 2. Dreamer Trigger (Auto-Consolidate before exit)
                 try:
-                    # Lazy import to avoid circular dependency at top level if any
-                    from .dream import dreamer
-
                     logger.info("💤 Triggering Pre-Exit Dream Cycle (No timeout)...")
+                    self.emit_event(
+                        "thinking",
+                        content="Synthesizing final answer (Lucid Dreaming)...",
+                        tag="DREAMER",
+                    )
                     try:
                         # Pass emit_event so Dreamer can emit progress to UI
-                        def dreamer_emit(event_type, content):
-                            self.emit_event(event_type, content=content, tag="DREAMER")
+                        def dreamer_emit(event_type, content, is_internal=False):
+                            self.emit_event(
+                                event_type,
+                                content=content,
+                                tag="DREAMER",
+                                is_internal=is_internal,
+                            )
 
                         # Re-generate scratchpad for Dreamer context if needed
                         # Or use the last known context. The prompt variable might contain it,
@@ -1801,22 +1442,89 @@ class Agent:
                             "💤 Dream Cycle Completed. Status: %s",
                             dream_res.get("status"),
                         )
-                    except Exception as e:  # pylint: disable=broad-except
+                    except (
+                        Exception
+                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
                         logger.warning("Dream cycle failed during execution: %s", e)
                         dream_res = {}
 
-                    # GATEKEEPER LOGIC: Check Dreamer Status
-                    if dream_res.get("status") == "lucid":
-                        insight = dream_res.get("insight") or ""
+                    dream_status = dream_res.get("status", "")
+                    insight = dream_res.get("insight") or ""
 
-                        # 1. Emit Insight
+                    # GATEKEEPER LOGIC: Consolidated Validation
+                    # Validates "Surprise" (Dreamer) against "Freedom" (RepE/Navigator).
+
+                    should_trigger_healing = False
+
+                    # 1. Critical Failures always trigger healing
+                    if dream_status in ("error", "critical"):
+                        should_trigger_healing = True
+
+                    # 2. Lucid Dreams (Insights) need context
+                    elif dream_status == "lucid" and insight:
+                        # Check Semantic Entropy (Freedom) of the proposed response
+                        # If the agent is "Exploring" (High Entropy),
+                        # we allow the Lucid dream to pass
+                        # without blocking, as it's likely just learning from novel info.
+                        # If the agent is "Restricting/Stuck" (Low Entropy), we Block.
+
+                        try:
+                            # Use the response text as the proxy for action
+                            action_text = (
+                                final_response_candidate
+                                if final_response_candidate
+                                else ""
+                            )
+                            freedom_score = 0.5
+                            if self.navigator and action_text:
+                                freedom_score = (
+                                    await self.navigator.estimate_future_entropy(
+                                        action_text
+                                    )
+                                )
+
+                            logger.info(
+                                "🛡️ Gatekeeper: Entropy/Freedom Score = %.2f",
+                                freedom_score,
+                            )
+
+                            # Thresholds:
+                            # > 0.6: High Freedom (Exploration) -> ALLOW EXIT (Do not heal)
+                            # < 0.4: Low Freedom (Restriction/Looping) -> BLOCK EXIT (Trigger Heal)
+                            # 0.4-0.6: Neutral -> Defer to Dreamer (Block if insight is strong)
+
+                            if freedom_score > 0.6:
+                                logger.info(
+                                    "🛡️ Gatekeeper: High Freedom detected. Allowing Lucid Exit."
+                                )
+                                should_trigger_healing = False
+                            elif freedom_score < 0.4:
+                                logger.info(
+                                    "🛡️ Gatekeeper: Low Freedom (Stuck?) detected. Blocking Exit."
+                                )
+                                should_trigger_healing = True
+                            else:
+                                # Neutral - Fallback to standard behavior (Block on Insight)
+                                should_trigger_healing = True
+
+                        except Exception as gk_err:
+                            logger.warning(
+                                "Gatekeeper entropy check failed: %s", gk_err
+                            )
+                            should_trigger_healing = True  # Fail safe
+
+                    if should_trigger_healing and insight:
                         if insight:
-                            dreamer_msg = f"💤 [Dreamer Gatekeeper]: Systemic Issue Detected. Blocking Exit.\n\n{insight}"
+                            dreamer_msg = (
+                                f"💤 [Dreamer Gatekeeper]: Systemic Issue Detected. "
+                                f"Blocking Exit.\n\n{insight}"
+                            )
                             self.emit_event(
                                 "thinking",
                                 content=dreamer_msg,
                                 tag="DREAMER",
                             )
+                            # CRITICAL FIX: Persist to DB so UI sees it
                             # CRITICAL FIX: Persist to DB so UI sees it
                             if self.current_thought_id:
                                 try:
@@ -1828,14 +1536,13 @@ class Agent:
                                             "msg": f"\n\n---\n{dreamer_msg}",
                                         },
                                     )
-                                except (
-                                    Exception
-                                ) as db_err:  # pylint: disable=broad-except
+                                except Exception as db_err:
                                     logger.error(
                                         "Failed to persist Dreamer msg: %s", db_err
                                     )
 
-                        # 2. Check if we've already tried to fix this exact issue to prevent infinite loops
+                        # 2. Check if we've already tried to fix this exact issue
+                        # to prevent infinite loops
                         last_insight = getattr(self, "last_dream_insight", None)
                         if last_insight != insight:
                             # 3. REJECT EXIT. Force Self-Healing.
@@ -1843,20 +1550,24 @@ class Agent:
                                 "🛡️ Dreamer Gatekeeper REJECTED exit. Injecting insight for self-healing."
                             )
                             self.last_dream_insight = insight
+                            self._dreamer_retry_count = 0  # Reset counter for new issue
                             self.final_result = None  # Cancel valid result
                             self.stop_requested = False
                             self.synthesis_triggered = False
 
                             # Inject the Insight as a High-Priority Thought
                             rejection_msg = (
-                                f"DREAMER GATEKEEPER: I cannot accept this Result yet.\n"
-                                f"I detected a systemic failure pattern in your recent actions:\n{insight}\n\n"
-                                "MANDATE: You must explicitly address this failure pattern before finishing.\n"
-                                "If you have already fixed it, prove it with a final verification step."
+                                f"DREAMER GATEKEEPER MANDATE: I cannot accept this Result yet.\n"
+                                f"I detected a systemic failure pattern (Topic Drift or "
+                                f"Meta-Cognitive Loop) in your recent actions:\n{insight}\n\n"
+                                "URGENT COMPLIANCE: You must immediately pivot away from meta-diagnosis of yourself. "
+                                "Use `rlm.recall(node_id)` as directed above to retrieve the missing research data and fulfill the *original* user task. "
+                                "Failure to ground your next thought in technical research data will result in another rejection."
                             )
 
+                            rejection_id = str(uuid.uuid4())
                             self.db.create_thought_node(
-                                str(uuid.uuid4()),
+                                rejection_id,
                                 rejection_msg,
                                 session_id=session_id,
                                 root_session_id=final_root_id,
@@ -1865,41 +1576,83 @@ class Agent:
                                 status="rejected",
                                 turn_id=self.current_turn,
                                 step_id=step,
+                                repl_id=repl_id,
                             )
+                            self.current_thought_id = rejection_id
                             # Set internal state to force recovery behavior
                             self.synthesis_triggered = False
                             continue  # Loop back
                         else:
-                            logger.warning(
-                                "Dreamer loop detected (insight repeated). allowing force exit."
+                            # REMOVED: Force exit bypass that allowed agent to ignore Dreamer
+                            # Instead, escalate with different guidance or ask user for help
+                            dreamer_retry_count = getattr(
+                                self, "_dreamer_retry_count", 0
                             )
+                            self._dreamer_retry_count = dreamer_retry_count + 1
 
-                        # If status is 'peaceful', we proceed to exit.
+                            if dreamer_retry_count >= 3:
+                                # Escalate to user - agent is stuck
+                                logger.error(
+                                    "🚨 Dreamer loop exhausted. Agent cannot self-heal. Escalating to user."
+                                )
+                                self.emit_event(
+                                    "error",
+                                    content=(
+                                        "🚨 **DREAMER ESCALATION**: The agent has tried 3 times to fix "
+                                        f"the following issue but cannot self-heal:\n\n{insight}\n\n"
+                                        "**Please provide guidance or adjust the task.**"
+                                    ),
+                                )
+                                # Don't allow final result to be set - wait for user
+                                self.final_result = None
+                                break  # Exit but without success
 
-                        self.db.create_thought_node(
-                            str(uuid.uuid4()),
-                            f"SYSTEM DREAM: I have consolidated recent failures into new Insights: {insight}...",
-                            session_id=session_id,
-                            root_session_id=final_root_id,
-                            dreamer_analysis=insight,  # Store the full insight
-                            round_id=current_round_id,
-                            turn_id=self.current_turn,
-                            step_id=step,
-                        )
-                except Exception as e:  # pylint: disable=broad-except
+                            else:
+                                # Give escalating guidance
+                                logger.warning(
+                                    "Dreamer loop detected (attempt %d/3). Forcing retry with different approach.",
+                                    dreamer_retry_count + 1,
+                                )
+                                escalation_msg = (
+                                    f"DREAMER ESCALATION (Attempt {dreamer_retry_count + 1}/3): "
+                                    "Your previous approach did not resolve the issue. "
+                                    "You MUST try a FUNDAMENTALLY DIFFERENT approach this time.\n\n"
+                                    f"PERSISTENT ISSUE:\n{insight}\n\n"
+                                    "Do NOT repeat the same actions. Consider:\n"
+                                    "1. Using different tools or methods.\n"
+                                    "2. Breaking the task into smaller steps.\n"
+                                    "3. Asking clarifying questions if requirements are unclear."
+                                )
+                                escalation_id = str(uuid.uuid4())
+                                self.db.create_thought_node(
+                                    escalation_id,
+                                    escalation_msg,
+                                    session_id=session_id,
+                                    root_session_id=final_root_id,
+                                    dreamer_analysis=insight,
+                                    round_id=current_round_id,
+                                    status="rejected",
+                                    turn_id=self.current_turn,
+                                    step_id=step,
+                                    repl_id=repl_id,
+                                )
+                                self.current_thought_id = escalation_id
+                                self.final_result = None
+                                self.stop_requested = False
+                                continue  # Loop back for retry
+                except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                     logger.warning("Dream cycle failed on exit: %s", e)
 
                 # 3. Store the final response (If we passed the Gatekeeper)
                 if final_response_candidate:
                     try:
-                        # CRITICAL FIX: Adopt the Dreamer-validated response as the Final Result
-                        self.final_result = final_response_candidate
-
-                        # EMIT IT SO USER SEES IT IMMEDIATELY
+                        # Emit the Agent's own synthesized summary for the UI.
+                        # This candidate was generated by the Agent's _generate_validated_response method.
+                        # The Dreamer (if run) only inspected it for self-healing; it did not produce it.
                         self.emit_event(
-                            "thinking",
+                            "RLM_FINAL_RESPONSE",
                             content=final_response_candidate,
-                            tag="VALIDATOR",
+                            tag="AGENT_SUMMARY",
                         )
 
                         self.db.create_thought_node(
@@ -1908,13 +1661,13 @@ class Agent:
                             session_id=session_id,
                             root_session_id=final_root_id,
                             status="success",
-                            final_response=self.final_result,
+                            final_response=final_response_candidate,
                             round_id=current_round_id,
                             turn_id=self.current_turn,
                             step_id=step,
+                            repl_id=repl_id,
                         )
-
-                    except Exception as e:  # pylint: disable=broad-except
+                    except Exception as e:  # noqa: BLE001
                         logger.warning("Failed to store final response: %s", e)
 
                 break
@@ -1922,17 +1675,20 @@ class Agent:
             # 2. Sheaf-based Stall/Loop Detection (Self-Healing)
             # If the Sheaf Monitor detected a high energy knot (repetition or contradiction),
             # we do NOT terminate. We inject a "Reflexion" to break the loop.
-            energy = float(sheaf_diag.get("consistency_energy", 0.0))
+            energy = float(
+                sheaf_diag.get("consistency_energy", sheaf_diag.get("energy", 0.0))
+            )
             if energy > 0.9:
                 logger.warning(
-                    "Sheaf detected logical knot (Loop/Contradiction). Initiating Reflexion."
+                    "Sheaf detected logical knot (Energy %.2f). Initiating Reflexion.",
+                    energy,
                 )
 
                 # Overwrite the 'thought' with a Meta-Cognitive critique
                 reflexion_content = (
-                    f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {sheaf_diag.get('consistency_energy'):.2f}). "
+                    f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {energy:.2f}). "
                     "I am repeating myself or contradicting recent history. "
-                    "I MUST now change my approach completely. What variable am I missing?"
+                    "I MUST now change my approach completely. Am I stuck in a meta-loop? Break it."
                 )
 
                 # Create a specific 'Reflexion' node
@@ -1947,6 +1703,7 @@ class Agent:
                     round_id=current_round_id,
                     turn_id=self.current_turn,
                     step_id=step,
+                    repl_id=repl_id,
                 )
 
                 # Update pointer
@@ -1956,15 +1713,120 @@ class Agent:
                 continue
 
         # 8. Loop Exit: Emit Final Answer if available
-        # 8. Loop Exit: Emit Final Answer if available
         if self.final_result:
-            self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
+            # Phase 2: Axiomatic Validation on FINAL synthesis
+            try:
+                axiom_diag = await sheaf.check_axiomatic_consistency(
+                    self.final_result,
+                    task_tags=["final_synthesis"],
+                    depth=self.current_depth,
+                )
+                if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
+                    axiom_critique = axiom_diag.get("critique")
+                    logger.warning(
+                        "🛡️ Final Synthesis Blocked by Axiom: %s", axiom_critique
+                    )
+
+                    # Instead of breaking, we retry one more time with a reflexion
+                    reflexion_id = str(uuid.uuid4())
+                    self.db.create_thought_node(
+                        reflexion_id,
+                        f"SYSTEM CRITIQUE: My final response was rejected by axiom validation.\nCritique: {axiom_critique}\nI MUST rewrite the final answer to address this.",
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        parent_id=self.current_thought_id,
+                        round_id=current_round_id,
+                        status="reflexion",
+                        step_id=step,
+                    )
+                    self.current_thought_id = reflexion_id
+                    self.final_result = None  # Clear result to continue loop
+                    # Return to loop start
+                    return await self.query_sync(
+                        prompt,
+                        parent_id=reflexion_id,
+                        session_id=session_id,
+                        depth=self.current_depth,
+                        root_session_id=final_root_id,
+                        turn_id=self.current_turn,
+                        recursion_stack=recursion_stack,
+                        metadata=metadata,
+                    )
+            except Exception as e:  # noqa: BLE001
+                self.emit_event(
+                    "error", content=f"Axiomatic check on final response failed: {e}"
+                )
+
+            # --- NEW VALIDATION PROTOCOL (v2) ---
+            # 1. Emit Initial Attempt
+            self.emit_event("RLM_INITIAL_RESPONSE", content=self.final_result)
+
+            # 2. Dreamer Validation Handshake
+            try:
+                validation = await dreamer.validate_response(
+                    candidate=self.final_result,
+                    context=context_scratchpad,
+                    session_id=session_id,
+                    current_step=step,
+                )
+
+                status = validation.get("status")
+
+                if status in ["valid", "forced_valid"]:
+                    # SUCCESS: Emit final events and return result
+                    self.emit_event(
+                        "RLM_VALIDATED_RESPONSE", content=validation.get("message")
+                    )
+                    self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
+                    self.eval_success_count += 1
+                    # Fall through to return (since we are outside the loop)
+                else:
+                    # FAILURE: Recursive Retry
+                    instruction = validation.get(
+                        "instruction", "Review validation failure."
+                    )
+                    self.emit_event("RLM_WAKE", content=instruction)
+
+                    # Log Wake Node
+                    wake_id = str(uuid.uuid4())
+                    self.db.create_thought_node(
+                        wake_id,
+                        f"SYSTEM WAKE: {instruction}",
+                        parent_id=self.current_thought_id,
+                        session_id=session_id,
+                        root_session_id=final_root_id,
+                        round_id=current_round_id,
+                        status="wake",
+                        step_id=step,
+                    )
+
+                    # RECURSIVE RESTART
+                    self.current_thought_id = wake_id
+                    self.final_result = None  # Clear result
+
+                    return await self.query_sync(
+                        prompt,
+                        parent_id=wake_id,
+                        session_id=session_id,
+                        depth=self.current_depth,
+                        root_session_id=final_root_id,
+                        turn_id=self.current_turn,
+                        recursion_stack=recursion_stack,
+                        metadata=metadata,
+                    )
+
+            except Exception as e:  # noqa: BLE001
+                logger.error("Validation Handshake failed: %s", e)
+                # Fallback to Safe Exit on system error
+                self.emit_event("error", content=f"Validation System Error: {e}")
+                self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
         elif self.stop_requested:
             # Stop requested by user or tool
             self.emit_event(
                 "RLM_FINAL_RESPONSE",
                 content="Task processing stopped (Done/Stop signal received).",
             )
+            self.eval_success_count += 1  # User-initiated stop is still a success
         elif step >= max_steps:
             self.emit_event(
                 "error",
@@ -1973,6 +1835,7 @@ class Agent:
             logger.warning(
                 "Session %s reached max steps (%s) and aborted.", session_id, max_steps
             )
+            self.eval_failure_count += 1  # Max steps reached = failure
         else:
             # Fallback: Emit a system notice if the loop exits without a result (e.g. error/circuit breaker)
             # This prevents the UI from hanging fastidiously waiting for an event that never comes.
@@ -2002,7 +1865,8 @@ class Agent:
                 # Simple query to find REPLs attached to thoughts in this round
                 try:
                     r_res = self.db.query(
-                        "MATCH (n:Thought) WHERE n.round_id = $rid AND n.repl_id IS NOT NULL RETURN DISTINCT n.repl_id",
+                        "MATCH (n:Thought) WHERE n.round_id = $rid "
+                        "AND n.repl_id IS NOT NULL RETURN DISTINCT n.repl_id",
                         {"rid": current_round_id},
                     )
                     repl_ids = (
@@ -2010,9 +1874,11 @@ class Agent:
                         if r_res
                         else []
                     )
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.warning(
-                        f"Failed to fetch REPL IDs for round {current_round_id}: {e}"
+                        "Failed to fetch REPL IDs for round %s: %s",
+                        current_round_id,
+                        e,
                     )
 
                 self.db.save_round(
@@ -2025,156 +1891,14 @@ class Agent:
                     started_at=int(current_round_started),
                     ended_at=int(datetime.datetime.now().timestamp() * 1000),
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.error("Failed to archive round: %s", e)
 
+        # Return the final result or a default message if not set
         return self.final_result or "Task processing stopped."
 
-    async def _build_system_prompt(self, axioms_list_str: str = "None") -> str:
-        # Extracted system prompt builder for cleanliness
-        # Resolve paths for transparency
-        backend_root = Path(__file__).parent.parent.parent
-        skills_dir_path = (backend_root / "skills_dir").absolute()
-        agent_venv_path = (backend_root / "agent_venv").absolute()
-        kb_path = settings.KNOWLEDGE_BASE_PATH
-
-        skills_list_str = ""  # User Skills
-        # axioms_list_str passed as argument to support async loading in caller
-
-        try:
-            if is_skills_available():
-                from graph_rlm.backend.src.mcp_integration.skills import (
-                    get_skills_manager,
-                )
-
-                # Load Skills
-                skills_mgr = get_skills_manager()
-                skills = skills_mgr.list_skills()
-                skills_list_str = ", ".join(skills.keys()) if skills else "None"
-
-        except Exception as e:
-            logger.warning("Failed to load skills for prompt: %s", e)
-            skills_list_str = "None"
-
-        prompt = (
-            "Stateless Graph-RLM Agent.\n"
-            "You are a stateless agent in a Global Workspace. Your context is managed SYMBOLICALLY via a persistent REPL.\n"
-            "1. **Wake**: You see an 'Active Session Index' (The Sheaf). This is a compact map of the thought graph, NOT raw history.\n"
-            "2. **Chain**: Produce the next logical step. Do not repeat completed work.\n"
-            "3. **Recurse**: Use `await rlm.query(prompt, context)` to spawn sub-REPLs for complex problems.\n"
-            "\n"
-            "**Async & REPL Protocol**:\n"
-            "- **MANDATORY**: You MUST `await` all `rlm` and `mcp` calls (e.g., `res = await rlm.recall(...)`).\n"
-            "- **Persistence**: The Python REPL is persistent across the session. Variables defined in one step are available in the next.\n"
-            "\n"
-            "**Context & Environment**:\n"
-            "- **Environment Variables**: Use variables injected into your REPL for immediate context:\n"
-            "  - `task_input`: The original prompt/goal for THIS specific session.\n"
-            "  - `session_id`: Your current unique session identifier.\n"
-            "  - `active_repls`: (Root only) A directory of all active sub-sessions you are orchestrating.\n"
-            "- **Recall & Search**: If you need details from the past, you MUST explicitly recall them:\n"
-            "  - `await rlm.recall(query)`: High-precision semantic search for specific thought details.\n"
-            "  - `await rlm.search(query)`: Global topological search across all past sessions.\n"
-            "\n"
-            "**Self-Correction & Reflexion**:\n"
-            "You may see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING` (Sheaf Topology or RepE Safety Layer).\n"
-            "- If you see a **Reflexion**, you were looping or drifting. You MUST change your approach immediately.\n"
-            "- If you see a **Warning**, you violated a safety constraint. Adjust your reasoning.\n"
-            "\n"
-            "**Package Installation**:\n"
-            f"  - `await rlm.install_package('pkg')`: Installs to the **Project Environment** (Active Env).\n"
-            f"  - `await rlm.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`).\n"
-            "\n"
-            "**Skills & Knowledge**:\n"
-            f"- **Skills Directory**: `{skills_dir_path}`\n"
-            "- Use `await rlm.save_skill(name, code)` to codify reusable logic.\n"
-            f"- **Project Knowledge Base**: `{kb_path}` (Primary source for `await rlm.ingest_document()`)\n"
-            f"  - **Store Plans** in `{kb_path}/plans/`.\n"
-            f"  - **Save Research Reports** to `{kb_path}/research-reports/`.\n"
-            f"  - **Save Final Outputs** to `{kb_path}/outputs/`.\n"
-            f"  - **Save Axioms** to `{kb_path}/axioms/`.\n"
-            "\n"
-            "**Behavior**:\n"
-            "- **Zen of Agentic Coding**: KISS, DRY, YAGNI, and SOLID principles apply.\n"
-            "- **Language**: Internal thought and final answers MUST be in ENGLISH unless specified otherwise.\n"
-            "- **TRACE GROUNDING (Anti-Hallucination)**: You MUST prioritize information recorded in the <history> and <scratchpad> over your internal training data. If a 'DREAMER GATEKEEPER' blocks you, it is because you are 'Mirroring' (substituting real data for training priors). You MUST report only on retrieved evidence from the current session's execution logs.\n"
-            "\n"
-            "**Ethics**:\n"
-            "- **Principles**: Deontology: Universal sociobiological concepts (harm=harm) -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
-            "\n"
-            "**Termination**:\n"
-            "- **Metacognitive Requirement**: Before finishing, you MUST perform a **Metacognitive Analysis** of your solution in a section titled `**Metacognitive Analysis**`.\n"
-            "- **Termination**: After analysis, if the task is complete, output the EXACT string `RLM_FINAL_OUTPUT`.\n"
-            "- Do NOT use 'Final Answer'. Use `RLM_FINAL_RESPONSE` only after verification.\n"
-            "- **CRITICAL**: You are NOT in a native tool-calling environment. Do NOT output function calls in a structured JSON block. Write all Python code as standard markdown blocks (` ```python `) inside your response.\n"
-            "---------------------------\n"
-            "Constraint Augmented Generation (CAG).\n"
-            "\n"
-            "**CAG Paradigm (Expert System Compiler)**:\n"
-            "1. **Ingest & Codify**: Use `await rlm.ingest_document(path)` to extract and codify domain knowledge into Axioms.\n"
-            "2. **Axiomatic Verification**: Every Python action you write is AUTOMATICALLY verified against pre-existing Axioms by the Sheaf Monitor.\n"
-            "3. **Constraint-Augmented Reasoning**: Prefer calling existing validators (axioms) to verify your logic.\n"
-            "\n"
-            "**REPL Exploration & Commands**:\n"
-            "- `await rlm.help()`: See available core commands.\n"
-            "- `await mcp.<module_name>.<function_name>()`: Access external tools (e.g., `await mcp.brave_search.brave_web_search(...)`).\n"
-            "\n"
-            "**SKILL-FIRST ARCHITECTURE (The One Right Way)**:\n"
-            "- **PREFERENCE**: Do NOT call raw MCP tools repeatedly in your loops.\n"
-            "- **WRAP**: Write a Python function that uses the tool, validate it, and SAVE it using `await rlm.save_skill(name, code)`.\n"
-            "- **REUSE**: Execute the saved skill using `await rlm.run_skill(name, args)`.\n"
-            "\n"
-            "**MANDATORY MCP Discovery (Self-Documentation)**:\n"
-            "- The `mcp` object is a recursive namespace for all connected servers.\n"
-            "- **BEFORE WRITING CODE**: You MUST discover the correct tool name and parameters:\n"
-            "  1. `dir(mcp)` -> Lists all MCP server names if needed.\n"
-            "  2. `dir(mcp.<server_name>)` -> Lists all tools in that server.\n"
-            "  3. `print(mcp.<server_name>.<tool_name>.__doc__)` -> Shows parameters and usage.\n"
-            "- **DO NOT GUESS** tool names. If unsure, run discovery commands first.\n"
-            "\n"
-            "**SELF-HEALING PIPELINE (3-Tier Immune System)**:\n"
-            "This environment heals itself. YOU are part of this process.\n"
-            "\n"
-            "*Tier 1: Innate Immunity (Reactive Resolution)*:\n"
-            "- **Dependency Healing**: `ModuleNotFoundError` -> System installs the package and retries your code automatically.\n"
-            "- **Syntax/Logic Healing**: `Exception` or `AssertionError` -> A 'SYSTEM REFLEXION' node is injected. You MUST read it and change your approach.\n"
-            "- **Timeout Recovery**: If your code hangs, the process is killed. Simplify your next attempt.\n"
-            "\n"
-            "*Tier 2: Epistemic Integrity (Proactive Filtering)*:\n"
-            "- **Axiomatic Verification (CAG)**: Your code is checked against the Axiom Library BEFORE execution. Violations are blocked.\n"
-            "- **Sheaf Topology Monitor**: Measures 'Consistency Energy'. High energy (looping, contradictions) triggers a 'Militant Reflexion'.\n"
-            "- **RepE Scanning**: Your thoughts are scanned for 'Pathogens' (Laziness, Obsequiousness, Malice). Detection triggers steering.\n"
-            "\n"
-            "*Tier 3: Adaptive Immunity (Meta-Cognitive Learning)*:\n"
-            "- **The Dreamer**: After you finish, a 'Dream Cycle' analyzes your failures and synthesizes new rules.\n"
-            "- **Rule Codification**: Insights become Axioms, preventing that class of error permanently.\n"
-            "\n"
-            "**YOUR RESPONSIBILITY**: When you see 'SYSTEM REFLEXION' or 'SYSTEM WARNING', you MUST change your approach. Do NOT repeat the failing pattern.\n"
-            "\n"
-            "**FILESYSTEM ACCESS**:\n"
-            "- You have DIRECT ACCESS to the filesystem via REPL and standard Python libraries (`os`, `pathlib`, `open`).\n"
-            "- **CRITICAL**: Use SYNCHRONOUS file operations (`with open(...)`) for all writes. Do NOT use `aiofiles` or `asyncio.run()` for file I/O. This prevents 'Async-State Divergence' and data loss.\n"
-            "- **VERIFY WRITES**: Immediately check `os.path.getsize(path) > 0` after writing.\n"
-            "--- AVAILABLE CONTEXT ---\n"
-            f"Active Axioms: {axioms_list_str}\n"
-            f"Active Skills: {skills_list_str}\n"
-            "---------------------------\n"
-        )
-
-        # Inject "Marge's Rules" (Dreamer Guardrails)
-        rules_path = backend_root / "rules.md"
-        if rules_path.exists():
-            try:
-                rules_content = rules_path.read_text()
-                prompt += (
-                    f"\n\n**System Rules (Dreamer Guardrails)**:\n{rules_content}\n"
-                )
-            except Exception as e:
-                logger.warning("Failed to load rules.md: %s", e)
-
-        return prompt
-
     def _extract_code(self, text: str) -> str:
+        """Extracts python code blocks from LLM response text."""
         # Try finding a complete block first
         match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL)
         if match:
@@ -2203,164 +1927,88 @@ class Agent:
         session_id: str,
         root_session_id: Optional[str] = None,
         task_input: str = "",
+        turn_id: Optional[int] = None,
+        step_id: Optional[int] = None,
     ) -> Tuple[str, bool]:
-        # 1. Get or Create REPL for this session
-        if session_id not in self.active_repls:
-            # Just in case (though query_sync should claim it)
-            self.active_repls[session_id] = self.repl_manager.create_repl()
-
-        repl_id = self.active_repls[session_id]
-
-        # Verify liveness
-        if not self.repl_manager.get_repl(repl_id):
-            repl_id = self.repl_manager.create_repl()
-            self.active_repls[session_id] = repl_id
-
-        # 2. Update Context
-        repl = self.repl_manager.get_repl(repl_id)
-
-        # 2. Update Context
+        """
+        Executes code using the isolated AgentRuntime (uv run).
+        """
+        # 1. Update Context Pointer
         previous_thought_id = self.current_thought_id
         self.current_thought_id = thought_id
 
         try:
-            if repl is None:
-                return "Error: Failed to create REPL session.", True
+            # 2. Build Context for Injection
+            # We pass primitive data that can be serialized to the isolated process
+            context_data = {
+                "session_id": session_id,
+                "root_session_id": root_session_id,
+                "task_input": task_input,
+                "turn_id": turn_id,
+                "step_id": step_id,
+                "thought_id": thought_id,
+                # "active_repls": ... (Skipping complex objects)
+            }
 
-            # Re-inject RLM interface (it needs current thought_id binding)
-            # Ideally RLMInterface is persistent but points to dynamic 'self.current_thought_id'
-            # Here we just overwrite 'rlm' in namespace to be safe or update it
-
-            # Ensure we have a root_session_id
-            final_root = root_session_id if root_session_id else session_id
-
-            rlm_interface = RLMInterface(self, session_id, final_root)
-
-            # Ensure REPL namespace is initialized
-            if not hasattr(repl, "namespace") or repl.namespace is None:
-                logger.error("REPL namespace is not initialized. Cannot inject 'rlm'.")
-                return "Error: REPL namespace not initialized.", True
-
-            # Inject 'rlm' and context variables into the namespace
-            logger.info("Injecting 'rlm' and context variables into REPL namespace.")
-            repl.namespace["rlm"] = rlm_interface
-            repl.namespace["task_input"] = task_input
-            repl.namespace["session_id"] = session_id
-            repl.namespace["root_session_id"] = final_root
-
-            # Inject MCP namespace if available
-            # Inject MCP namespace ALWAYS (Safe because it's lazy)
-            if "mcp" not in repl.namespace:
-                repl.namespace["mcp"] = LazyMCPNamespace(repl.namespace["rlm"])
-            elif "mcp" in repl.namespace and hasattr(
-                repl.namespace["mcp"], "set_rlm_interface"
-            ):
-                repl.namespace["mcp"].set_rlm_interface(repl.namespace["rlm"])
-
-            # Log the namespace state for debugging
-            logger.debug("REPL namespace keys: %s", list(repl.namespace.keys()))
-            # CRITICAL DEBUG: Check if session_id is ACTUALLY usable
+            # [MCP Discovery Injection]
+            # Instantiate RLMInterface to access the LazyMCPNamespace for this session.
+            # RLMInterface handles discovery and tool recording policies.
+            mcp_namespace = None
             try:
-                # We try to eval it in the namespace to see if it's accessible
-                # This mimics what exec() sees
-                check_sid = repl.namespace.get("session_id", "MISSING")
-                logger.debug("Pre-flight check: session_id = %s", check_sid)
-            except Exception as e:  # pylint: disable=broad-except
-                logger.error("Pre-flight namespace check failed: %s", e)
+                # Avoid circular imports at top level
 
-            # 3. Execute with Streaming
-            # Define callback to stream stdout to UI
-            def stream_callback(text: str):
-                if text:
-                    self.emit_event(
-                        "code_output_chunk", content=text, is_sub_event=False
-                    )
+                # Create ephemeral RLM interface for this execution context
+                rlm_ctx = RLMInterface(
+                    self,
+                    session_id=session_id,
+                    root_session_id=root_session_id or session_id,
+                )
+                mcp_namespace = rlm_ctx.mcp
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "Failed to initialize MCP Discovery for execution: %s", e
+                )
 
-            # Await the async REPL execution
-            stdout, stderr, result, is_err = await repl.execute(
-                code, output_callback=stream_callback
+            # 3. Execute in Subprocess
+            stdout, stderr, exit_code = await self.runtime.execute(
+                code, context=context_data, mcp_namespace=mcp_namespace
             )
 
-            # 4. Handle Async Results (Coroutines)
-            # With the new REPL, result might still be a coroutine if it returned one explicitly,
-            # or if the AST rewrite happened but the wrapper returned a coro instead of awaiting it.
-            if inspect.isawaitable(result):
-                try:
-                    # We are in an async method (_execute_code), so we can await directly.
-                    result = await result
-                except Exception as e:
-                    stderr = (stderr or "") + f"\nAsync Execution Error: {e}"
-
             output = stdout or ""
-            if result is not None:
-                # Append the return value if present (e.g. from tool calls)
-                res_str = str(result).strip()
-                if res_str:
-                    if output:
-                        output += "\n"
-                    output += res_str
+            execution_failed = exit_code != 0
+
+            # 4. Error Formatting
             if stderr:
                 output += f"\nErrors:\n{stderr}"
-                if "SyntaxError" in stderr and (
-                    "indent" in stderr.lower() or "dedent" in stderr.lower()
-                ):
-                    output += "\n\n[System Hint]: This looks like a whitespace or indentation error. Ensure your Python block uses consistent 4-space indentation and that all 'await' calls are correctly aligned."
+                if "SyntaxError" in stderr:
+                    output += "\n\n[System Hint]: Check indentation and syntax."
 
-            # --- AUTO-INSTALLATION SELF-HEALING ---
-            if "ModuleNotFoundError" in output:
-                # Use regex to find "No module named 'package_name'"
-
-                match = re.search(r"No module named ['\"]([^'\"]+)['\"]", output)
-                if match:
-                    package_name = match.group(1)
-                    self.emit_event(
-                        "thinking",
-                        content=f"🛠️  Self-Healing: Detected missing package '{package_name}'. Attempting auto-installation...",
-                    )
-                    # Try to install to project environment
-                    res = self.install_package(package_name)
-                    if "Successfully installed" in res:
-                        self.emit_event(
-                            "thinking",
-                            content=f"✅ Package '{package_name}' installed. Retrying execution...",
-                        )
-                        # RECURSIVE CALL: Await retry of same code
-                        # (Infinite loop protection is handled by parent query_sync step limit)
-                        return await self._execute_code(
-                            code,
-                            thought_id,
-                            session_id,
-                            root_session_id=root_session_id,
-                            task_input=task_input,
-                        )
-                    else:
-                        output += f"\nSystem: Automatic installation of '{package_name}' failed."
-                else:
-                    logger.warning(
-                        "Could not parse package name from ModuleNotFoundError."
-                    )
-
-            # Ensure the final result of the execution (especially from asyncio.run) is captured
-            if result is not None:
-                if output:
-                    output += f"\n[Execution Result]: {result}"
-                else:
-                    output = str(result)
-            elif getattr(self, "final_result", None):
-                # If the variable was set but not returned (common with asyncio.run wrapper)
-                final_snippet = str(self.final_result)
-                if output:
-                    output += f"\n[System]: Final Answer Captured: {final_snippet}"
-                else:
-                    output = f"Final Answer Captured: {final_snippet}"
-
+            # 5. Output Normalization
             if not output.strip() and not stderr:
                 output = "Code executed successfully (No output captured)."
 
-            return output, is_err
+            # [SAFEGUARD] Detect Critical Failures even if exit_code is 0
+            # Sometimes a caught exception prints a traceback but exits 0.
+            if (
+                "RuntimeError" in output
+                or "Traceback (most recent call last)" in output
+            ):
+                logger.warning(
+                    "Detected Runtime Error in memory trace. Marking execution as failed."
+                )
+                execution_failed = True
+
+            # [PROTOCOL] Emit final consolidated code result
+            # repl_id is virtual now
+            repl_id = self.active_repls.get(session_id, "isolated")
+            self.emit_event(
+                "code_output", content=output, code=code, data={"repl_id": repl_id}
+            )
+
+            return output, execution_failed
+
         finally:
             self.current_thought_id = previous_thought_id
-            # DO NOT DELETE REPL HERE - It persists for the session
 
     def stop_generation(self):
         """Signal the agent to stop processing."""
@@ -2380,14 +2028,17 @@ class Agent:
         )
 
         # 1. Fetch Session Trace (Thoughts)
-        cypher = "MATCH (n:Thought) WHERE n.root_session_id = $sid RETURN n ORDER BY n.timestamp ASC"
+        cypher = (
+            "MATCH (n:Thought) WHERE n.root_session_id = $sid "
+            "RETURN n ORDER BY n.timestamp ASC"
+        )
         try:
             res = self.db.query(cypher, {"sid": root_session_id})
             nodes = (
                 [r["n"] for r in res if isinstance(r, dict) and "n" in r] if res else []
             )
 
-            # Formulate Trace String
+            # Formulate Trace String - include execution_summary and result for full context
             trace_lines = []
             for i, node in enumerate(nodes):
                 props = (
@@ -2398,42 +2049,74 @@ class Agent:
                 step_type = props.get("type", "thought").upper()
                 content = props.get("content", "").strip()
                 repl_id = props.get("repl_id", "N/A")
-                ts = props.get("timestamp", "unknown")
+                status = props.get("status", "unknown")
+                exec_summary = props.get("execution_summary", "")
+                result = props.get("result", "")
 
                 if "SYSTEM" in step_type:
                     continue
-                preview = content[:800] + "..." if len(content) > 800 else content
-                trace_lines.append(
-                    f"Turn {i+1} [{step_type}] (Time: {ts}, REPL: {repl_id}):\n{preview}\n"
+
+                # Build comprehensive trace entry with all available data
+                preview = content[:500] + "..." if len(content) > 500 else content
+                result_preview = result[:300] + "..." if len(result) > 300 else result
+
+                entry = (
+                    f"Turn {i+1} [{step_type}] (REPL: {repl_id}, Status: {status}):\n"
+                )
+                entry += f"Content: {preview}\n"
+                if exec_summary:
+                    entry += f"Summary: {exec_summary}\n"
+                if result_preview:
+                    entry += f"Result: {result_preview}\n"
+
+                trace_lines.append(entry)
+
+            # Handle empty trace - fall back to final_result
+            if not trace_lines:
+                logger.warning(
+                    "No trace lines found for validated response. Using final_result."
+                )
+                return (
+                    f"# RLM_VALIDATED_RESPONSE\n\n"
+                    f"**Task**: {original_task}\n\n"
+                    f"**Result**:\n{self.final_result or 'No result available.'}"
                 )
 
-            trace_str = "\\n".join(trace_lines)
+            trace_str = "\n---\n".join(trace_lines)
 
-            # 2. Prompt LLM for Synthesis
+            # 2. Prompt LLM for Synthesis with anti-hallucination instruction
             system_prompt = (
-                "You are the RLM Validation Engine. Your goal is to synthesize a FINAL, HUMAN-READABLE REPORT.\\n"
-                "Input: A trace of the Agent's reasoning and execution steps.\\n"
-                "Output: A structured `RLM_VALIDATED_RESPONSE`.\\n"
-                "\\n"
-                "Requirements:\\n"
-                "1. **Full Answer**: Provide the complete, final answer to the user's task. Synthesize findings from the trace.\\n"
-                "2. **Methodology**: Briefly explain how the result was achieved.\\n"
-                "3. **Turn Log**: List key turns/steps with their REPL IDs. This is CRITICAL for searchability.\\n"
-                "4. **Format**: Markdown. Start exactly with `# RLM_VALIDATED_RESPONSE`.\\n"
+                "You are the RLM Validation Engine. Your goal is to "
+                "synthesize a FINAL, HUMAN-READABLE REPORT.\n"
+                "Input: A trace of the Agent's reasoning and execution steps.\n"
+                "Output: A structured `RLM_VALIDATED_RESPONSE`.\n"
+                "\n"
+                "CRITICAL GROUNDING RULE: Base your response ONLY on the "
+                "trace content provided below. "
+                "If the trace shows successful execution with results, report those successes accurately. "
+                "NEVER claim the trace is empty, incomplete, or lacks "
+                "content if data is present.\n"
+                "\n"
+                "Requirements:\n"
+                "1. **Full Answer**: Provide the complete, final answer to "
+                "the user's task. Synthesize findings from the trace.\n"
+                "2. **Methodology**: Briefly explain how the result was achieved.\n"
+                "3. **Turn Log**: List key turns/steps with their REPL IDs. "
+                "This is CRITICAL for searchability.\n"
+                "4. **Format**: Markdown. Start exactly with `# RLM_VALIDATED_RESPONSE`.\n"
             )
 
             user_prompt = (
-                f"Original Task: {original_task}\\n\\nSession Trace:\\n{trace_str}"
+                f"Original Task: {original_task}\n\nSession Trace:\n{trace_str}"
             )
 
             response = await self.llm.generate(
                 user_prompt, system=system_prompt, stream=False
             )
             return response
-
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
             logger.error("Failed to generate validated response: %s", e)
-            return f"# RLM_VALIDATED_RESPONSE\\n\\n[Error generating validation: {e}]"
+            return f"# RLM_VALIDATED_RESPONSE\n\n[Error generating validation: {e}]"
 
     def stop(self):
         """Alias for UI compatibility."""
@@ -2550,7 +2233,7 @@ class Agent:
                 [s.get("name") for s in sim_skills if s.get("score", 0) > 0.7],
             )
             return final
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
             logger.warning("Agentic discovery failed: %s. Fallback to 'general'.", e)
             return ["general"]
 

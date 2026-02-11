@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { GraphCanvas } from '../chat/GraphCanvas';
 import { InspectorPanel } from '../mcp/InspectorPanel';
 import { Activity, ChevronRight, ChevronLeft, Maximize2, Minimize2, Cpu } from 'lucide-react';
@@ -14,6 +14,12 @@ interface RightSidebarProps {
 }
 
 export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent, scratchpadText }) => {
+    const handleNodeClick = useCallback((node: any) => {
+        if (onInjectContent) {
+            onInjectContent(`@[GraphNode:${node.id}] `);
+        }
+    }, [onInjectContent]);
+
     const [collapsed, setCollapsed] = useState(false);
     const [graphExpanded, setGraphExpanded] = useState(true);
     const [scratchpadExpanded, setScratchpadExpanded] = useState(true);
@@ -91,9 +97,7 @@ export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectC
                     <div className="flex-1 relative overflow-hidden bg-slate-900/10">
                         <GraphCanvas
                             data={graphData}
-                            onNodeClick={(node) => {
-                                if (onInjectContent) onInjectContent(`@[GraphNode:${node.id}] `);
-                            }}
+                            onNodeClick={handleNodeClick}
                         />
                     </div>
                 )}

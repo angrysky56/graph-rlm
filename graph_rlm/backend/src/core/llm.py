@@ -4,6 +4,8 @@ Provides a unified interface for multiple LLM providers and embedding models.
 """
 
 import asyncio
+import json
+from contextlib import suppress
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -21,9 +23,9 @@ class LLMService:
     Uses a persistent httpx.AsyncClient for connection pooling and robust timeout management.
     """
 
-    DEFAULT_CONNECT_TIMEOUT = 10.0
-    DEFAULT_READ_TIMEOUT = 1200.0
-    DEFAULT_WRITE_TIMEOUT = 600.0
+    DEFAULT_CONNECT_TIMEOUT = 5.0
+    DEFAULT_READ_TIMEOUT = 60.0
+    DEFAULT_WRITE_TIMEOUT = 60.0
     DEFAULT_POOL_TIMEOUT = 5.0
 
     def __init__(self):
@@ -38,6 +40,9 @@ class LLMService:
         self._client_lock = asyncio.Lock()
 
     async def _get_client(self) -> httpx.AsyncClient:
+        """
+        Retrieves or initializes the shared httpx.AsyncClient.
+        """
         if self._client is None:
             async with self._client_lock:
                 if self._client is None:
@@ -45,19 +50,39 @@ class LLMService:
         return self._client
 
     async def aclose(self):
+        """
+        Gracefully closes the persistent httpx client.
+        """
         if self._client is not None:
             await self._client.aclose()
             self._client = None
 
+    async def refresh(self):
+        """
+        Refreshes the LLM service configuration.
+        Closes the existing client so the next request initializes a new one with updated settings.
+        """
+        logger.info("Refreshing LLM Service configuration...")
+        await self.aclose()
+
     @property
     def provider(self) -> str:
+        """
+        Returns the configured LLM provider.
+        """
         return settings.LLM_PROVIDER
 
     @property
     def config(self) -> dict:
+        """
+        Returns the LLM configuration from settings.
+        """
         return settings.get_llm_config()
 
     def _get_headers(self) -> Dict[str, str]:
+        """
+        Constructs the HTTP headers for LLM API requests.
+        """
         headers = {"Content-Type": "application/json"}
         api_key = self.config.get("api_key")
         if api_key and api_key != "lm-studio":
@@ -71,6 +96,9 @@ class LLMService:
         return headers
 
     def _get_endpoint(self, path: str = "chat/completions") -> str:
+        """
+        Resolves the full API endpoint URL for the current provider and path.
+        """
         base = self.config.get("base_url", "").rstrip("/")
         if self.provider == "ollama" and path == "chat/completions":
             return f"{base}/api/chat"
@@ -79,10 +107,14 @@ class LLMService:
         return f"{base}/{path}"
 
     def _format_request(
-        self, messages: List[Dict[str, str]], stream: bool = False
+        self,
+        messages: List[Dict[str, str]],
+        stream: bool = False,
+        model_override: Optional[str] = None,
+        stop: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Format request body based on provider quirks."""
-        model = self.config.get("model")
+        model = model_override or self.config.get("model")
 
         if self.provider == "ollama":
             request = {
@@ -91,10 +123,19 @@ class LLMService:
                 "stream": stream,
                 "options": {"temperature": 0.7},  # Default
             }
+            if stop:
+                request["stop"] = stop
             return request
         else:
             # Standard OpenAI format
-            return {"model": model, "messages": messages, "stream": stream}
+            body: Dict[str, Any] = {
+                "model": model,
+                "messages": messages,
+                "stream": stream,
+            }
+            if stop:
+                body["stop"] = stop
+            return body
 
     async def generate(
         self,
@@ -103,7 +144,12 @@ class LLMService:
         stream: bool = False,
         stop: Optional[List[str]] = None,
         on_usage: Optional[Any] = None,
+        model: Optional[str] = None,
     ) -> Any:
+        """
+        Unified generation interface. Supports both string prompts and message lists.
+        Handles both streaming and non-streaming modes.
+        """
         # Note: prompt can be str or List[Dict] (messages)
         # We need to handle both since agent passes messages directly sometimes
 
@@ -116,14 +162,18 @@ class LLMService:
             messages.append({"role": "user", "content": prompt})
 
         if stream:
-            return self._generate_stream(messages)
+            return self._generate_stream(messages, stop=stop)
         else:
-            return await self._generate_async(messages, on_usage=on_usage)
+            return await self._generate_async(
+                messages, on_usage=on_usage, model_override=model, stop=stop
+            )
 
-    async def _generate_stream(self, messages: List[Dict[str, str]]):
+    async def _generate_stream(
+        self, messages: List[Dict[str, str]], stop: Optional[List[str]] = None
+    ):
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
-        body = self._format_request(messages, stream=True)
+        body = self._format_request(messages, stream=True, stop=stop)
 
         # Trace Outgoing
         last_msg = messages[-1]["content"] if messages else "EMPTY"
@@ -142,19 +192,17 @@ class LLMService:
                 try:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as e:
-                    logger.error(f"LLM Stream HTTP error: {e}")
+                    logger.error("LLM Stream HTTP error: %s", e)
                     yield f"Error: {str(e)}"
                     return
                 async for line in response.aiter_lines():
                     if not line:
                         continue
-                    logger.debug(f"Stream Line: {line}")
+                    logger.debug("Stream Line: %s", line)
                     if line.strip() == "data: [DONE]":
                         continue
                     if line.startswith("data: "):
                         try:
-                            import json
-
                             chunk = json.loads(line[6:])
                             content = ""
                             if self.provider == "ollama":
@@ -167,21 +215,29 @@ class LLMService:
                                     )
                             if content:
                                 yield content
-                        except Exception as e:
-                            logger.warning(f"Stream Parse Error: {e}")
+                        except (
+                            Exception
+                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                            logger.warning("Stream Parse Error: %s", e)
         except httpx.TimeoutException as e:
-            logger.error(f"LLM Stream Timeout: {e}")
+            logger.error("LLM Stream Timeout: %s", e)
             yield f"Error: Timeout occurred: {str(e)}"
-        except Exception as e:
-            logger.error(f"LLM Stream Error: {e}")
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("LLM Stream Error: %s", e)
             yield f"Error: {str(e)}"
 
     async def _generate_async(
-        self, messages: List[Dict[str, str]], on_usage: Optional[Any] = None
+        self,
+        messages: List[Dict[str, str]],
+        on_usage: Optional[Any] = None,
+        model_override: Optional[str] = None,
+        stop: Optional[List[str]] = None,
     ) -> str:
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
-        body = self._format_request(messages, stream=False)
+        body = self._format_request(
+            messages, stream=False, model_override=model_override, stop=stop
+        )
 
         # Trace Outgoing
         last_msg = messages[-1]["content"] if messages else "EMPTY"
@@ -198,7 +254,19 @@ class LLMService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                logger.error(f"LLM Async HTTP error: {e}")
+                logger.error("LLM Async HTTP error: %s", e)
+                with suppress(Exception):
+                    # Log the full response body for debugging
+                    err_body = e.response.text
+                    logger.error("Provider Response Body: %s", err_body)
+
+                with suppress(Exception):
+                    # Log snippet of request body to check for bloat/format issues
+                    req_snippet = json.dumps(body)[:2000]
+                    logger.error(
+                        "Request Body Snippet (First 2000 chars): %s", req_snippet
+                    )
+
                 return f"Error: {str(e)}"
             data = response.json()
 
@@ -207,16 +275,17 @@ class LLMService:
             else:
                 # Robust Error Parsing (OpenRouter/OpenAI)
                 if "error" in data:
-                    import json
-
                     error_obj = data["error"]
+                    # If error_obj is just a string, wrap it for safety
+                    if not isinstance(error_obj, dict):
+                        error_obj = {"message": str(error_obj)}
                     error_msg = error_obj.get("message", "Unknown error")
                     error_code = error_obj.get("code", "unknown")
                     error_meta = error_obj.get("metadata", {})
                     full_err = f"Provider Error (Code: {error_code}): {error_msg}"
                     if error_meta:
                         full_err += f"\nMetadata: {json.dumps(error_meta)}"
-                    logger.error(f"LLM Error Object Detected: {full_err}")
+                    logger.error("LLM Error Object Detected: %s", full_err)
                     trace_action("LLM", "ERROR", result=full_err, tag="ERROR")
                     return f"Error: {full_err}"
                 message = data.get("choices", [{}])[0].get("message", {})
@@ -226,8 +295,6 @@ class LLMService:
                 if tool_calls:
                     # Polyfill: Convert tool call to Python code for Agent
                     # We assume the agent can handle standard Python tool invocations
-                    import json
-
                     codes = []
                     for tc in tool_calls:
                         try:
@@ -247,8 +314,10 @@ class LLMService:
                             codes.append(
                                 f"# Model triggered native tool: {name}\nval = {name}({kwargs_str})"
                             )
-                        except Exception as e:
-                            logger.error(f"Failed to polyfill tool call: {e}")
+                        except (
+                            Exception
+                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                            logger.error("Failed to polyfill tool call: %s", e)
 
                     if codes:
                         # Append to existing content if any (reasoning might be there)
@@ -261,11 +330,9 @@ class LLMService:
                         trace_action("LLM", "TOOL_POLYFILL", result=res, tag="LLM")
 
                 if not res:
-                    import json
-
                     raw_data = json.dumps(data)
                     logger.warning(
-                        f"Empty response from provider. Full Data: {raw_data[:1000]}"
+                        "Empty response from provider. Full Data: %s", raw_data[:1000]
                     )
                     trace_action(
                         "LLM",
@@ -279,15 +346,17 @@ class LLMService:
                 if on_usage and "usage" in data:
                     try:
                         on_usage(data["usage"])
-                    except Exception as e:
-                        logger.warning(f"Failed to execute usage callback: {e}")
+                    except (
+                        Exception
+                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                        logger.warning("Failed to execute usage callback: %s", e)
 
                 return res
         except httpx.TimeoutException as e:
-            logger.error(f"LLM Async Timeout: {e}")
+            logger.error("LLM Async Timeout: %s", e)
             return f"Error: Timeout occurred: {str(e)}"
-        except Exception as e:
-            logger.error(f"LLM Async Error: {e}")
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("LLM Async Error: %s", e)
             return f"Error: {str(e)}"
 
     async def get_embedding(self, text: str) -> List[float]:
@@ -317,7 +386,7 @@ class LLMService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                logger.error(f"Embedding HTTP error: {e}")
+                logger.error("Embedding HTTP error: %s", e)
                 return []
             data = response.json()
             if self.provider == "ollama":
@@ -325,10 +394,10 @@ class LLMService:
             else:
                 return data.get("data", [{}])[0].get("embedding", [])
         except httpx.TimeoutException as e:
-            logger.error(f"Embedding Timeout: {e}")
+            logger.error("Embedding Timeout: %s", e)
             return []
-        except Exception as e:
-            logger.error(f"Embedding Error: {e}")
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("Embedding Error: %s", e)
             return []
 
     def unload_model(self, model_name: str) -> bool:
@@ -344,14 +413,16 @@ class LLMService:
         try:
             with httpx.Client(timeout=5.0) as client:
                 client.post(endpoint, json=body)
-                logger.info(f"Unloaded model {model_name}")
+                logger.info("Unloaded model %s", model_name)
                 return True
-        except Exception as e:
-            logger.error(f"Failed to unload model: {e}")
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("Failed to unload model: %s", e)
             return False
 
     def list_models(self, provider: Optional[str] = None) -> List[Dict[str, Any]]:
-        """List models available from the provider."""
+        """
+        Dynamically fetches and categorizes models from the current or specified provider.
+        """
         target_provider = provider or self.provider
 
         # Use simple override config or default
@@ -396,7 +467,7 @@ class LLMService:
                             {
                                 "id": name,
                                 "name": name,
-                                "context_length": 1000000,
+                                "context_length": "",
                                 "pricing": {"prompt": "0", "completion": "0"},
                                 "supports_tools": "llama3" in name
                                 or "mistral" in name
@@ -414,18 +485,21 @@ class LLMService:
                     # 2. Fetch Embedding Models (OpenRouter Specific)
                     if target_provider == "openrouter":
                         try:
-                            embed_url = f"{base}/embeddings/models"  # Usually https://openrouter.ai/api/v1/embeddings/models
+                            # Usually https://openrouter.ai/api/v1/embeddings/models
+                            embed_url = f"{base}/embeddings/models"
                             with httpx.Client(timeout=5.0) as client:
                                 resp_emb = client.get(embed_url, headers=headers)
                                 if resp_emb.status_code == 200:
                                     emb_data = resp_emb.json().get("data", [])
-                                    # Tag them explicitly so logic downstream knows they are embeddings
+                                    # Tag them explicitly for logic downstream
                                     for em in emb_data:
                                         em["_is_embedding_endpoint"] = True
                                     raw_list.extend(emb_data)
-                        except Exception as e:
+                        except (
+                            Exception
+                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
                             logger.warning(
-                                f"Failed to fetch separate embedding models: {e}"
+                                "Failed to fetch separate embedding models: %s", e
                             )
 
                     for m in raw_list:
@@ -475,8 +549,8 @@ class LLMService:
 
                 return models
 
-        except Exception as e:
-            logger.error(f"List Models Error: {e}")
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("List Models Error: %s", e)
             return []
 
 

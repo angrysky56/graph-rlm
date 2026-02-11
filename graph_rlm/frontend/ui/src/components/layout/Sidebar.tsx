@@ -13,7 +13,8 @@ interface SidebarProps {
         completion_tokens: number;
         total_tokens: number;
     };
-    replEntries?: any[];
+    terminalEntries?: any[];
+    codeEntries?: any[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -23,9 +24,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSelectSession,
     onOpenExplorer,
     usage,
-    replEntries = []
+    terminalEntries = [],
+    codeEntries = []
 }) => {
     const [historyOpen, setHistoryOpen] = useState(false);
+    const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
+    const wsRef = useRef<WebSocket | null>(null);
 
     // Refs for auto-scrolling
     const terminalRef = useRef<HTMLDivElement>(null);
@@ -36,22 +40,61 @@ export const Sidebar: React.FC<SidebarProps> = ({
         if (terminalRef.current) {
             terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
         }
-    }, [replEntries]);
+    }, [terminalEntries]);
 
     // Auto-scroll code panel
     useEffect(() => {
         if (codeRef.current) {
             codeRef.current.scrollTop = codeRef.current.scrollHeight;
         }
-    }, [replEntries]);
+    }, [codeEntries]);
 
-    // Filter entries for code execution results (Top panel)
-    const executionEntries = replEntries.filter(e => e.style === 'code');
+    // WebSocket Log Stream Connection (Ground Truth)
+    useEffect(() => {
+        const connect = () => {
+             // Correctly targeting the backend's logging websocket
+             // Use window.location.hostname to be more robust for different network environments
+             const backendHost = window.location.hostname === 'localhost' ? 'localhost:8000' : `${window.location.hostname}:8000`;
+             const socket = new WebSocket(`ws://${backendHost}/api/v1/ws/logs`);
+             wsRef.current = socket;
 
-    // Filter entries for terminal log (Bottom panel) - thinking events and traces
-    const terminalEntries = replEntries.filter(e =>
-        e.style === 'thinking' || e.style === 'trace' || e.type === 'info' || e.type === 'error'
-    );
+             socket.onopen = () => {
+                 console.log("[Terminal] Connected to backend log stream.");
+             };
+
+             socket.onmessage = (event) => {
+                 if (event.data) {
+                     setTerminalLogs(prev => [...prev, event.data].slice(-1000));
+                 }
+             };
+
+             socket.onclose = () => {
+                 console.log("[Terminal] Disconnected. Retrying in 3s...");
+                 setTimeout(connect, 3000);
+             };
+
+             socket.onerror = (err) => {
+                 console.error("[Terminal] WebSocket error:", err);
+             };
+        };
+
+        connect();
+
+        return () => {
+            if (wsRef.current) wsRef.current.close();
+        };
+    }, []);
+
+    // Auto-scroll terminal log
+    useEffect(() => {
+        if (terminalRef.current) {
+            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+        }
+    }, [terminalLogs]);
+
+    // Use props directly after routing in App.tsx
+    const executionEntries = codeEntries;
+    const terminalLogsFromSSE = terminalEntries;
 
     return (
         <div className="w-[450px] bg-slate-950 h-screen border-r border-slate-800 flex flex-col font-sans text-slate-200 transition-all shadow-2xl z-30">
@@ -126,10 +169,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         ref={terminalRef}
                         className="flex-1 overflow-y-auto p-2 font-mono text-[9px] bg-[#0f1216]"
                     >
-                        {terminalEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for agent events...</div>}
-                        {terminalEntries.map((entry: any, i: number) => (
-                            <div key={i} className={`leading-relaxed whitespace-pre-wrap break-words ${entry.type === 'error' ? 'text-red-400' : 'text-slate-400'}`}>
-                                {entry.content}
+                        {/* Terminal Log: Now uses BOTH the raw Websocket logs AND the interactive replEntries for total visibility */}
+                        {terminalLogs.length === 0 && terminalEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for system logs...</div>}
+
+                        {/* Backend System Logs (uvicorn/bash mirror) from separate WS if still needed */}
+                        {terminalLogs.map((log, i) => (
+                            <div key={`system-${i}`} className="text-slate-500 leading-tight whitespace-pre-wrap break-words border-b border-slate-950/20 py-0.5">
+                                {log}
+                            </div>
+                        ))}
+
+                        {/* Routed Terminal Events from SSE (Agent Logic) */}
+                        {terminalLogsFromSSE.map((entry: any, i: number) => (
+                            <div key={`event-${i}`} className={`mb-1 leading-tight flex gap-2 ${entry.type === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
+                                <span className="text-slate-700 shrink-0">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>
+                                {entry.repl_id && <span className="text-blue-900 shrink-0">({entry.repl_id})</span>}
+                                <span className={`shrink-0 uppercase text-[8px] px-1 rounded ${
+                                    entry.style === 'report' ? 'bg-blue-900/30 text-blue-400' :
+                                    entry.style === 'code' ? 'bg-emerald-900/30 text-emerald-400' :
+                                    'bg-slate-900 text-slate-600'
+                                }`}>
+                                    {entry.style || entry.type}
+                                </span>
+                                <span className="text-slate-300 break-words flex-1">{entry.content}</span>
                             </div>
                         ))}
                     </div>

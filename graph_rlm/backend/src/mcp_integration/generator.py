@@ -5,7 +5,9 @@ Creates importable Python modules from discovered MCP server capabilities.
 Implements Anthropic's "filesystem-based progressive disclosure" pattern.
 """
 
+import asyncio
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +27,7 @@ class ToolGenerator:
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _sanitize_name(self, name: str) -> str:
+    def sanitize_name(self, name: str) -> str:
         """Convert tool/server name to valid Python identifier (snake_case).
 
         Args:
@@ -34,7 +36,6 @@ class ToolGenerator:
         Returns:
             Valid Python identifier in snake_case
         """
-        import re
 
         # Handle CamelCase/PascalCase -> snake_case
         # e.g., "LocalREPL" -> "local_repl", "AstAnalyzer" -> "ast_analyzer"
@@ -122,7 +123,7 @@ class ToolGenerator:
         docstring = "\n".join(docstring_lines)
 
         # Generate function body
-        func_name = self._sanitize_name(tool_name)
+        func_name = self.sanitize_name(tool_name)
 
         # Build resilience logic for common parameter hallucinations
         resilience_logic = ""
@@ -132,15 +133,22 @@ class ToolGenerator:
             resilience_logic += (
                 "    # Resilience: Handle 'type' keyword safety and aliases\n"
             )
-            resilience_logic += "    actual_type = type or kwargs.get('node_type') or kwargs.get('thought_type')\n"
+            resilience_logic += (
+                "    actual_type = type or kwargs.get('node_type') "
+                "or kwargs.get('thought_type')\n"
+            )
         elif "thoughtType" in properties:
             resilience_logic += "    # Resilience: Handle aliases for 'thoughtType'\n"
-            resilience_logic += "    actual_thoughtType = thoughtType or kwargs.get('type') or kwargs.get('node_type') or kwargs.get('thought_type')\n"
+            resilience_logic += (
+                "    actual_thoughtType = thoughtType or kwargs.get('type') "
+                "or kwargs.get('node_type') or kwargs.get('thought_type')\n"
+            )
 
         function_code = f"""
 def {func_name}({params_str}) -> Any:
 {docstring}
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -173,13 +181,15 @@ def {func_name}({params_str}) -> Any:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 """.replace("{server_name}", server_name).replace("{tool_name}", tool_name)
 
         return function_code
@@ -237,7 +247,7 @@ def {func_name}({params_str}) -> Any:
             server_info: Server capabilities from discovery
         """
         # Sanitize server name for filename
-        module_name = self._sanitize_name(server_name)
+        module_name = self.sanitize_name(server_name)
         module_path = self.output_dir / f"{module_name}.py"
 
         # Start with module docstring and imports
@@ -270,9 +280,12 @@ from typing import Any
                         server_name,
                     )
                     module_code += tool_func + "\n"
-                except Exception as e:
+                except Exception as e:  # pylint: disable=broad-except
                     logger.warning(
-                        f"Failed to generate function for {server_name}.{tool_name}: {e}"
+                        "Failed to generate function for %s.%s: %s",
+                        server_name,
+                        tool_name,
+                        e,
                     )
                     # Continue generating other tools
                     continue
@@ -410,15 +423,15 @@ Each module provides:
         # Generate module for each server
         for server_name, server_info in servers_info.items():
             if "error" in server_info:
-                logger.info(f"Skipping {server_name}: {server_info['error']}")
+                logger.info("Skipping %s: %s", server_name, server_info["error"])
                 continue
 
             try:
                 self.generate_server_module(server_name, server_info)
                 server_names.append(server_name)
                 total_tools += len(server_info.get("tools", {}))
-            except Exception as e:
-                logger.error(f"Failed to generate module for {server_name}: {e}")
+            except Exception as e:  # pylint: disable=broad-except
+                logger.error("Failed to generate module for %s: %s", server_name, e)
                 # Continue generating other servers
                 continue
 
@@ -429,7 +442,10 @@ Each module provides:
         self.generate_readme()
 
         logger.info(
-            f"Generated {len(server_names)} server modules with {total_tools} tools in {self.output_dir}"
+            "Generated %d server modules with %d tools in %s",
+            len(server_names),
+            total_tools,
+            self.output_dir,
         )
         return len(server_names), total_tools
 
@@ -448,8 +464,6 @@ def generate_from_config(
         config_path: Path to MCP server configuration
         output_dir: Where to generate Python modules
     """
-    import asyncio
-
     from .discovery import discover_all_servers
 
     # Discover all servers

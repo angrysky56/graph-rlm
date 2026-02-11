@@ -4,6 +4,9 @@ Maintains a topological summary of active contexts to prevent context rot.
 """
 
 from .db import GraphClient, db
+from .logger import get_logger
+
+logger = get_logger("graph_rlm.context_index")
 
 
 class ContextIndex:
@@ -119,7 +122,8 @@ class ContextIndex:
                             }
                         )
             return data
-        except Exception:
+        except Exception as e:
+            logger.error("Error in get_active_scratchpad_data: %s", e)
             return []
 
     def get_current_running_thought(self, root_session_id: str) -> dict | None:
@@ -144,7 +148,8 @@ class ContextIndex:
                     "created_at": row[3],
                 }
             return None
-        except Exception:
+        except Exception as e:
+            logger.error("Error in get_current_running_thought: %s", e)
             return None
 
     def get_session_thoughts(self, session_id: str) -> list:
@@ -246,7 +251,8 @@ class ContextIndex:
                         }
                     )
             return data
-        except Exception:
+        except Exception as e:
+            logger.error("Error in get_session_thoughts: %s", e)
             return []
 
 

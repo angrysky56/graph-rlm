@@ -5,24 +5,25 @@ export const useResizeObserver = (ref: RefObject<HTMLElement>) => {
     const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
 
     useEffect(() => {
-        const observeTarget = ref.current;
-        if (!observeTarget) return;
+        const target = ref.current;
+        if (!target) return;
 
         const resizeObserver = new ResizeObserver((entries) => {
-            entries.forEach((entry) => {
-                setDimensions({
-                    width: entry.contentRect.width,
-                    height: entry.contentRect.height
-                });
+            if (!entries || !entries.length) return;
+            const { width, height } = entries[0].contentRect;
+
+            // Use requestAnimationFrame to avoid loop limit errors
+            window.requestAnimationFrame(() => {
+                setDimensions({ width, height });
             });
         });
 
-        resizeObserver.observe(observeTarget);
+        resizeObserver.observe(target);
 
         return () => {
-            resizeObserver.unobserve(observeTarget);
+            resizeObserver.disconnect();
         };
-    }, [ref]);
+    }, [ref.current]);
 
     return dimensions;
 };

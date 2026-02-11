@@ -66,6 +66,7 @@ def trace_action(
     elif level == "warning":
         logger.warning(msg)
     else:
+        # Use logger to avoid being captured by REPL stdout callback
         logger.info(msg)
 
     # Stream to UI if monitor is registered

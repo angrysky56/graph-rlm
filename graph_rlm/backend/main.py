@@ -1,3 +1,8 @@
+"""
+Entry point for the Graph-RLM Backend API.
+Handles startup/shutdown lifecycle, MCP tool discovery, and API routing.
+"""
+
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -16,7 +21,7 @@ load_dotenv(project_root / ".env")
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(fastapi_app: FastAPI):
     """Lifecycle management for Graph-RLM Backend."""
     from graph_rlm.backend.src.core.db import db
     from graph_rlm.backend.src.mcp_integration.config import create_default_env_file
@@ -24,7 +29,7 @@ async def lifespan(app: FastAPI):
     from graph_rlm.backend.src.mcp_integration.generator import ToolGenerator
 
     try:
-        project_root = Path(__file__).parent.parent.parent.resolve()
+        logging.info("Starting up %s...", fastapi_app.title)
         create_default_env_file(project_root)
 
         # Initialize Database Indexes
@@ -42,7 +47,7 @@ async def lifespan(app: FastAPI):
         print("Log streaming initialized for frontend.")
 
         # --- SKILLS & AXIOMS SYNC ---
-        from graph_rlm.backend.src.mcp_integration.skills import (
+        from graph_rlm.backend.src.mcp_integration.skill_storage import (
             get_axioms_manager,
             get_skills_manager,
         )
@@ -64,14 +69,14 @@ async def lifespan(app: FastAPI):
                 try:
                     import json
 
-                    with open(config_path) as f:
+                    with open(config_path, encoding="utf-8") as f:
                         config_data = json.load(f)
                     config_servers = config_data.get("mcpServers", {})
 
                     # Map to snake_case filenames
                     gen = ToolGenerator(output_dir)
                     expected_modules = {
-                        gen._sanitize_name(name) for name in config_servers
+                        gen.sanitize_name(name) for name in config_servers
                     }
                     existing_modules = {
                         f.stem
@@ -106,7 +111,7 @@ async def lifespan(app: FastAPI):
                                             if t.strip()
                                         ]
                                         tool_count += len(tools)
-                                except Exception:
+                                except (OSError, IOError):
                                     pass
 
                             print(
@@ -115,7 +120,7 @@ async def lifespan(app: FastAPI):
                             should_regenerate = False
                 except Exception as e:
                     logging.getLogger(__name__).error(
-                        f"Failed to verify MCP cache consistency: {e}"
+                        "Failed to verify MCP cache consistency: %s", e
                     )
                     should_regenerate = True
 
@@ -143,7 +148,7 @@ async def lifespan(app: FastAPI):
 
         agent.stop_generation()
         print("    -> Agent told to stop.")
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except
         print(f"Cleanup Failed: {e}")
 
 
@@ -167,4 +172,5 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.get("/")
 def root():
+    """Root endpoint for health check."""
     return {"message": "Graph-RLM Backend is Running", "docs": "/docs"}

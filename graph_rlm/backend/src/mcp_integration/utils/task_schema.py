@@ -11,13 +11,18 @@ Uses the schema_builder to:
 import sys
 from pathlib import Path
 
-# Add skills_dir to path for skill imports
-_kb_path = Path(__file__).parent.parent.parent.parent / "skills_dir"
-if str(_kb_path) not in sys.path:
-    sys.path.insert(0, str(_kb_path))
-
-# trunk-ignore(ruff/E402)
 from .schema_builder import SchemaBuilder
+
+# Add repo root to path for skill imports (allows: from skills.name import func)
+_curr_file = Path(__file__).resolve()
+if "graph_rlm" in str(_curr_file):
+    # task_schema.py -> utils -> mcp_integration -> src -> backend -> graph_rlm -> repo_root
+    _repo_root = _curr_file.parents[5]
+else:
+    _repo_root = Path.cwd()
+
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
 
 
 class TaskSchemaProcessor:
@@ -155,30 +160,62 @@ class TaskSchemaProcessor:
 
     def suggest_tools(self, task_type: str) -> list[str]:
         """Suggest tools based on task type schema and dynamic system capabilities."""
-        tools = []
+        all_tools = []
 
         # 1. Inspect MCP Multi-Server Tools
         try:
             import graph_rlm.backend.mcp_tools as mcp_pkg
+
             ignored = {"list_servers", "call_tool", "run_skill"}
             mcp_tools = [
                 t for t in dir(mcp_pkg) if not t.startswith("_") and t not in ignored
             ]
-            tools.extend(mcp_tools)
+            all_tools.extend(mcp_tools)
         except ImportError:
             # MCP system might not be active in this context
             pass
 
         # 2. Fetch Compiled Skills
         try:
-            from graph_rlm.backend.src.mcp_integration.skills import get_skills_manager
+            from graph_rlm.backend.src.mcp_integration.skill_storage import (
+                get_skills_manager,
+            )
+
             mgr = get_skills_manager()
-            skills = mgr.list_skills().keys()
-            tools.extend(skills)
+            skills = list(mgr.list_skills().keys())
+            all_tools.extend(skills)
         except ImportError:
             pass
 
-        return list(set(tools))
+        all_tools = list(set(all_tools))
+
+        # 3. Filter/Prioritize based on task_type
+        if task_type == "SearchTask":
+            keywords = ["search", "google", "brave", "arxiv", "find", "fetch", "wiki"]
+        elif task_type == "CodeTask":
+            keywords = [
+                "code",
+                "python",
+                "repl",
+                "ast",
+                "skill",
+                "git",
+                "file",
+                "write",
+            ]
+        elif task_type == "ReasoningTask":
+            keywords = ["reason", "reflexion", "logic", "verify", "diagnose", "sheaf"]
+        else:
+            return all_tools
+
+        # Prefer tools that match the keywords
+        priority_tools = [t for t in all_tools if any(k in t.lower() for k in keywords)]
+        other_tools = [
+            t for t in all_tools if not any(k in t.lower() for k in keywords)
+        ]
+
+        # Return prioritized list (relevant first)
+        return priority_tools + other_tools
 
     def get_methodology_for_task(
         self, task_type: str, depth: str = "deep"
@@ -221,9 +258,10 @@ async def classify_and_route_task(task: str, params: dict | None = None) -> dict
     processor = get_task_schema_processor()
     classification = processor.classify_task(task, params)
 
-    if classification["best_match"]:
+    best_match = classification.get("best_match")
+    if best_match:
         classification["suggested_tools"] = processor.suggest_tools(
-            classification["best_match"]["task_type"]
+            best_match["task_type"]
         )
 
     return classification

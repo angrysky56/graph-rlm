@@ -423,7 +423,7 @@ class McpClientManager:
         """Call an MCP tool with lazy server connection and auto-reconnect."""
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from .. import skills as skills_tool
+            from .. import skill_storage as skills_tool
 
             func = getattr(skills_tool, tool_name, None)
             if not func:
@@ -524,7 +524,7 @@ class McpClientManager:
         """List tools for a server, using cache if available."""
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from .. import skills as skills_tool
+            from .. import skill_storage as skills_tool
 
             # Synthesize Tool objects
             tools = []

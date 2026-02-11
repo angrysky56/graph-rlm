@@ -21,6 +21,9 @@ def validate_thought_node(
     parent_id: Optional[str],
     session_id: str,
     root_session_id: str,
+    repl_id: Optional[str] = None,
+    turn_id: Optional[int] = None,
+    step_id: Optional[int] = None,
     node_type: str = "Thought",
     parent_metadata: Optional[Dict[str, Any]] = None,
 ):
@@ -40,7 +43,8 @@ def validate_thought_node(
 
         if parent_rsid and root_session_id != parent_rsid:
             raise GuardrailError(
-                f"Root Session ID Mismatch (GR-02): Child({root_session_id}) != Parent({parent_rsid})"
+                f"Root Session ID Mismatch (GR-02): Child({root_session_id}) "
+                f"!= Parent({parent_rsid})"
             )
 
     # 2. Basic Sanitization
@@ -49,11 +53,23 @@ def validate_thought_node(
             "Empty Prompt (GR-03): Thought content cannot be null or empty."
         )
 
-    logger.debug(f"Guardrails passed for node {thought_id}")
+    if not session_id:
+        raise GuardrailError("Missing Session ID (GR-04)")
+
+    # Log with extra context (uses parent_id and node_type)
+    logger.debug(
+        "Guardrails passed for %s node %s (parent: %s, repl: %s, turn: %s, step: %s)",
+        node_type,
+        thought_id,
+        parent_id,
+        repl_id,
+        turn_id,
+        step_id,
+    )
 
 
 def validate_no_blind_transitions(
-    node_type: str, content: str, parent_type: Optional[str]
+    node_type: str, _content: str, parent_type: Optional[str]
 ):
     """
     Enforces causal semantics.
@@ -63,5 +79,5 @@ def validate_no_blind_transitions(
         # While the agent might try this, we log it as a violation or block it.
         # For now, we allow but warn, or raise if we want strict enforcement.
         logger.warning(
-            f"Blind Transition Detected: {node_type} without {parent_type} parent."
+            "Blind Transition Detected: %s without %s parent.", node_type, parent_type
         )

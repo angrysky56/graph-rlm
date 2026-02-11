@@ -12,6 +12,9 @@ export interface ProcessedNode {
   color: string; // Community color
   x?: number;
   y?: number;
+  sheaf_score?: number;
+  spectral_energy?: number;
+  h0_rank?: number;
 }
 
 export interface ProcessedLink {
@@ -37,6 +40,14 @@ const getNodeColor = (communityId: number): string => {
   return PALETTE[communityId % PALETTE.length];
 };
 
+const getSemanticColor = (node: any, defaultColor: string): string => {
+  if (node.status === 'LOGICAL_KNOT') return '#ef4444'; // Red
+  if (node.status === 'SEMANTIC_DRIFT') return '#f59e0b'; // Amber
+  if (node.status === 'error') return '#dc2626'; // Dark Red
+  if (node.sheaf_score && node.sheaf_score > 0.5) return '#f97316'; // Orange (High Energy)
+  return defaultColor;
+};
+
 export const processGraphData = (
   rawNodes: any[],
   rawLinks: any[]
@@ -44,7 +55,8 @@ export const processGraphData = (
   if (!rawNodes || rawNodes.length === 0) return { nodes: [], links: [] };
 
   try {
-    const graph = new Graph();
+    // Explicitly enforce undirected graph for Louvain/Betweenness to avoid "mixed graph" errors
+    const graph = new Graph({ type: 'undirected', allowSelfLoops: false });
 
     // 1. Build Graph
     rawNodes.forEach((n) => {
@@ -61,11 +73,12 @@ export const processGraphData = (
       const target = typeof l.target === 'object' ? l.target.id : l.target;
 
       if (source && target && graph.hasNode(source) && graph.hasNode(target)) {
+          // In an undirected graph, addEdge is order-independent
           if (!graph.hasEdge(source, target)) {
                try {
                   graph.addEdge(source, target);
                } catch (e) {
-                  // Ignore edge creation errors (e.g. self-loops if disallowed)
+                  // Ignore edge creation errors
                }
           }
       }
@@ -105,7 +118,10 @@ export const processGraphData = (
         vy: n.vy,
         community: commId,
         val: size,
-        color: getNodeColor(commId),
+        color: getSemanticColor(n, getNodeColor(commId)),
+        sheaf_score: n.sheaf_score,
+        spectral_energy: n.spectral_energy,
+        h0_rank: n.h0_rank,
       };
     });
 

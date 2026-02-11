@@ -9,17 +9,20 @@
 **Issue**: Tests require careful dependency mocking BEFORE importing to prevent import-time errors.
 
 **Evidence** (`tests/tests/test_agent_isolation.py`):
+
 ```python
 # Mocking must happen BEFORE import
 # to prevent import-time database connections
 ```
 
 **Impact:**
+
 - Easy to break tests by importing in wrong order
 - Fragile test setup
 - Debugging import cycles is difficult
 
 **Mitigation:**
+
 - Use `IsolatedAsyncioTestCase` patterns
 - Document import order requirements
 - Consider refactoring to dependency injection
@@ -29,15 +32,18 @@
 **Issue**: Axiom purging and regeneration scripts exist but may not handle all edge cases.
 
 **Evidence**:
+
 - `scripts/purge_orphaned_axioms.py`
 - `scripts/regenerate_tools.py`
 
 **Impact:**
+
 - Orphaned axioms may accumulate
 - Regeneration may miss dependencies
 - Axiom drift over time
 
 **Mitigation:**
+
 - Automated axiom garbage collection
 - Version tracking for axioms
 - Dependency graph for axioms
@@ -49,14 +55,17 @@
 **Issue**: `nest-asyncio` usage for REPL isolation may have edge cases.
 
 **Evidence**:
+
 - `nest-asyncio>=1.6.0` dependency
 
 **Impact:**
+
 - Potential event loop nesting bugs
 - Hard to debug async state
 - Race conditions possible
 
 **Mitigation:**
+
 - Comprehensive async tests
 - Clear event loop lifecycle documentation
 - Consider alternative isolation approaches
@@ -66,11 +75,13 @@
 **Issue**: `mcp_servers.json` configuration may become stale.
 
 **Impact:**
+
 - Server definitions may drift
 - Missing required fields
 - Hard to validate configurations
 
 **Mitigation:**
+
 - Schema validation for MCP config
 - Version checking for servers
 - Health checks for MCP connections
@@ -82,10 +93,12 @@
 **Issue**: `tiktoken` may not perfectly match all LLM tokenizers.
 
 **Impact:**
+
 - Cost estimation errors
 - Context window limit confusion
 
 **Mitigation:**
+
 - Per-provider token counting
 - Fallback to provider estimates
 
@@ -94,10 +107,12 @@
 **Issue**: React frontend state may drift from backend API.
 
 **Impact:**
+
 - UI errors on API changes
 - Stale data displayed
 
 **Mitigation:**
+
 - TypeScript API client
 - Versioned API endpoints
 
@@ -112,10 +127,10 @@
 
 ### 2. Dreamer Consolidation
 
-**Issue**: High-surprise event extraction may miss edge cases.
+**Issue**: High-surprise event extraction may miss edge cases. Gatekeeper logic was previously too strict, causing runaway loops.
 
-**Status**: Known, threshold tuning needed
-**Workaround**: Manual review of `rules.md` updates
+**Status**: Partial Fix (Gatekeeper relaxed)
+**Workaround**: Manual review of `rules.md` updates. Runaway loop fixed in `agent.py`.
 
 ### 3. Graph Pruning
 
@@ -131,6 +146,7 @@
 **Concern**: Keys in environment variables need careful management.
 
 **Mitigation:**
+
 - Never commit `.env` files
 - Use secrets management in production
 - Rotate keys regularly
@@ -140,6 +156,7 @@
 **Concern**: Axiomatic verification may not catch all malicious outputs.
 
 **Mitigation:**
+
 - Additional output sanitization
 - Rate limiting
 - Human-in-the-loop for critical operations
@@ -149,6 +166,7 @@
 **Concern**: Dynamically loaded MCP tools may have security implications.
 
 **Mitigation:**
+
 - Tool whitelisting
 - Sandboxed execution
 - Permission models
@@ -160,6 +178,7 @@
 **Concern**: Large graphs may have slow query times.
 
 **Mitigation:**
+
 - Index optimization
 - Query caching
 - Graph partitioning
@@ -169,6 +188,7 @@
 **Concern**: External LLM calls introduce latency.
 
 **Mitigation:**
+
 - Request batching
 - Streaming responses
 - Local caching
@@ -178,6 +198,7 @@
 **Concern**: Running all axioms before each action may be slow.
 
 **Mitigation:**
+
 - Relevance-based axiom filtering
 - Parallel axiom execution
 - Axiom result caching
@@ -189,11 +210,13 @@
 **Area**: `graph_rlm/` session handling
 
 **Why Fragile:**
+
 - Complex state inheritance
 - Multiple async contexts
 - REPL isolation boundaries
 
 **Protection:**
+
 - Isolated test cases
 - Session ID validation
 - State reset mechanisms
@@ -203,11 +226,13 @@
 **Area**: `scripts/purge_orphaned_axioms.py` and related
 
 **Why Fragile:**
+
 - Dependency tracking complex
 - Cascade effects hard to predict
 - Version compatibility
 
 **Protection:**
+
 - Version pinning
 - Comprehensive test coverage
 - Incremental updates
@@ -217,11 +242,13 @@
 **Area**: `skills/` dynamic loading
 
 **Why Fragile:**
+
 - Runtime import errors
 - Missing dependencies
 - API changes
 
 **Protection:**
+
 - Strict validation
 - Graceful degradation
 - Version requirements
@@ -233,6 +260,7 @@
 **Issue**: Code comments and docs may not match implementation.
 
 **Mitigation:**
+
 - Automated documentation generation
 - Code review for doc updates
 - Linting for doc quality
@@ -242,6 +270,7 @@
 **Issue**: Many test files with complex setups.
 
 **Mitigation:**
+
 - Shared test fixtures
 - Test pattern documentation
 - Automated test organization
@@ -251,6 +280,7 @@
 **Issue**: Many external dependencies with varying update cycles.
 
 **Mitigation:**
+
 - Dependency pinning
 - Automated vulnerability scanning
 - Regular update cadence

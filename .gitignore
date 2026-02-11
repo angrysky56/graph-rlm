@@ -58,7 +58,12 @@ graph_rlm/frontend/ui/dist/
 coverage/
 knowledge_base/
 graph_rlm/backend/axioms_dir/
-
+tests/
+graph_rlm/backend/tests
+# skills/
+test_skills_env/
+graph_rlm/backend/axioms_dir/
+graph_rlm/backend/mcp_tools/
 
 # MCP Configs have keys
 mcp_servers.json

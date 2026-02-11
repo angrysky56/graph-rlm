@@ -28,9 +28,9 @@ class LogBuffer:
         for callback in list(self.subscribers):
             try:
                 callback(message)
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                 # Subscriber failed - log but don't crash the buffer
-                logging.getLogger(__name__).debug(f"Subscriber callback failed: {e}")
+                logging.getLogger(__name__).debug("Subscriber callback failed: %s", e)
 
     def get_history(self) -> list:
         """Get buffered log history."""
@@ -50,9 +50,9 @@ class StreamingHandler(logging.Handler):
     Custom logging handler that feeds logs to the LogBuffer.
     """
 
-    def __init__(self, log_buffer: LogBuffer):
+    def __init__(self, buffer: LogBuffer):
         super().__init__()
-        self.log_buffer = log_buffer
+        self.log_buffer = buffer
         # Plain text format without ANSI colors for streaming
         self.setFormatter(
             logging.Formatter(
@@ -65,7 +65,7 @@ class StreamingHandler(logging.Handler):
         try:
             msg = self.format(record)
             self.log_buffer.add_log(msg)
-        except Exception:
+        except Exception:  # pylint: disable=broad-except # noqa: BLE001
             self.handleError(record)
 
 

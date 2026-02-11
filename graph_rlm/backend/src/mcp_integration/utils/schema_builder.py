@@ -1,3 +1,11 @@
+"""
+Schema Builder for cognitive modeling and meta-ontology.
+
+This module provides the core logic for creating, managing, and evolving schemas
+in the Graph-RLM system. It supports structural inheritance, data inference,
+and cognitive processes like Assimilation and Accommodation.
+"""
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -284,5 +292,11 @@ class SchemaBuilder:
         }
 
 
-def schema_builder():
+def schema_builder() -> SchemaBuilder:
+    """
+    Factory function to create a new instance of SchemaBuilder.
+
+    Returns:
+        A new SchemaBuilder instance.
+    """
     return SchemaBuilder()

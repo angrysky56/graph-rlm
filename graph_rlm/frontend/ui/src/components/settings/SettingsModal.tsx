@@ -282,6 +282,96 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             </div>
           </div>
 
+          {/* Summary Model Selection */}
+          <div className="space-y-2 border-t border-slate-800 pt-4">
+            <label className="text-xs uppercase font-bold text-slate-500">
+              Summary Model <span className="text-slate-600 font-normal">(for scratchpad)</span>
+            </label>
+
+            {/* Rich Model Selector - Same pattern as Chat Model */}
+            <div className="border border-slate-700 rounded bg-black/30 max-h-[200px] overflow-y-auto">
+              {/* Default Option */}
+              <div
+                onClick={() => setConfig({ ...config, SUMMARY_MODEL: "" })}
+                className={`p-2 cursor-pointer flex justify-between items-center border-b border-slate-800 ${!config.SUMMARY_MODEL ? 'bg-purple-600/20 border-l-2 border-l-purple-500' : 'hover:bg-white/5'}`}
+              >
+                <span className={`text-xs font-medium ${!config.SUMMARY_MODEL ? 'text-purple-300' : 'text-slate-400'}`}>
+                  Use Chat Model (default)
+                </span>
+              </div>
+
+              {models.length > 0 ? (
+                Object.entries(
+                  models
+                    .filter(m => m.type !== 'embedding')
+                    .filter(m => {
+                      if (config.provider === 'ollama') return m.provider === 'ollama';
+                      if (config.provider === 'openai') return m.provider === 'openai';
+                      if (config.provider === 'openrouter') return m.provider !== 'ollama' && m.provider !== 'openai';
+                      return true;
+                    })
+                    .reduce((groups, model) => {
+                      const provider = model.provider || model.id.split('/')[0] || 'Unknown';
+                      const key = provider.charAt(0).toUpperCase() + provider.slice(1);
+                      if (!groups[key]) groups[key] = [];
+                      groups[key].push(model);
+                      return groups;
+                    }, {} as Record<string, typeof models>)
+                ).sort((a, b) => a[0].localeCompare(b[0]))
+                  .map(([provider, providerModels]) => (
+                    <div key={provider} className="border-b border-slate-800 last:border-0">
+                      <details className="group" open={providerModels.some(m => m.id === config.SUMMARY_MODEL)}>
+                        <summary className="p-2 bg-slate-900/50 hover:bg-slate-800 cursor-pointer text-xs font-bold text-slate-300 flex justify-between items-center select-none">
+                          <span>{provider} ({providerModels.length})</span>
+                          <span className="text-[10px] text-slate-600 group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <div className="p-1 space-y-1 bg-black/20">
+                          {providerModels.map(m => {
+                            const isSelected = m.id === config.SUMMARY_MODEL;
+                            const pPrompt = typeof m.pricing?.prompt === 'string' ? parseFloat(m.pricing.prompt) : 0;
+                            const pCompl = typeof m.pricing?.completion === 'string' ? parseFloat(m.pricing.completion) : 0;
+                            const promptPrice = pPrompt * 1000000;
+                            const complPrice = pCompl * 1000000;
+
+                            return (
+                              <div
+                                key={m.id}
+                                onClick={() => setConfig({ ...config, SUMMARY_MODEL: m.id })}
+                                className={`p-2 rounded cursor-pointer flex justify-between items-center transition-all ${isSelected ? 'bg-purple-600/20 border border-purple-500/50' : 'hover:bg-white/5 border border-transparent'}`}
+                              >
+                                <div className="flex flex-col">
+                                  <span className={`text-xs font-medium ${isSelected ? 'text-purple-300' : 'text-slate-300'}`}>
+                                    {m.name}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {Math.round((m.context_length || 0) / 1000)}k ctx
+                                  </span>
+                                </div>
+                                <div className="text-right flex flex-col items-end">
+                                  <span className="text-[10px] text-slate-400">
+                                    ${promptPrice.toFixed(2)} / ${complPrice.toFixed(2)}
+                                  </span>
+                                  <span className="text-[9px] text-slate-600">per 1M tokens</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    </div>
+                  ))
+              ) : (
+                <div className="p-4 text-xs text-slate-500 italic text-center">
+                  No models loaded yet. Save settings to fetch models.
+                </div>
+              )}
+            </div>
+            <p className="text-[10px] text-slate-600">
+              Smaller/cheaper model for step summaries. Leave empty to use Chat Model.
+            </p>
+          </div>
+
+
           {/* Graph Management Section */}
           <div className="space-y-2 border-t border-slate-800 pt-4">
             <label className="text-xs uppercase font-bold text-slate-500">Graph Hygiene</label>

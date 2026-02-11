@@ -15,8 +15,12 @@ import json
 import os
 import re
 import shutil
+import tempfile
+import traceback
 from pathlib import Path
 from typing import Any
+
+from .config import ConfigManager
 
 try:
     from mcp import ClientSession, StdioServerParameters
@@ -126,8 +130,6 @@ class ServerIntrospector:
 
         env["PATH"] = current_path
 
-        import tempfile
-
         # Create a temp file to capture stderr (only used for stdio)
         stderr_file = tempfile.TemporaryFile(mode="w+")
 
@@ -176,7 +178,7 @@ class ServerIntrospector:
                                 }
                                 for res in resources_result.resources
                             }
-                        except Exception:
+                        except Exception:  # pylint: disable=broad-except # noqa: BLE001
                             # Resources not supported
                             self.resources = {}
 
@@ -191,7 +193,7 @@ class ServerIntrospector:
                                 }
                                 for prompt in prompts_result.prompts
                             }
-                        except Exception:
+                        except Exception:  # pylint: disable=broad-except # noqa: BLE001
                             # Prompts not supported
                             self.prompts = {}
 
@@ -227,16 +229,16 @@ class ServerIntrospector:
             }
         except BaseExceptionGroup as eg:
             # Python 3.11+ wraps async errors in ExceptionGroup
-            # Check if it contains a BrokenResourceError
-            broken_resource_errors = [
-                e for e in eg.exceptions if isinstance(e, BrokenResourceError)
-            ]
-            if broken_resource_errors:
+            # Check if it contains a BrokenResourceError using the idiomatic .subgroup() method
+            if eg.subgroup(BrokenResourceError):
                 return {
                     "name": self.config.name,
-                    "error": "Server connection closed unexpectedly (BrokenResourceError in ExceptionGroup). "
-                    "This can happen when the server process exits during communication. "
-                    "The coordinator will continue with other servers.",
+                    "error": (
+                        "Server connection closed unexpectedly "
+                        "(BrokenResourceError in ExceptionGroup). "
+                        "This can happen when the server process exits "
+                        "during communication."
+                    ),
                     "tools": self.tools,  # Return any tools discovered before the error
                     "resources": self.resources,
                     "prompts": self.prompts,
@@ -253,9 +255,7 @@ class ServerIntrospector:
                 "prompts": {},
                 "tags": self.config.tags,
             }
-        except BaseException as e:
-            import traceback
-
+        except BaseException as e:  # pylint: disable=broad-except
             tb = traceback.format_exc()
 
             # Read stderr captured so far if using stdio
@@ -353,7 +353,7 @@ class ConfigLoader:
         if not filepath.exists():
             raise FileNotFoundError(f"Config file not found: {filepath}")
 
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             data = json.load(f)
 
         servers = data.get("mcpServers", {})
@@ -378,9 +378,6 @@ async def discover_all_servers(
     """
     # Load configuration
     configs = ConfigLoader.load_from_json(config_path)
-
-    # Get timeouts
-    from .config import ConfigManager
 
     config_manager = ConfigManager()
     timeouts = config_manager.get_timeouts()
@@ -409,7 +406,7 @@ async def discover_all_servers(
                     "prompts": {},
                     "tags": config.tags,
                 }
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                 return name, {
                     "name": name,
                     "error": f"Discovery failed: {str(e)}",
@@ -456,9 +453,6 @@ async def discover_single_server(
 
     config = configs[server_name]
 
-    # Get timeouts
-    from .config import ConfigManager
-
     config_manager = ConfigManager()
     timeouts = config_manager.get_timeouts()
     discovery_timeout = timeouts["discovery"]
@@ -478,7 +472,7 @@ async def discover_single_server(
             "prompts": {},
             "tags": config.tags,
         }
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
         return {
             "name": server_name,
             "error": f"Discovery failed: {str(e)}",

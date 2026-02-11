@@ -3,13 +3,20 @@ Configuration management for Graph-RLM using Pydantic Settings.
 Handles environment variables and LLM provider configurations.
 """
 
+import os
 from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings
+from pydantic_settings import SettingsConfigDict as ConfigDict
 
 
 class Settings(BaseSettings):
+    """
+    Application configuration and environment management.
+    Handles defaults and overrides from .env and environment variables.
+    """
+
     PROJECT_NAME: str = "Graph-RLM"
     API_V1_STR: str = "/api/v1"
 
@@ -33,6 +40,7 @@ class Settings(BaseSettings):
     REPL_TIMEOUT: int = 3000  # Seconds for REPL execution timeout
 
     GRAPH_NAME: str = "rlm_graph"
+    MAX_RECURSION_DEPTH: int = 3  # Maximum depth for rlm.query recursive calls
 
     # LLM Settings (Primary Provider)
     LLM_PROVIDER: str = "openrouter"  # ollama, openrouter, lmstudio, openai
@@ -57,6 +65,9 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     OPENAI_MODEL: str = "gpt-4o-mini"
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+
+    # Summary Model (lightweight model for step summaries in scratchpad)
+    SUMMARY_MODEL: str = "google/gemini-2.0-flash-lite"
 
     def get_config_for_provider(self, provider: str) -> dict:
         """Returns the LLM configuration for a specific provider."""
@@ -91,7 +102,9 @@ class Settings(BaseSettings):
 
     def get_llm_config(self) -> dict:
         """Returns the active LLM configuration based on LLM_PROVIDER."""
-        return self.get_config_for_provider(self.LLM_PROVIDER)
+        config = self.get_config_for_provider(self.LLM_PROVIDER)
+        config["summary_model"] = self.SUMMARY_MODEL
+        return config
 
     def save_to_env(self, config_updates: dict) -> bool:
         """
@@ -120,15 +133,16 @@ class Settings(BaseSettings):
                     new_lines.append(line)
 
             # 3. Append missing keys (carefully)
-            import os
 
             for key, value in config_updates.items():
                 if key not in updated_keys:
-                    # Skip writing keys that are already in OS environ and user didn't explicitly change
+                    # Skip writing keys that are already in OS environ and
+                    # user didn't explicitly change
                     if key in os.environ and os.environ[key] == str(value):
                         continue
 
-                    # Strict Filter: Do not write OpenAI defaults if they are not active or explicitly set
+                    # Strict Filter: Do not write OpenAI defaults if they
+                    # are not active or explicitly set
                     # If the key is OPENAI_... and the value matches the class default, skip it
                     if key.startswith("OPENAI_") and not key.endswith("API_KEY"):
                         # Check if it matches default
@@ -153,13 +167,11 @@ class Settings(BaseSettings):
                     setattr(self, key, value)
 
             return True
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             print(f"Error saving to .env: {e}")
             return False
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    model_config = ConfigDict(env_file=".env", extra="ignore")
 
 
 settings = Settings()

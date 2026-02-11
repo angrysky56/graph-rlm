@@ -1,5 +1,5 @@
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Layout } from './components/layout/Layout';
 import { ChatInput } from './components/chat/ChatInput';
 import { ChatHistory } from './components/chat/ChatHistory'; // Import ChatHistory
@@ -16,7 +16,9 @@ function App() {
   });
 
   const [currentModel, setCurrentModel] = useState<string>(''); // Empty initially, load from config
-  const [replEntries, setReplEntries] = useState<any[]>([]);
+  const [chatEntries, setChatEntries] = useState<any[]>([]);
+  const [terminalEntries, setTerminalEntries] = useState<any[]>([]);
+  const [codeEntries, setCodeEntries] = useState<any[]>([]);
   const [scratchpadText, setScratchpadText] = useState<string>(''); // ACTUAL scratchpad text from agent
 
   // Chat Input State (Lifted for Injection)
@@ -119,47 +121,40 @@ function App() {
     };
   }, [sessionId]);
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     const newId = uuidv4();
     setSessionId(newId);
-    setReplEntries([]);
+    setChatEntries([]);
+    setTerminalEntries([]);
+    setCodeEntries([]);
     setScratchpadText(''); // Clear scratchpad
     setGraphData({ nodes: [], links: [] });
-    // Reset usage stats
+  }, []);
 
-  };
-
-  const handleSessionSelect = async (sid: string) => {
+  const handleSessionSelect = useCallback(async (sid: string) => {
     setSessionId(sid);
-    setReplEntries([]); // Clear current while loading
+    setChatEntries([]);
+    setTerminalEntries([]);
+    setCodeEntries([]);
     setScratchpadText(''); // Clear while loading
     loadGraph(sid); // Restore explicit load to handle view mode switches
-
-    // Note: Scratchpad text will be populated when agent runs again
-    // The scratchpad_text event provides the actual context
 
     try {
       const history = await api.getHistory(sid);
       if (history && Array.isArray(history)) {
         const entries = history.map((msg: any) => {
-          // Robust content mapping using new backend fields
           let finalContent = msg.content || "";
           let finalStyle: 'code' | 'thinking' | 'trace' | 'success' | 'error' | undefined = undefined;
           let finalType: 'input' | 'output' | 'info' | 'error' = msg.role === 'user' ? 'input' : 'output';
 
-          // 1. Detect Final Answer (Simple heuristic if backend marks it)
           if (msg.status === 'success' && !msg.repl_id && msg.result) {
-               // Could be final answer
+               finalStyle = 'success';
           }
 
-          // 2. Detect Code Execution
-          // If we have a repl_id, OR prompt starts with code indicators
-          // msg.content often has "Thought: ... Code: ..." or similar if raw
-          const isCode = msg.repl_id || (typeof msg.content === 'string' && (msg.content.includes("def ") || msg.content.includes("import "))) || msg.execution_summary;
+          const isCodeResult = !!(msg.repl_id || msg.execution_summary);
 
-          if (isCode && msg.role !== 'user') {
+          if (isCodeResult && msg.role !== 'user') {
              finalStyle = 'code';
-             // If we have a result, append it neatly
              if (msg.execution_summary) {
                  finalContent += `\n\n> **Result:**\n${msg.execution_summary}`;
              } else if (msg.result) {
@@ -169,12 +164,11 @@ function App() {
                  finalContent = `[REPL: ${msg.repl_id}]\n${finalContent}`;
              }
           }
-          // 3. Simple Result Append (if not code but has result)
           else if (msg.result && msg.role !== 'user') {
-             finalContent += `\n\n> **Result:**\n${msg.result}`;
+             if (msg.status === 'success') finalStyle = 'success';
+             finalContent += `\n\n> **Summary:**\n${msg.result}`;
           }
 
-          // 4. Error Status
           if (msg.status === 'error') {
               finalType = 'error';
               finalStyle = 'error';
@@ -184,30 +178,48 @@ function App() {
             type: finalType,
             content: finalContent,
             timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
-            style: finalStyle,
+            style: finalStyle as any,
             repl_id: msg.repl_id
           };
         });
-        setReplEntries(entries);
+
+        const newChat: any[] = [];
+        const newTerminal: any[] = [];
+        const newCode: any[] = [];
+
+        entries.forEach(e => {
+            if (e.style === 'code') {
+                newCode.push(e);
+            } else if (e.style === 'thinking' || e.style === 'trace' || e.type === 'error') {
+                newTerminal.push(e);
+            } else {
+                newChat.push(e);
+            }
+        });
+
+        setChatEntries(newChat);
+        setTerminalEntries(newTerminal);
+        setCodeEntries(newCode);
       }
     } catch (e) {
       console.error("Failed to load history:", e);
     }
-  };
+  }, [loadGraph]);
 
-  const handleStop = async () => {
+  const handleStop = useCallback(async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
-    await api.stopGeneration(); // Tell backend to stop
+    await api.stopGeneration();
     setIsProcessing(false);
-    setReplEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
-  };
+    setChatEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
+  }, []);
 
-  const handleExecute = (query: string) => {
+  const handleExecute = useCallback((query: string) => {
     setIsProcessing(true);
-    setReplEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now() }]);
+    setChatEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now() }]);
+    setTerminalEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now(), ui_target: 'TERMINAL_RAW' }]);
 
     const payload = {
       model: currentModel,
@@ -217,154 +229,102 @@ function App() {
     };
 
     const ctrl = api.streamChat(payload, (event) => {
-      if (event.type === 'token') {
-        setReplEntries(prev => {
-          const last = prev[prev.length - 1];
-          // Only append to last entry if it's a generic output (not code) and still streaming
-          if (last && last.type === 'output' && last.isStreaming && last.style !== 'code') {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: last.content + event.content }
-            ];
-          } else {
-            return [...prev, { type: 'output', content: event.content, timestamp: Date.now(), isStreaming: true }];
-          }
-        });
+      let isSystemic = false;
 
-      } else if (event.type === 'thinking') {
-        // ALL thinking events go to Live REPL (bottom left) UNFILTERED
-        // This is the raw terminal output - no filtering
-        setReplEntries(prev => [...prev, {
-          type: 'info',
-          content: event.content || '',
-          timestamp: Date.now(),
-          style: 'thinking'
-        }]);
-
-      } else if (event.type === 'code_output_chunk') {
-        // Appending streamed code output
-        setReplEntries(prev => {
-          const last = prev[prev.length - 1];
-          // If last entry is streaming code output
-          if (last && last.type === 'output' && last.style === 'code' && last.isStreaming) {
-            return [
-              ...prev.slice(0, -1),
-              { ...last, content: last.content + event.content }
-            ];
-          } else {
-            // Start new code output block
-            return [...prev, {
-              type: 'output',
-              content: event.content,
-              timestamp: Date.now(),
-              style: 'code',
-              isStreaming: true
-            }];
-          }
-        });
-
-      } else if (event.type === 'code_output') {
-        // Final Code Execution Output (Complete)
-        // If we were streaming, we might just mark it done or replace if needed.
-        // But backend emits this as the "Final" block with metadata.
-        // Let's replace the streaming block with this final one to ensure formatting/correctness
-        setReplEntries(prev => {
-          const last = prev[prev.length - 1];
-          if (last && last.isStreaming && last.style === 'code') {
-            // Replace the streaming block with the final complete block
-            return [...prev.slice(0, -1), {
-              type: 'output',
-              content: `[EXECUTION] (REPL: ${event.data?.repl_id || 'unknown'})\n${event.code}\n\n>> ${event.content}`,
-              timestamp: Date.now(),
-              style: 'code',
-              isStreaming: false
-            }];
-          } else {
-            // Just add it if we weren't streaming (fallback)
-            return [...prev, {
-              type: 'output',
-              content: `[EXECUTION] (REPL: ${event.data?.repl_id || 'unknown'})\n${event.code}\n\n>> ${event.content}`,
-              timestamp: Date.now(),
-              style: 'code'
-            }];
-          }
-        });
-
-      } else if (event.type === 'graph_update') {
-        // Keep existing graph logic...
+      if (event.type === 'graph_update') {
+        isSystemic = true;
         const { action, node, link } = event.data;
-        setGraphData(prev => {
-          const newData = { ...prev };
-          if (action === 'add_node') {
-            console.log("[GraphUpdate] Adding Node:", node);
-            if (!newData.nodes.find(n => n.id === node.id)) newData.nodes = [...newData.nodes, node];
-          } else if (action === 'add_link') {
-            console.log("[GraphUpdate] Adding Link:", link);
-            newData.links = [...newData.links, link];
-          } else if (action === 'update_node') {
-            newData.nodes = newData.nodes.map(n => n.id === node.id ? { ...n, ...node } : n);
-          }
-          return newData;
-        });
-
-      } else if (event.type === 'done') {
-        setIsProcessing(false);
-        // Mark last streaming entry as done?
-        setReplEntries(prev => {
-          const last = prev[prev.length - 1];
-          if (last && last.isStreaming) {
-            return [...prev.slice(0, -1), { ...last, isStreaming: false }];
-          }
-          return prev;
-        });
-        abortControllerRef.current = null;
-      } else if (event.type === 'trace') {
-        // Handle Trace Logs (System Observability)
-        setReplEntries(prev => [...prev, {
-            type: 'info',
-            content: event.content,
-            timestamp: Date.now(),
-            style: 'trace' // New style for trace logs
-        }]);
-
-      } else if (event.type === 'warning') {
-        setReplEntries(prev => [...prev, { type: 'error', content: `Warning: ${event.content}`, timestamp: Date.now() }]);
-      } else if (event.type === 'error') {
-        setReplEntries(prev => [...prev, { type: 'error', content: `Error: ${event.content}`, timestamp: Date.now() }]);
-        setIsProcessing(false);
+        if (action === 'add_node' || action === 'add_link' || action === 'update_node') {
+          setGraphData(prev => {
+            const newData = { ...prev };
+            if (action === 'add_node') {
+              if (!newData.nodes.find((n: any) => n.id === node.id)) newData.nodes = [...newData.nodes, node];
+            } else if (action === 'add_link') {
+              newData.links = [...newData.links, link];
+            } else if (action === 'update_node') {
+              newData.nodes = newData.nodes.map((n: any) => n.id === node.id ? { ...n, ...node } : n);
+            }
+            return newData;
+          });
+        }
       } else if (event.type === 'scratchpad_text') {
-        // Store the ACTUAL scratchpad text the agent sees
-        // This is the verbatim output of build_scratchpad()
-        setScratchpadText(event.content || '');
-      } else if (event.type === 'active_thought') {
-        // Note: We no longer track individual thoughts in state
-        // The scratchpad_text event gives us the complete context
-        console.debug('[AGENT] Active thought:', event.data?.id);
-
-      } else if (event.type === 'scratchpad_update') {
-        // Scratchpad will be updated by the next scratchpad_text event
-        console.debug('[AGENT] Scratchpad update pending');
-
-      } else if (event.type === 'answer' || event.type === 'final_answer') {
-        // Final Answer Event - show in sidebar
-        const answerContent = event.content;
-
-        // Show final answer in sidebar
-        setReplEntries(prev => [...prev, {
-          type: 'output',
-          content: `✅ **Final Answer:**\n${answerContent}`,
-          timestamp: Date.now(),
-          style: 'success'
-        }]);
-
+        isSystemic = true;
+        setScratchpadText(String(event.content || ''));
+      } else if (event.type === 'done') {
+        isSystemic = true;
         setIsProcessing(false);
+        setChatEntries(prev => {
+          const last = prev[prev.length - 1];
+          return last && last.isStreaming ? [...prev.slice(0, -1), { ...last, isStreaming: false }] : prev;
+        });
+      }
+
+      if (isSystemic && event.type !== 'done') return;
+
+      const safeContent = String(event.content || '');
+
+      if (event.ui_target === 'CHAT_RESPONSE') {
+        if (event.type === 'token') {
+          setChatEntries(prev => {
+            const last = prev[prev.length - 1];
+            if (last && last.isStreaming) {
+              return [...prev.slice(0, -1), { ...last, content: last.content + safeContent }];
+            } else {
+              return [...prev, { type: 'output', content: safeContent, timestamp: Date.now(), isStreaming: true }];
+            }
+          });
+        } else if (safeContent || event.type === 'RLM_FINAL_RESPONSE') {
+          let messageStyle: string | undefined = undefined;
+          if (event.type === 'RLM_FINAL_RESPONSE') {
+            messageStyle = 'success';
+          } else if (event.type === 'thinking') {
+            messageStyle = 'thinking';
+          } else if (event.type === 'warning' || event.type === 'error') {
+            messageStyle = 'error';
+          }
+          setChatEntries(prev => [...prev, {
+            type: 'output',
+            content: safeContent,
+            timestamp: Date.now(),
+            style: messageStyle
+          }]);
+        }
+      }
+
+      else if (event.ui_target === 'CODE_RESULT') {
+        setCodeEntries(prev => [...prev, {
+            type: 'output',
+            content: event.type === 'code_output' ? `[FINAL RESULT] (REPL: ${event.repl_id})\n${safeContent}` : safeContent,
+            timestamp: Date.now(),
+            style: 'code',
+            repl_id: event.repl_id,
+            isStreaming: event.type === 'code_output_chunk'
+        }]);
+      }
+
+      else if (event.ui_target === 'TERMINAL_RAW' || !event.ui_target) {
+        const logContent = safeContent || (typeof event.data === 'string' ? event.data : '');
+        if (!logContent && !event.type) return;
+
+        setTerminalEntries(prev => [...prev, {
+            type: event.type === 'error' ? 'error' : 'info',
+            content: logContent || `[${event.type || 'info'}]`,
+            timestamp: Date.now(),
+            style: event.type === 'thinking' ? 'thinking' : 'trace',
+            repl_id: event.repl_id
+        }]);
       }
     });
 
     abortControllerRef.current = ctrl;
-  };
+  }, [currentModel, sessionId]);
 
 
+
+  const onInjectContent = useCallback((text: string) => {
+    console.log("App: onInjectContent called", text);
+    setChatInput(prev => prev + text);
+  }, []);
 
   // Render Explorer Mode
   if (viewMode === 'explorer') {
@@ -393,20 +353,21 @@ function App() {
       onNewChat={handleNewChat}
       currentModel={currentModel}
       onRefreshConfig={refreshConfig}
-      onInjectContent={(text) => setChatInput(prev => prev + text)}
+      onInjectContent={onInjectContent}
       onSelectSession={handleSessionSelect}
       onOpenExplorer={() => {
         setViewMode('explorer');
         loadGraph(null); // Force Global Load
       }}
-      replEntries={replEntries}
+      terminalEntries={terminalEntries}
+      codeEntries={codeEntries}
       scratchpadText={scratchpadText} // Pass to Layout -> RightSidebar
     >
 
       <div className="flex h-full relative flex-col">
         {/* Center: Chat History (Was Scratchpad) */}
         <div className="flex-1 min-h-0 relative flex flex-col">
-          <ChatHistory entries={replEntries} />
+          <ChatHistory entries={chatEntries} />
         </div>
         {/* Input Area */}
         <div className="shrink-0">

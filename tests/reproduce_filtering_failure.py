@@ -44,7 +44,7 @@ def test_axiomatic_filtering_failure():
     mock_mgr.get_skill.side_effect = lambda name: mock_skills.get(name)
 
     with patch(
-        "graph_rlm.backend.src.mcp_integration.skills.get_skills_manager",
+        "graph_rlm.backend.src.mcp_integration.skill_storage.get_skills_manager",
         return_value=mock_mgr,
     ):
         # Scenario 1: Coding task

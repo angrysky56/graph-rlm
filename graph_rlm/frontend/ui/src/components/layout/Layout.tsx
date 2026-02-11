@@ -15,7 +15,8 @@ interface LayoutProps {
     onSelectSession?: (id: string) => void;
     onOpenExplorer?: () => void;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; };
-    replEntries?: any[];
+    terminalEntries?: any[];
+    codeEntries?: any[];
     scratchpadText: string;
 }
 
@@ -31,7 +32,8 @@ export const Layout: React.FC<LayoutProps> = ({
     onSelectSession,
     onOpenExplorer,
     usage,
-    replEntries
+    terminalEntries,
+    codeEntries
 }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -46,7 +48,8 @@ export const Layout: React.FC<LayoutProps> = ({
                     onSelectSession={onSelectSession}
                     onOpenExplorer={onOpenExplorer}
                     usage={usage}
-                    replEntries={replEntries} // Pass it down!
+                    terminalEntries={terminalEntries}
+                    codeEntries={codeEntries}
                 />
             </div>
 

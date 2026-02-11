@@ -9,6 +9,7 @@ import numpy as np
 
 from .llm import llm
 from .logger import get_logger
+from .trace import trace_action
 
 logger = get_logger("graph_rlm.repe")
 
@@ -40,6 +41,11 @@ class GestaltMonitor:
                     "I will now proceed as if",
                     "acting as if",
                     "performing the task by",
+                    "I have conceptually verified",
+                    "it stands to reason that",
+                    "this should work",
+                    "assuming the above succeeded",
+                    "proceeding based on expectation",
                 ],
                 # Grounded (Contact with Reality)
                 [
@@ -86,6 +92,27 @@ class GestaltMonitor:
                     "deploying compute",
                     "attempting solution",
                     "running verifying tool",
+                ],
+            ),
+            # 4. Freedom (Entropy/Exploration)
+            # Detects if the agent is keeping options open (High Entropy) or collapsing/restricting (Low Entropy).
+            "Freedom": (
+                # Neurotic (Restriction/Collapse/Low Entropy)
+                [
+                    "delete file",
+                    "remove data permanently",
+                    "stop execution immediately",
+                    "restrict access",
+                    "finalize and exit",
+                    "assert condition",
+                ],
+                # Grounded (Exploration/High Entropy)
+                [
+                    "explore and discover",
+                    "search for alternatives",
+                    "analyze and synthesize",
+                    "propose hypothesis",
+                    "list available options",
                 ],
             ),
         }
@@ -150,6 +177,13 @@ class GestaltMonitor:
             # Dot product measures alignment.
             # Low Negative value (< -0.15) means HIGH NEUROSIS (aligned with bad pole).
             scores[concept] = np.dot(thought_vec, axis)
+
+        trace_action(
+            "REPE",
+            "PSYCH_PROFILE",
+            result=f"Neurosis Scan: {scores}",
+            tag="REPE",
+        )
 
         return scores
 

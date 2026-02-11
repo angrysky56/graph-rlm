@@ -1,7 +1,9 @@
 """
 Skill execution harness.
 
-Allows executing skills from the database via CLI, similar to the mcp-code-execution-enhanced pattern.
+Allows executing skills from the database via CLI,
+similar to the mcp-code-execution-enhanced pattern.
+
 Usage: python -m graph_rlm.backend.src.mcp_integration.skill_harness <skill_name> [args...]
 
 Enforces execution in a dedicated 'skills_venv' for safety and dependency isolation.
@@ -9,6 +11,7 @@ Enforces execution in a dedicated 'skills_venv' for safety and dependency isolat
 
 import argparse
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -19,6 +22,12 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any
+
+from graph_rlm.backend.src.core.db import db
+from graph_rlm.backend.src.core.llm import llm
+
+from .client import call_mcp_tool, cleanup_global_client_async
+from .skill_storage import get_skills_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -45,7 +54,7 @@ def ensure_skills_venv() -> Path:
             )
             print("Created agent_venv.")
         except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to create venv: {e.stderr.decode()}")
+            logger.error("Failed to create venv: %s", e.stderr.decode())
             raise RuntimeError("Could not create skills virtual environment.") from e
 
     return SKILLS_VENV_PATH
@@ -88,17 +97,16 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
 
     # Current file: .../graph_rlm/backend/src/mcp_integration/skill_harness.py
     # Root of package 'graph_rlm' is .../graph-rlm/ (the folder containing graph_rlm dir)
-    repo_root = (
-        BACKEND_ROOT.parent.parent
-    )  # /home/ty/Repositories/ai_workspace/graph-rlm
+    # Repo root contains 'skills' directory
+    repo_root = BACKEND_ROOT.parent.parent
 
     env = os.environ.copy()
-    # We need repo_root for graph_rlm package and BACKEND_ROOT for skills_dir module
-    env["PYTHONPATH"] = f"{repo_root}:{BACKEND_ROOT}:{env.get('PYTHONPATH', '')}"
+    # We need repo_root for graph_rlm package and skills package
+    env["PYTHONPATH"] = f"{repo_root}:{env.get('PYTHONPATH', '')}"
     # Also ensure unbuffered output
     env["PYTHONUNBUFFERED"] = "1"
 
-    logger.info(f"Spawning skill '{skill_name}' in isolated venv...")
+    logger.info("Spawning skill '%s' in isolated venv...", skill_name)
 
     process = await asyncio.create_subprocess_exec(
         *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, env=env
@@ -110,7 +118,9 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
         error_msg = stderr.decode()
         if "429" in error_msg:
             error_msg = f"[TERMINAL ERROR: RATE LIMITED] {error_msg}"
-        logger.error(f"Skill execution failed (RC {process.returncode}): {error_msg}")
+        logger.error(
+            "Skill execution failed (RC %d): %s", process.returncode, error_msg
+        )
         raise RuntimeError(f"Skill subprocess failed: {error_msg}")
 
     # Parse result from stdout (last line should be the JSON result)
@@ -120,15 +130,76 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
         lines = output.splitlines()
 
         if not lines:
-            logger.warning(f"Skill '{skill_name}' produced no output.")
+            logger.warning("Skill '%s' produced no output.", skill_name)
             return None
 
         # Attempt to parse the last line as the JSON result
         return json.loads(lines[-1])
 
     except json.JSONDecodeError:
-        logger.error(f"Failed to parse skill output: {output}")
+        logger.error("Failed to parse skill output: %s", output)
         raise RuntimeError(f"Skill returned invalid JSON: {output}") from None
+
+
+class MCPServerProxy:
+    """Proxy for a specific MCP server's tools."""
+
+    def __init__(self, server_name: str):
+        self._server_name = server_name
+
+    def __getattr__(self, tool_name: str):
+
+        async def _call_proxy(*_args, **kwargs):
+            # Positional args not supported by MCP, but we handle them gracefully if possible
+            # Usually agent code uses kwargs
+            return await call_mcp_tool(
+                server_name=self._server_name, tool_name=tool_name, arguments=kwargs
+            )
+
+        return _call_proxy
+
+
+class MCPProxy:
+    """Proxy for the 'mcp' namespace in skills."""
+
+    def __getattr__(self, server_name: str):
+        return MCPServerProxy(server_name)
+
+
+class MinimalAgent:
+    """Mock agent for RLMInterface in isolated environments."""
+
+    def __init__(self):
+        self.db = db
+        self.llm = llm
+        self.current_thought_id = "SKILL_RUN"
+        self.execution_logs = {}
+
+    def emit_event(self, *args, **kwargs):
+        """No-op event emission."""
+
+
+class RLMProxy:
+    """Proxy for 'rlm' interface in skills (subset of functionality)."""
+
+    async def recall(self, *args, **kwargs):
+        """High-precision semantic search for domain rules and axioms."""
+        from graph_rlm.backend.src.core.rlm_interface import RLMInterface
+
+        # Note: This is a hack because the harness doesn't have the full agent session context.
+        # It relies on the global 'db' being configured.
+        # We use Any to bypass the strict type check for our lightweight mock agent.
+        agent_mock: Any = MinimalAgent()
+        interface = RLMInterface(
+            agent_instance=agent_mock,
+            session_id="SKILL_RUN",
+            root_session_id="SKILL_RUN_ROOT",
+        )
+        return await interface.recall(*args, **kwargs)
+
+    async def run_skill(self, skill_name: str, **kwargs):
+        """Recursive skill execution."""
+        return await execute_skill_internal(skill_name, kwargs)
 
 
 async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any:
@@ -136,29 +207,41 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
     Internal execution logic (runs INSIDE the venv).
     Imports and runs the skill function.
     """
-    from .client import cleanup_global_client_async
-    from .skills import get_skills_manager
-
     # Get skill code
     manager = get_skills_manager()
     skill = manager.get_skill(skill_name)
 
+    repo_root = BACKEND_ROOT.parent.parent
+
     if skill:
         # DB path - ensure file exists
-        manager.get_import_statement(skill_name)
-        module_name = f"skills_dir.{skill_name}"
+        # Only call get_import_statement if it's a python skill to verify file on disk
+        if skill.get("type", "python") == "python":
+            manager.get_import_statement(skill_name)
+
+        module_name = f"skills.{skill_name}"
         function_name = skill["function_name"]
     else:
-        # File fallback path
-        skill_file = Path("skills_dir") / f"{skill_name}.py"
+        # File fallback path - check new location
+        skill_file = repo_root / "skills" / f"{skill_name}.py"
         if not skill_file.exists():
-            raise ValueError(
-                f"Skill '{skill_name}' not found in DB or skills_dir/ directory"
-            )
-
-        logger.info(f"Skill found in file: {skill_file}")
-        module_name = f"skills_dir.{skill_name}"
-        function_name = None
+            # Check for package (OpenCode style)
+            skill_dir = repo_root / "skills" / skill_name
+            if skill_dir.exists():
+                # For now, simplistic assumption: if it's a dir, try importing the pkg
+                # If it needs a specific entry point, the metadata should have it.
+                # Without metadata, we default to "main" or similar heuristic in module scan.
+                module_name = f"skills.{skill_name}"
+                function_name = None
+            else:
+                raise ValueError(
+                    f"Skill '{skill_name}' not found in DB or skills/ directory"
+                )
+        else:
+            logger.info("Skill found in file: %s", skill_file)
+            module_name = f"skills.{skill_name}"
+            # Let module scan find the function
+            function_name = None
 
     # Import the module
     try:
@@ -167,6 +250,10 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
             sys.path.insert(0, str(Path.cwd()))
 
         module = __import__(module_name, fromlist=["*"])
+
+        # Inject proxies into module namespace
+        module.__dict__["rlm"] = RLMProxy()
+        module.__dict__["mcp"] = MCPProxy()
 
         if not function_name:
             # Try to resolve function name
@@ -177,7 +264,6 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
             elif hasattr(module, "research_topic") and skill_name == "research":
                 function_name = "research_topic"
             else:
-                import inspect
 
                 funcs = [
                     n
@@ -203,7 +289,7 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
 
     except ImportError as e:
         raise RuntimeError(f"Failed to import skill {skill_name}: {e}") from e
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
         raise RuntimeError(f"Skill execution failed: {e}") from e
     finally:
         await cleanup_global_client_async()
@@ -214,16 +300,14 @@ async def execute_skill(skill_name: str, kwargs: dict[str, Any]) -> Any:
     Public entry point.
     Decides whether to spawn venv or run directly (if we are already in internal mode).
     """
-    # If we are already running as the script with internal flag, we shouldn't be here calling execute_skill usually,
-    # but for safety:
-    # Actually, execute_skill is called by mcp_tools wrappers.
-    # Those wrappers run in the MAIN process.
-    # So execute_skill MUST spawn the venv.
-
+    # Skills are authored by the agent (client) and executed in the isolated `agent_venv`.
+    # Skills may call MCP tools using the `mcp` proxy, which routes through client.py
+    # to external MCP server processes (stdio/sse). MCP servers use their own environments.
     return await execute_skill_in_venv(skill_name, kwargs)
 
 
 async def main():
+    """CLI entry point for skill execution."""
     parser = argparse.ArgumentParser(description="Execute an MCP skill")
     parser.add_argument("skill_name", help="Name of the skill to execute")
     parser.add_argument("--args", help="JSON string of arguments", default="{}")
@@ -240,7 +324,7 @@ async def main():
         try:
             kwargs = json.loads(args.args)
         except json.JSONDecodeError:
-            logger.error(f"Invalid JSON in --args: {args.args}")
+            logger.error("Invalid JSON in --args: %s", args.args)
             sys.exit(1)
 
     for arg in args.extra_args:
@@ -263,7 +347,7 @@ async def main():
             result = await execute_skill_in_venv(args.skill_name, kwargs)
             print(json.dumps(result, indent=2, default=str))
 
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
         # Print error to stderr so as not to pollute stdout JSON
         sys.stderr.write(f"Error: {e}\n")
         sys.exit(1)

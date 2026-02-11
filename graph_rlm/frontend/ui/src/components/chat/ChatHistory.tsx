@@ -7,7 +7,7 @@ interface ChatEntry {
     type: 'input' | 'output' | 'info' | 'error';
     content: string;
     timestamp: number;
-    style?: 'code' | 'thinking' | 'trace' | 'success' | 'error';
+    style?: 'code' | 'thinking' | 'trace' | 'success' | 'error' | 'report';
     isStreaming?: boolean;
     role?: string; // Sometimes used for explicit role
 }
@@ -20,16 +20,18 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ entries }) => {
     const bottomRef = useRef<HTMLDivElement>(null);
 
     // Filter out thinking/trace logs for the "Clean" chat view
-    // We only want: User Inputs, Final Answers, Errors, Code Execution Results (maybe?)
+    // We only want: User Inputs, Final Answers, Error. Code Execution Results Go to the top left sidepanel
     // The user asked for "Final responses show in the middle panel".
     // "Thinking" is usually in the scratchpad or terminal log.
-    const displayEntries = entries.filter(e =>
-        e.type === 'input' ||
-        e.style === 'success' || // Final Answer
-        e.style === 'code' ||    // Code outputs are usuall relevant
-        e.type === 'error' ||
-        (e.type === 'output' && !e.style) // Standard output
-    );
+    const displayEntries = entries.filter(e => {
+        // Essential Filters
+        const isSubstantive = e.style === 'report' || e.style === 'success' || e.style === 'thinking';
+        const isUser = e.type === 'input';
+        const isStandardOutput = e.type === 'output' && !e.style;
+        const isMainError = e.type === 'error' && e.style !== 'trace';
+
+        return isUser || isSubstantive || isMainError || isStandardOutput;
+    });
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });

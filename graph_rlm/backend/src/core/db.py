@@ -84,6 +84,10 @@ class GraphClient:
         turn_id: Optional[int] = None,
         step_id: Optional[int] = None,
         code_hash: Optional[str] = None,
+        sheaf_score: Optional[float] = None,
+        spectral_energy: Optional[float] = None,
+        h0_rank: Optional[int] = None,
+        validate: bool = True,
     ):
         """
         Creates a 'Thought' node in the graph.
@@ -107,36 +111,44 @@ class GraphClient:
             turn_id: High-level turn counter
             step_id: Atomic step counter
             code_hash: SHA256 of executed code block
+            sheaf_score: Local Consistency (1.0 = perfect)
+            spectral_energy: Topological Stress
+            h0_rank: Number of connected components
+            validate: Whether to run guardrail validation (skip for updates)
         """
         # If root_session_id is not provided, default to the session_id (implies this IS the root)
         final_root = root_session_id if root_session_id else session_id
 
         # --- GUARDRAILS ---
-        try:
-            # Check if parent exists and get its metadata for continuity check
-            parent_meta = None
-            if parent_id:
-                p_res = self.query(
-                    "MATCH (p:Thought {id: $pid}) "
-                    "RETURN p.session_id as session_id, p.root_session_id as root_session_id",
-                    {"pid": parent_id},
-                )
-                if p_res:
-                    parent_meta = p_res[0]
+        if validate:
+            try:
+                # Check if parent exists and get its metadata for continuity check
+                parent_meta = None
+                if parent_id:
+                    p_res = self.query(
+                        "MATCH (p:Thought {id: $pid}) "
+                        "RETURN p.session_id as session_id, p.root_session_id as root_session_id",
+                        {"pid": parent_id},
+                    )
+                    if p_res:
+                        parent_meta = p_res[0]
 
-            validate_thought_node(
-                thought_id=thought_id,
-                prompt=prompt,
-                parent_id=parent_id,
-                session_id=session_id,
-                root_session_id=final_root,
-                parent_metadata=parent_meta,
-            )
-        except GuardrailError as ge:
-            logger.error("Guardrail Violation: %s", ge)
-            raise
-        except Exception as e:  # pylint: disable=broad-exception-caught
-            logger.error("Guardrail internal error: %s", e)
+                validate_thought_node(
+                    thought_id=thought_id,
+                    prompt=prompt,
+                    parent_id=parent_id,
+                    session_id=session_id,
+                    root_session_id=final_root,
+                    repl_id=repl_id,
+                    turn_id=turn_id,
+                    step_id=step_id,
+                    parent_metadata=parent_meta,
+                )
+            except GuardrailError as ge:
+                logger.error("Guardrail Violation: %s", ge)
+                raise
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                logger.error("Guardrail internal error: %s", e)
 
         params: Dict[str, Any] = {
             "tid": thought_id,
@@ -152,6 +164,7 @@ class GraphClient:
             "SET t.prompt = $prompt, t.status = $status, t.created_at = timestamp(), "
             "t.session_id = $sid, t.root_session_id = $rsid"
         )
+
         if prompt_embedding:
             params["vec"] = prompt_embedding
             cypher += ", t.embedding = vecf32($vec)"
@@ -196,6 +209,18 @@ class GraphClient:
             params["code_hash"] = code_hash
             cypher += ", t.code_hash = $code_hash"
 
+        if sheaf_score is not None:
+            params["sheaf_score"] = sheaf_score
+            cypher += ", t.sheaf_score = $sheaf_score"
+
+        if spectral_energy is not None:
+            params["spectral_energy"] = spectral_energy
+            cypher += ", t.spectral_energy = $spectral_energy"
+
+        if h0_rank is not None:
+            params["h0_rank"] = h0_rank
+            cypher += ", t.h0_rank = $h0_rank"
+
         self.query(cypher, params)
 
         # Link to parent if exists
@@ -239,7 +264,10 @@ class GraphClient:
         result: str,
         embedding: Optional[List[float]] = None,
         repl_id: Optional[str] = None,
-        status: str = "complete",
+        status: Optional[str] = "complete",
+        sheaf_score: Optional[float] = None,
+        spectral_energy: Optional[float] = None,
+        h0_rank: Optional[int] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
@@ -262,6 +290,18 @@ class GraphClient:
         if repl_id:
             params["repl_id"] = repl_id
             cypher += ", t.repl_id = $repl_id"
+
+        if sheaf_score is not None:
+            params["sheaf_score"] = sheaf_score
+            cypher += ", t.sheaf_score = $sheaf_score"
+
+        if spectral_energy is not None:
+            params["spectral_energy"] = spectral_energy
+            cypher += ", t.spectral_energy = $spectral_energy"
+
+        if h0_rank is not None:
+            params["h0_rank"] = h0_rank
+            cypher += ", t.h0_rank = $h0_rank"
 
         self.query(cypher, params)
 
@@ -419,6 +459,22 @@ class GraphClient:
             logger.error("Failed to get context frontier: %s", e)
             return []
 
+    def find_thought_by_repl_id(
+        self, repl_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Finds thoughts associated with a specific REPL ID.
+        """
+        params = {"rid": repl_id, "limit": limit}
+        cypher = """
+        MATCH (n:Thought)
+        WHERE n.repl_id = $rid
+        RETURN n.id as id, n.prompt as prompt, n.result as result, n.created_at as created_at
+        ORDER BY n.created_at DESC
+        LIMIT $limit
+        """
+        return self.query(cypher, params)
+
     def reembed_all_thoughts(self, llm_service: Any):
         """
         Iterates through all Thought nodes and refreshes their embeddings.
@@ -533,7 +589,9 @@ class GraphClient:
         """
         return self.query(cypher, params)
 
-    def get_session_trace(self, root_session_id: str) -> List[Dict[str, Any]]:
+    def get_session_trace(
+        self, root_session_id: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
         Retrieves the full trace of thoughts for a given root session.
         Used by scratchpad_builder and rlm.history.
@@ -554,10 +612,24 @@ class GraphClient:
                n.round_id as round_id,
                n.turn_id as turn_id,
                n.step_id as step_id,
-               n.code_hash as code_hash
-        ORDER BY n.created_at ASC
+               n.code_hash as code_hash,
+               n.sheaf_score as sheaf_score,
+               n.spectral_energy as spectral_energy,
+               n.h0_rank as h0_rank,
+               n.sheaf_score as sheaf_score,
+               n.spectral_energy as spectral_energy,
+               n.h0_rank as h0_rank
         """
-        return self.query(q, {"rsid": root_session_id})
+        if limit:
+            q += "\n        ORDER BY n.created_at DESC"
+            q += f"\n        LIMIT {limit}"
+        else:
+            q += "\n        ORDER BY n.created_at ASC"
+
+        res = self.query(q, {"rsid": root_session_id})
+        if limit and res:
+            res.reverse()  # Return in chronological order
+        return res
 
     def delete_session(self, root_session_id: str):
         """

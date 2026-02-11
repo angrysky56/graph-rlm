@@ -2,132 +2,292 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
 ==================================================
 
 ./
-    dump.rdb
-    pyproject.toml
-    start_falkor.sh
+    .env.example
+    .gitignore
+    LICENSE
+    MCP_TOOL_USAGE.md
     README.md
-    launch.log
-    launch_2.log
-    setup_env.sh
-    uv.lock
+    image.png
+    mcp_servers_example.json
     project_structure.txt
-    start_system.sh
+    pyproject.toml
+    pytest.ini
+    setup_env.sh
+    start.sh
+    uv.lock
+    falkordb_data/
+    CODEAGENCY/
+        diagnosis.md
+        evaluation.md
+        plan.md
+        trace_analysis.md
+    .planning/
+        codebase/
+            ARCHITECTURE.md
+            CONCERNS.md
+            CONVENTIONS.md
+            INTEGRATIONS.md
+            STACK.md
+            STRUCTURE.md
+            TESTING.md
+    .trunk/
+        .gitignore
+        trunk.yaml
+        configs/
+            .isort.cfg
+            .markdownlint.yaml
+            .shellcheckrc
+            .yamllint.yaml
+            ruff.toml
+            svgo.config.mjs
+        plugins/
+    knowledge_base/
+        research-reports/
+            2410.06277.pdf
+            2410.06277.txt
+            arxiv_2103.00079_llm_ad_quantization_report.md
+            graph_rlm_framework_report.md
+            graph_rlm_implementation_audit.md
+            toe-report.md
+        plans/
+            implementation_plan.md
+        outputs/
+            raw_demo_results/
+                gen_idea_test_1.md
+                jan-27-test1.md
+                meta-workflow-system.md
     docs/
-        Representation-Engineering-for-LLMs.md
-        Enhancing-LLM-Critical-Thinking-and-Reasoning.md
-        2025-11-memory-perception-hebbian-recall-events.pdf
-        schmid-applied-sheaf-theory.pdf
         10 Advanced Feature Engineering Methods.md
-        Bootstrapping-Core-Self-via-AI-Feedback.md
+        2025-11-memory-perception-hebbian-recall-events.pdf
+        2512.24601v1.md
         2512.24601v1.pdf
-        A Succinct Guide To Bidirectional Associative Memory (BAM).md
+        2601.03204v1.pdf
         5 Useful Python Scripts for Effective Feature Engineering.md
-        googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
+        A Succinct Guide To Bidirectional Associative Memory (BAM).md
+        Bootstrapping-Core-Self-via-AI-Feedback.md
         Designing-a-Self-Healing-RLM-Framework.md
+        Enhancing-LLM-Critical-Thinking-and-Reasoning.md
+        Integrating-RLM-and-Ralph-Wiggum-Loop.md
+        Representation-Engineering-for-LLMs.md
+        The Developer's Guide to Human-Centered AI Interfaces with Material UI.md
+        agentic_tdd_spec.md
+        googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
+        implementation_plan.md
+        rlm_self_healing_pipeline.md
+        rlm_system_alignment.md
+        schmid-applied-sheaf-theory.pdf
+        sheaf-theoretic-autonomous-discovery-engine-spec.tex
+    .github/
+        FUNDING.yml
+        copilot-instructions.md
+        appmod/
+            appcat/
     graph_rlm/
+        __init__.py
         frontend/
+            .gitignore
             README.md
-            index.html
-            vite.config.ts
-            postcss.config.js
-            tsconfig.node.json
-            tsconfig.app.json
-            package.json
-            package-lock.json
-            tsconfig.json
             eslint.config.js
+            index.html
+            package-lock.json
+            package.json
+            postcss.config.js
+            tsconfig.app.json
+            tsconfig.json
+            tsconfig.node.json
+            vite.config.ts
             ui/
+                .gitignore
                 README.md
-                index.html
-                vite.config.ts
-                postcss.config.js
-                tsconfig.node.json
-                tsconfig.app.json
-                package.json
-                package-lock.json
-                tsconfig.json
                 eslint.config.js
+                index.html
+                package-lock.json
+                package.json
+                postcss.config.js
+                tsconfig.app.json
+                tsconfig.json
+                tsconfig.node.json
+                vite.config.ts
                 public/
                     vite.svg
                 src/
-                    main.tsx
-                    App.tsx
-                    index.css
-                    api.ts
                     App.css
+                    App.tsx
+                    api.ts
+                    index.css
+                    main.tsx
+                    hooks/
+                        useResizeObserver.ts
+                        useRetryFetch.ts
                     assets/
                         react.svg
                     components/
-                        dashboard/
-                            CognitiveDashboard.tsx
-                            RegulationLog.tsx
-                            CognitiveCompass.tsx
-                            ManifoldGauge.tsx
+                        Scratchpad.tsx
+                        mcp/
+                            InspectorPanel.tsx
                         layout/
                             Layout.tsx
+                            ModelStatus.tsx
+                            RightSidebar.tsx
+                            SessionList.tsx
                             Sidebar.tsx
                         settings/
-                            SystemPromptEditor.tsx
                             SettingsModal.tsx
+                            SystemPromptEditor.tsx
+                        graph/
+                            GraphExplorer.tsx
                         chat/
-                            ThinkingBlock.tsx
-                            ModelSelector.tsx
-                            ToolBlock.tsx
                             ChatArea.tsx
+                            ChatHistory.tsx
+                            ChatInput.tsx
+                            ChatInterface.tsx
+                            GraphCanvas.tsx
+                            ModelSelector.tsx
+                            ReplConsole.tsx
+                            ThinkingBlock.tsx
+                            ToolBlock.tsx
+                            graphProcessor.ts
             public/
                 vite.svg
-            src/
-                main.tsx
-                App.tsx
-                index.css
-                api.ts
-                App.css
-                assets/
-                    react.svg
-                components/
-                    dashboard/
-                        CognitiveDashboard.tsx
-                        RegulationLog.tsx
-                        CognitiveCompass.tsx
-                        ManifoldGauge.tsx
-                    layout/
-                        Layout.tsx
-                        Sidebar.tsx
-                    settings/
-                        SystemPromptEditor.tsx
-                        SettingsModal.tsx
-                    chat/
-                        ThinkingBlock.tsx
-                        ModelSelector.tsx
-                        ToolBlock.tsx
-                        ChatArea.tsx
         backend/
-            README.md
-            uv.lock
+            .gitignore
+            .python-version
             __init__.py
             main.py
-            src/
-                core/
-                    core.py
-                    llm.py
-                    agent.py
-                    manager.py
-                    monitor.py
-                    __init__.py
-                    config.py
-                    logger.py
-                    sheaf.py
-                    db.py
-                    endpoints.py
-            tests/
-                test_agent_manual.py
-                probe_index.py
-                probe_vector.py
-                test_vectors.py
-                test_sheaf.py
+            rules.md
+            uv.lock
+            mcp_tools/
+                README.md
                 __init__.py
-                probe_index_2.py
-    plan/
-        implementation_plan.md
+                advanced_reasoning.py
+                arxiv_mcp_server.py
+                ast_mcp_server.py
+                brave_search.py
+                chatdag.py
+                chroma.py
+                coinbase_trade_assistant.py
+                community_server_llm_txt.py
+                context7.py
+                data_forge.py
+                desktop_commander.py
+                diagram_server.py
+                docker_mcp.py
+                fermat_mcp.py
+                gitmcp.py
+                hybrid_ai.py
+                mcp_logic.py
+                mcp_obsidian.py
+                mcp_server_firecrawl.py
+                memory.py
+                neo4j_mcp.py
+                notebooklm.py
+                playwright.py
+                reflective_agent_architecture.py
+                verifier_graph.py
+                wolframalpha.py
+            src/
+                __init__.py
+                cli.py
+                mcp_integration/
+                    __init__.py
+                    client.py
+                    config.py
+                    discovery.py
+                    generator.py
+                    kernel.py
+                    runtime.py
+                    skill_harness.py
+                    skill_storage.py
+                    utils.py
+                    utils/
+                        schema_builder.py
+                        task_schema.py
+                    core/
+                        __init__.py
+                        client.py
+                        config.py
+                core/
+                    __init__.py
+                    agent.py
+                    config.py
+                    context_index.py
+                    core.py
+                    db.py
+                    dream.py
+                    endpoints.py
+                    guardrails.py
+                    llm.py
+                    log_stream.py
+                    logger.py
+                    manager.py
+                    mcp_runtime.py
+                    meta_agents.py
+                    monitor.py
+                    navigator.py
+                    navigator_config.py
+                    omcd.py
+                    prompts.py
+                    reflexion.py
+                    repe.py
+                    rlm_interface.py
+                    scratchpad_builder.py
+                    sheaf.py
+                    state.py
+                    trace.py
+    tests/
+        MCP_CODE_COMPARISON.md
+        MCP_DEVELOPER_GUIDE.md
+        MCP_FIX_SUMMARY.md
+        MCP_QUICK_REFERENCE.md
+        check_dim.py
+        debug_llm_response.py
+        debug_paper_read.py
+        debug_prompt.py
+        diagnose_overlap.py
+        full_prompt.txt
+        full_prompt_fixed.txt
+        get_axiom_code.py
+        inspect_db.py
+        list_skills_db.py
+        purge_poisonous_axiom.py
+        regenerate_tools.py
+        reproduce_dream_warning.py
+        reproduce_filtering_failure.py
+        test_axiom_relevance.py
+        test_cag_basics.py
+        test_cag_ingest.py
+        test_create_syntax.py
+        test_cypher_diag.py
+        test_cypher_edge.py
+        test_cypher_fail.py
+        test_drop_syntax.py
+        test_emergency_fix.py
+        test_import.py
+        test_indexes.py
+        test_integrity_upgrade.py
+        test_mcp_reflection.py
+        test_shadowing_fail.py
+        test_skill_import_fix.py
+        test_skills.py
+        test_tool_recovery.py
+        test_vec_dist.py
+        test_vector_syntax.py
+        verify_agentic_axioms.py
+        verify_axiom_transparency.py
+        verify_honest_sheaf.py
+        verify_mcp_counts.py
+        verify_namespacing.py
+        verify_prompt.py
+        verify_reliability.py
+        verify_repl_v2.py
+        verify_scratchpad_compression.py
+        verify_self_healing.py
+        verify_stateless.py
+    .agent/
+        rules/
+            ast-asg-tools.md
+            tdd.md
     scripts/
         generate_structure.py
+        purge_orphaned_axioms.py
+        regenerate_tools.py

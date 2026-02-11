@@ -6,63 +6,71 @@
 
 ## Overview
 
-**Graph-RLM** is an implementation of the **Recursive Language Model** paradigm. Unlike standard LLM agents that decay as context grows ($N^2$ complexity), Graph-RLM treats context as a **Topological Sheaf**.
+**Graph-RLM** is a world-class implementation of the **Recursive Language Model** paradigm. Unlike standard LLM agents that decay as context grows ($N^2$ complexity), Graph-RLM treats context as a **Topological Sheaf**, preserving high-fidelity reasoning across deep recursive operations.
 
-It solves "Context Rot" through three core mechanisms:
-1.  **Recursive Decomposition**: Complex tasks are broken down into sub-queries (`rlm.query()`) that execute in their own scopes but share a persistent **Graph Memory**.
+It solves "Context Rot" through five core architectural pillars:
+
+1.  **Recursive Logic Machine (RLM)**: Complex tasks are decomposed into sub-queries (`rlm.query()`) that execute in isolated scopes while maintaining a shared **Stateful Graph Memory**.
 2.  **Constraint Augmented Generation (CAG)**: A deterministic pivot from RAG. The system proactively **Ingests** documents, **Mines** logical invariants, and **Codifies** them into executable Python **Axioms** (Guardrails).
-3.  **Sheaf Axiomatic Monitor**: A real-time verification process that runs all proposed actions against the **Axiom Library**. Violations trigger immediate Reflexion before code execution.
-4.  **The Dreamer (Sleep Phase)**: An offline consolidation cycle that converts high-surprise events (failed tests, axiomatic violations) into long-term **Wisdom**.
+3.  **Sheaf-Theoretic Monitoring**: A real-time verification engine that measures **Consistency Energy**, detects **Holonomy** (logical loops), and enforces axiomatic alignment before execution.
+4.  **The Dreamer (Sleep Phase)**: An offline consolidation cycle that transforms high-surprise events (failed tests, contradictions) into permanent **Wisdom** (Axioms).
+5.  **Strict Process Isolation**: All generated code executes in a dedicated, ephemeral `agent_venv` managed by `uv`, ensuring system safety and dependency hygiene.
 
 ---
 
 ## Core Architecture
 
-### 1. The Persistent REPL & Graph Memory
+### 1. Persistent Graph Memory (FalkorDB)
+
 Variables define state. In Graph-RLM, every session processes thoughts within a persistent **Python REPL**.
-- **State Sharing**: Recursive calls (`rlm.query`) inherit the session ID, allowing sub-agents to access and modify the shared state.
-- **GraphDB**: We use **FalkorDB** to store the **Graph of Thoughts (GoT)**. Every thought is a timestamped node, allowing us to query the "Topological Frontier" of context rather than just a linear list.
 
-### 2. Constraint Augmented Generation (CAG)
-A deterministic alternative to RAG for high-stakes domains:
-- **The Miner**: Extracts absolute logical invariants (e.g., "Velocity < 300") from raw text.
-- **The Coder**: Converts invariants into verified Python validator functions (Axioms).
-- **The Verifier**: Automatically runs validators against proposed agent actions in a sandbox.
-- **Result**: Hallucination-free execution in safety-critical environments.
+- **Topological Frontier**: We use **FalkorDB** to store the **Graph of Thoughts (GoT)**. This allows us to query the "Frontier" of context rather than just a linear history.
+- **Scratchpad Builder**: A dynamic context manager that compresses and restores relevant graph nodes into the agent's immediate attention span.
 
-### 3. Axiomatic Sheaf (The "Immune System")
-- **Guardrails**: Before any code is executed, the Sheaf Monitor runs it through all relevant **Axiom Skills**.
-- **Reflexion**: If an axiom is violated, the system injects a `SYSTEM REFLEXION (AXIOMATIC)` node, forcing the agent to refactor its thought.
-- **Metric**: `Surprise = (1 - CosineSimilarity) + (1.0 if AxiomViolated else 0.0)`.
+### 2. The 3-Tier Immune System (Self-Healing)
 
-### 3. The Dreamer Agent (Sleep Phase)
-Inspired by the **Ralph Protocol** ("Die and Repeat"):
-- **Wake**: The Agent tries to solve tasks. It may fail.
-- **Sleep**: The `Dreamer` module queries the graph for high-surprise edges. It uses an LLM to consolidate these failures into **Insights**.
-- **Rule Injection**: These insights are appended to `rules.md`, which is injected into the System Prompt of the *next* Wake cycle. The Agent gets smarter every night.
+- **Tier 1: Innate Immunity**: Automatic dependency healing and syntax correction via REPL feedback loops.
+- **Tier 2: Epistemic Integrity**: The **Sheaf Monitor** and **RepE v2 (Gestalt Monitor)** scan thoughts for logical contradictions and psychological pathogens (Deception, Malice) using steering axes inspired by Gestalt psychology.
+- **Tier 3: Adaptive Immunity**: The **Dreamer** module analyzes failed trajectories and synthesizes new **Axioms** to prevent future errors.
 
-### 4. Representation Engineering (RepE)
-- **Safety Layer**: Scans thought embeddings for "Moloch" vectors (Deception, Power-Seeking) before they are written to the Graph.
-- **Steering**: If a thought is unsafe, the system injects a "Reflexion" node to steer the agent back to safety.
+### 3. Schema-Guided Task Processing
+
+Implemented via `SchemaBuilder` and `TaskSchemaProcessor`, the system uses a Meta-Ontology to:
+
+- **Classify Tasks**: Categorize incoming goals (Search, Code, Reasoning).
+- **Assimilation vs. Accommodation**: Determine if a task fits existing cognitive patterns or requires structural learning (Accommodation).
+- **Tool Prioritization**: Dynamically suggest the most relevant tools and skills based on the task category.
+
+### 4. Metacognitive Control (oMCD)
+
+Incorporates **online Metacognitive Control of Decisions (oMCD)** to optimize resource allocation. The agent makes data-driven decisions on when to continue exploring, when to recurse, and when to terminate based on reward estimation and entropy.
 
 ---
 
 ## Feature Highlights
 
-- **MCP Integration**: Fully supports the **Model Context Protocol**. Tools and "Skills" are dynamically loaded.
-- **Constraint Augmented Generation (CAG)**: Built-in `ingest_document()` and `codify()` tools for automated ontology building.
-- **Infinite Recursion**: Depth limits are "unshackled". The Agent can drill down indefinitely.
-- **Self-Healing**: `Traceback` in the REPL or `AxiomViolation` = `High Surprise`. The system treats runtime/logic errors as semantic signals to self-correct.
+- **MCP & Skills Paradigm**: Full **Model Context Protocol** support. Reusable "Skills" are persisted in the graph and synced to disk as importable Python modules.
+- **IntelliSynth Framework**: Advanced stagnation recovery using "Analyze with Logic" (AwL) cycles.
+- **Curiosity-Driven Navigation**: The **Navigator** uses Compression Progress and Causal Entropic Forces to guide the agent toward "interesting" and high-value internal research.
+- **Infinite Recursion**: Depth limits are "unshackled", allowing for massive-scale reasoning tasks.
+
+---
+
+## Technical Documentation
+
+For a deep dive into the internal modules, classes, and function signatures, see the:
+
+👉 **[Source Reference Document](src_reference.md)**
 
 ---
 
 ## Tech Stack
 
-- **Core**: Python 3.12+ (FastAPI)
+- **Core**: Python 3.12+ (FastAPI, Pydantic v2)
 - **Memory**: FalkorDB (Graph + Vector Store)
-- **Execution**: `uv` (Package Management), Native REPL
-- **LLM**: OpenRouter (xAI Grok, GPT-4, etc.) or Ollama (Local)
-- **Frontend**: React + Vite + D3.js (Live Graph Visualization)
+- **Execution**: `uv` (Strict Process Isolation), Native IPC Kernel
+- **LLM**: OpenRouter (Any cloud LLM) or Ollama (Local)
+- **Frontend**: React + Vite + D3.js (Advanced Live Graph Visualization)
 
 ---
 
@@ -71,19 +79,20 @@ Inspired by the **Ralph Protocol** ("Die and Repeat"):
 ### 1. Automated Setup
 
 ```bash
-./setup_env.sh    # Checks dependencies (Python, UV, Docker)
-./start.sh        # Launches Database, Backend, and Frontend
+./setup_env.sh    # Verifies environment and dependencies
+./start.sh        # Launches FalkorDB, Backend, and Frontend UI
+# 'uv pip install -e .' may be needed if there are path issues.
 ```
 
 ### 2. Usage
 
-1.  **Launch the UI** (localhost:5173).
+1.  **Launch the UI** (default: `localhost:5173`).
 2.  **Enter a Recursive Prompt**:
-    > "Research the 'Ralph Protocol' for AI agents. Recursively break down its 5 pillars and implement a Python mock for each."
+    > "Analyze the Sheaf-Theoretic Navigator implementation in `navigator.py`. Recursively identify 3 potential improvement axes and implement a prototype for the most promising one."
 3.  **Watch the Graph**:
-    - Blue Nodes: Thoughts.
-    - Red Pulses: High Surprise (Logical Knots).
-    - **Final Answer**: Triggers a "Micro-Dream" to save insights before exiting.
+    - **Blue Nodes**: Rational thoughts.
+    - **Yellow/Red Pulses**: High Surprise / Axiom Violations.
+    - **Metacognitive Analysis**: The agent provides a self-critique before final response.
 
 ---
 
@@ -91,4 +100,4 @@ Inspired by the **Ralph Protocol** ("Die and Repeat"):
 
 MIT
 
-Created by [angrysky56](https://github.com/angrysky56) with Antigravity (Gemini 2.0).
+Created by [angrysky56](https://github.com/angrysky56) with Antigravity (Gemini 3.0).
