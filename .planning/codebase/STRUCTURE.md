@@ -1,239 +1,255 @@
-# STRUCTURE.md
+# Codebase Structure
+
+**Analysis Date:** 2026-02-12
 
 ## Directory Layout
 
 ```
 graph-rlm/
-├── .planning/                   # GSD planning artifacts
-│   └── codebase/                # This codebase map
-├── .trunk/                      # Linter configuration
+├── .github/                      # GitHub configuration
+│   └── FUNDING.yml
+├── .planning/                    # GSD planning artifacts
+│   └── codebase/                 # This codebase map
+├── .trunk/                       # Linter configuration
 │   └── configs/
 │       ├── .markdownlint.yaml
 │       ├── ruff.toml
 │       └── .yamllint.yaml
-├── .vscode/                     # VS Code settings
+├── .vscode/                      # VS Code settings
 │   └── settings.json
-├── .github/                     # GitHub configuration
-│   └── FUNDING.yml
-├── graph_rlm/                   # Core package
-│   ├── __init__.py              # Main RLM exports
-│   ├── backend/                 # FastAPI backend
+├── .venv/                        # Python virtual environment
+├── docs/                         # Documentation
+├── falkordb_data/                # FalkorDB data directory
+├── graph_rlm/                    # Main package
+│   ├── __init__.py               # RLM exports
+│   ├── backend/                  # FastAPI backend
 │   │   ├── __init__.py
-│   │   └── main.py
-│   └── frontend/                # React frontend
+│   │   ├── main.py               # FastAPI entry point
+│   │   ├── rules.md              # Agent rules
+│   │   ├── agent_venv/           # Isolated execution environment
+│   │   ├── axioms_dir/           # Axiom validators (CAG)
+│   │   │   ├── axiom_*.py        # Individual axioms
+│   │   │   └── _disabled/        # Disabled axioms
+│   │   ├── mcp_tools/            # Generated MCP tool wrappers
+│   │   │   ├── mcp_*.py          # Server wrappers
+│   │   │   └── __init__.py
+│   │   ├── .python-version
+│   │   └── src/                  # Core backend source
+│   │       ├── __init__.py
+│   │       ├── cli.py            # CLI interface
+│   │       ├── core/             # Core modules
+│   │       │   ├── __init__.py
+│   │       │   ├── agent.py      # RLM Agent
+│   │       │   ├── config.py     # Pydantic settings
+│   │       │   ├── db.py         # FalkorDB client
+│   │       │   ├── endpoints.py  # FastAPI endpoints
+│   │       │   ├── guardrails.py # Guardrail system
+│   │       │   ├── llm.py        # LLM interface
+│   │       │   ├── logger.py     # Structured logging
+│   │       │   ├── monitor.py    # Execution monitor
+│   │       │   ├── navigator.py  # Curiosity-driven navigation
+│   │       │   ├── omcd.py       # Metacognitive control
+│   │       │   ├── prompts.py    # Prompt templates
+│   │       │   ├── repe.py       # RepE safety monitor
+│   │       │   ├── sheaf.py      # Sheaf topology monitor
+│   │       │   ├── dream.py      # Dreamer consolidation
+│   │       │   ├── state.py      # Execution state
+│   │       │   ├── trace.py      # Trace utilities
+│   │       │   ├── scratchpad_builder.py
+│   │       │   ├── context_index.py
+│   │       │   ├── rlm_interface.py
+│   │       │   └── core.py
+│   │       └── mcp_integration/  # MCP integration
+│   │           ├── __init__.py
+│   │           ├── config.py
+│   │           ├── discovery.py  # Server discovery
+│   │           ├── generator.py  # Tool generation
+│   │           ├── runtime.py    # Process isolation
+│   │           ├── kernel.py     # IPC kernel
+│   │           ├── client.py     # MCP client
+│   │           ├── skill_storage.py     # Skills/Axioms sync
+│   │           ├── skill_harness.py
+│   │           └── utils/
+│   │               ├── schema_builder.py
+│   │               └── task_schema.py
+│   └── frontend/                 # React frontend
 │       ├── package.json
-│       ├── package-lock.json
 │       ├── tsconfig.json
-│       ├── tsconfig.app.json
-│       ├── tsconfig.node.json
 │       └── (React app source)
-├── scripts/                    # Utility scripts
-│   ├── exam_cli.py
+├── knowledge_base/               # Research and knowledge
+│   ├── axioms/
+│   ├── plans/
+│   ├── research-reports/
+│   ├── outputs/
+│   └── workspace/
+├── scripts/                      # Utility scripts
 │   ├── generate_structure.py
 │   ├── purge_orphaned_axioms.py
-│   ├── regenerate_tools.py
-│   └── verify_curiosity.py
-├── skills/                      # MCP skill implementations
+│   └── regenerate_tools.py
+├── skills/                       # MCP skills (reusable)
 │   ├── __init__.py
-│   ├── ask_gordon.py
-│   ├── atmospheric_entropy.py
-│   ├── auto_crystallize_insights_skill.py
-│   ├── auto_decay_ruminator_skill.py
-│   ├── bootstrap_environment.py
-│   ├── calculate_marathon_pace.py
-│   ├── categorical_kg_bridge.py
-│   ├── check_return_type.py
-│   ├── cognitive_research.py
-│   ├── coherence_shield.py
-│   ├── commit_epistemic_victory_skill.py
-│   ├── coordinator_enhanced_task.py
-│   ├── crystallize_epistemic_victory.py
-│   ├── daily_knowledge_digest.py
-│   ├── debug_path.py
-│   ├── debug_team.py
-│   ├── demo_math.py
-│   ├── difficult_problem_solver.py
-│   ├── dikw_modeler.py
-│   ├── docker_ps_raw.py
-│   ├── docker_safe_write.py
-│   ├── entropy_walker_experiment.py
-│   ├── epistemic_agency_loop_skill.py
-│   ├── epistemic_renormalization_protocol_v3.py
-│   ├── file_writer.py
-│   ├── firecrawl_web_search.py
-│   ├── generate_adapters.py
-│   ├── get_wolfram_simple_answer.py
-│   ├── higuchi_fractal_dimension.py
-│   ├── hybrid_cognitive_search_skill.py
-│   ├── list_mcp_containers.py
-│   ├── logic_gated_ingestion_final.py
-│   ├── logic_gated_ingestion_v2.py
-│   ├── market_analysis.py
-│   ├── ralph_protocol.py
-│   ├── ralph_v1.py
-│   ├── replay_entropy_trace_skill.py
-│   ├── research.py
-│   ├── run_code_agency.py
-│   ├── run_physics_screener.py
-│   ├── safe_write_file.py
-│   ├── save_entropy_trace_skill.py
-│   ├── schema_builder.py
-│   ├── schema_category_integration.py
-│   ├── scientific_orchestrator.py
-│   ├── search_web.py
-│   ├── snapshot_crypto.py
-│   ├── test_requests.py
-│   ├── test_skill_1.py
-│   ├── test_vg_skill.py
-│   ├── track_alpha_signals.py
-│   ├── validate_system_health.py
-│   ├── verify_barber_paradox.py
-│   ├── verify_coinbase_tradability.py
-│   ├── verify_epistemic_integrity.py
-│   ├── wiki_extract.py
-│   ├── wolfram_query.py
-│   └── xuanji_proof.py
-├── tests/                       # Test files
+│   └── *.py                      # Individual skills
+├── tests/                        # Test suite
 │   ├── __init__.py
-│   ├── check_dim.py
-│   ├── debug_llm_response.py
-│   ├── debug_paper_read.py
-│   ├── debug_prompt.py
-│   ├── diagnose_overlap.py
-│   ├── get_axiom_code.py
-│   ├── inspect_db.py
-│   ├── list_skills_db.py
-│   ├── purge_poisonous_axiom.py
-│   ├── regenerate_tools.py
-│   ├── reproduce_dream_warning.py
-│   ├── reproduce_filtering_failure.py
-│   ├── test_*.py                # Various test modules
-│   └── tests/                   # Nested test suite
+│   ├── test_*.py                 # Test modules
+│   ├── verify_*.py               # Verification tests
+│   ├── debug_*.py                # Debug utilities
+│   └── tests/                    # Nested test suite
 │       ├── __init__.py
-│       ├── probe_index*.py
-│       ├── test_*.py            # Isolation and core tests
-│       └── verify_*.py          # Verification tests
-├── test_skills_env/             # Test skill environment
-│   ├── __init__.py
-│   └── test_skill.py
-├── knowledge_base/             # Research and knowledge
-│   └── research-reports/
-│       └── rope_scaling*.json
-├── CODEAGENCY/                 # Code agency evaluation
-│   ├── evaluation.md
-│   ├── diagnosis.md
-│   ├── plan.md
-│   └── trace_analysis.md
-├── pyproject.toml              # Python project config
-├── mcp_servers.json            # MCP server config
-├── mcp_servers_example.json    # MCP server examples
-├── README.md                   # Project readme
-├── setup_env.sh                # Environment setup
-├── start.sh                    # Start script
-└── .venv/                      # Python virtual environment
+│       └── test_*.py
+├── test_skills_env/              # Test skill environment
+├── CODEAGENCY/                   # Code agency evaluation
+├── pyproject.toml                # Python project config
+├── mcp_servers.json              # MCP server config
+├── mcp_servers_example.json      # MCP server examples
+├── MCP_TOOL_USAGE.md
+├── README.md                     # Project readme
+├── setup_env.sh                  # Environment setup
+├── start.sh                      # Start script
+├── .env                          # Environment variables
+├── .env.example                  # Environment template
+└── .gitignore
 ```
 
-## Naming Conventions
+## Directory Purposes
 
-| Pattern | Example | Purpose |
-|---------|---------|---------|
-| `snake_case.py` | `graph_rlm/__init__.py` | Python module files |
-| `PascalCase` | `TestAxiomRelevance` | Python classes |
-| `snake_case()` | `def query()` | Python functions |
-| `SCREAMING_SNAKE_CASE` | `MAX_DEPTH` | Python constants |
-| `kebab-case.jsx` | (React components) | React component files |
+**`graph_rlm/backend/src/core/`:**
+- Purpose: Core backend modules
+- Contains: Agent, database, LLM, endpoints, configuration, monitoring
+- Key files: `agent.py`, `db.py`, `llm.py`, `config.py`, `endpoints.py`
+
+**`graph_rlm/backend/src/mcp_integration/`:**
+- Purpose: MCP protocol integration and skills management
+- Contains: Server discovery, tool generation, skills/axioms sync, runtime isolation
+- Key files: `skill_storage.py`, `runtime.py`, `discovery.py`, `generator.py`
+
+**`graph_rlm/backend/axioms_dir/`:**
+- Purpose: Constraint Augmented Generation validators
+- Contains: Python functions that validate operations (e.g., `axiom_epistemic_victory_check.py`)
+- Pattern: Functions named `axiom_*` that return bool or raise GuardrailError
+
+**`graph_rlm/backend/mcp_tools/`:**
+- Purpose: Generated MCP tool wrapper modules
+- Contains: Auto-generated Python files from `mcp_servers.json` config
+- Pattern: Files named after MCP servers (e.g., `playwright.py`, `brave_search.py`)
+
+**`graph_rlm/frontend/`:**
+- Purpose: React + Vite web UI
+- Contains: Frontend source code, package.json, TypeScript configs
+- Runs on: localhost:5173
+
+**`skills/`:**
+- Purpose: Reusable skill library
+- Contains: Python modules with skill functions
+- Pattern: Python files with `def skill_*()` or async functions
+
+**`tests/`:**
+- Purpose: Test suite and verification tools
+- Contains: Test files, debug utilities, verification scripts
+- Pattern: `test_*.py`, `verify_*.py`, `debug_*.py`
+
+**`knowledge_base/`:**
+- Purpose: Agent's persistent knowledge storage
+- Contains: `axioms/`, `plans/`, `research-reports/`, `outputs/`, `workspace/`
 
 ## Key File Locations
 
-### Core Entry Points
+**Entry Points:**
+- `graph_rlm/backend/main.py`: FastAPI backend server
+- `graph_rlm/backend/src/cli.py`: CLI interface
+- `graph_rlm/__init__.py`: Package exports
 
-| File | Purpose |
-|------|---------|
-| `graph_rlm/__init__.py` | Main RLM exports |
-| `graph_rlm/backend/main.py` | FastAPI application |
+**Configuration:**
+- `graph_rlm/backend/src/core/config.py`: Pydantic settings (`.env` support)
+- `pyproject.toml`: Python project metadata and dependencies
+- `mcp_servers.json`: MCP server configurations
 
-### Configuration
+**Core Logic:**
+- `graph_rlm/backend/src/core/agent.py`: Agent class (RLM core)
+- `graph_rlm/backend/src/core/db.py`: FalkorDB graph client
+- `graph_rlm/backend/src/core/llm.py`: LLM provider abstraction
 
-| File | Purpose |
-|------|---------|
-| `pyproject.toml` | Project metadata, dependencies |
-| `graph_rlm/frontend/package.json` | Frontend dependencies |
-| `.trunk/configs/ruff.toml` | Linter configuration |
-| `.vscode/settings.json` | Editor settings |
+**MCP Integration:**
+- `graph_rlm/backend/src/mcp_integration/skill_storage.py`: Skills/Axioms sync
+- `graph_rlm/backend/src/mcp_integration/runtime.py`: Isolated REPL via uv
 
-### Database & MCP
+**Monitoring:**
+- `graph_rlm/backend/src/core/sheaf.py`: Sheaf topology monitor
+- `graph_rlm/backend/src/core/repe.py`: RepE safety monitor
+- `graph_rlm/backend/src/core/dream.py`: Dreamer consolidation
 
-| File | Purpose |
-|------|---------|
-| `mcp_servers.json` | MCP server definitions |
-| `mcp_servers_example.json` | Example MCP configs |
+**Testing:**
+- `tests/`: Test files directory
+- `pytest.ini`: pytest configuration
 
-### Documentation
+## Naming Conventions
 
-| File | Purpose |
-|------|---------|
-| `README.md` | Project overview |
-| `CODEAGENCY/` | Evaluation and diagnosis docs |
-| `knowledge_base/` | Research reports |
+**Files:**
+- `snake_case.py`: Python modules (e.g., `graph_rlm/backend/src/core/agent.py`)
+- `PascalCase`: Python classes (e.g., `Agent`, `GraphClient`)
+- `snake_case()`: Python functions and methods
+- `SCREAMING_SNAKE_CASE`: Constants (e.g., `MAX_RECURSION_DEPTH`)
+- `kebab-case.tsx`: React component files
 
-## Module Organization
+**Directories:**
+- `snake_case/`: Python package directories (e.g., `graph_rlm/backend/src/core/`)
+- `lowercase/`: Configuration and utility directories (e.g., `scripts/`)
 
-### By Function
+**Special Patterns:**
+- `axiom_*.py`: Axiom validator files in `axioms_dir/`
+- `mcp_*.py`: Generated MCP tool wrappers in `mcp_tools/`
+- `test_*.py`: Test files in `tests/`
+- `verify_*.py`: Verification scripts in `tests/`
 
-| Directory | Contents | Purpose |
-|-----------|----------|---------|
-| `graph_rlm/` | Core RLM modules | Main application |
-| `graph_rlm/backend/` | API handlers | REST endpoints |
-| `graph_rlm/frontend/` | React app | User interface |
-| `scripts/` | CLI tools | Command-line utilities |
-| `skills/` | MCP tools | External integrations |
-| `tests/` | Test suite | Verification |
+## Where to Add New Code
 
-### By Responsibility
+**New Feature:**
+- Primary code: `graph_rlm/backend/src/core/` (if core) or `skills/` (if reusable skill)
+- Tests: `tests/test_feature_name.py`
 
-| Pattern | Example | Count |
-|---------|---------|-------|
-| Test modules | `test_*.py` | ~40+ files |
-| Skills | `*.py` in `skills/` | ~50+ files |
-| Nested tests | `tests/tests/` | ~15 files |
+**New MCP Server:**
+- Configuration: Add to `mcp_servers.json`
+- Generated wrapper: Auto-generated in `graph_rlm/backend/mcp_tools/`
 
-## Critical Paths
+**New Axiom (CAG):**
+- Implementation: `graph_rlm/backend/axioms_dir/axiom_*.py`
+- Pattern: Function taking context params, returning bool or raising GuardrailError
 
-### Query Path
+**New Backend Module:**
+- Location: `graph_rlm/backend/src/core/` or `graph_rlm/backend/src/mcp_integration/`
+- Export: Add to relevant `__init__.py`
 
-```
-User -> frontend/ -> graph_rlm/backend/main.py -> graph_rlm/__init__.py -> RLM.query() -> FalkorDB
-```
+**New Skill:**
+- Implementation: `skills/skill_name.py`
+- Pattern: Python file with exported function(s)
 
-### Ingestion Path
+**Frontend Changes:**
+- Components: `graph_rlm/frontend/src/components/`
+- Pages: `graph_rlm/frontend/src/pages/`
 
-```
-Document -> ingest_document() -> Miner -> Coder -> Axiom Library -> Sheaf Monitor
-```
+## Special Directories
 
-### Skill Path
+**`graph_rlm/backend/axioms_dir/_disabled/`:**
+- Purpose: Deprecated or problematic axioms
+- Generated: No
+- Committed: Yes
+- Note: Non-recursive sync ignores this directory
 
-```
-MCP Tool Call -> skills/*.py -> External Service -> Response
-```
+**`graph_rlm/backend/agent_venv/`:**
+- Purpose: Isolated Python environment for code execution
+- Generated: Yes (at runtime)
+- Committed: No (in .gitignore)
 
-## Source Code Locations
+**`falkordb_data/`:**
+- Purpose: FalkorDB graph database storage
+- Generated: Yes (by FalkorDB)
+- Committed: No (in .gitignore)
 
-| Type | Location |
-|------|-----------|
-| Python core | `graph_rlm/` |
-| Python scripts | `scripts/` |
-| Python skills | `skills/` |
-| Python tests | `tests/` |
-| Frontend | `graph_rlm/frontend/` |
-| Configuration | Root directory |
+**`.venv/`:**
+- Purpose: Development virtual environment
+- Generated: Yes (by uv/venv)
+- Committed: No (in .gitignore)
 
-## Configuration File Locations
+---
 
-| File | Type | Purpose |
-|------|------|---------|
-| `pyproject.toml` | TOML | Python project |
-| `package.json` | JSON | Node.js project |
-| `mcp_servers.json` | JSON | MCP servers |
-| `ruff.toml` | TOML | Linter |
-| `settings.json` | JSON | Editor |
+*Structure analysis: 2026-02-12*

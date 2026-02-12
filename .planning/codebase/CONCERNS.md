@@ -1,294 +1,192 @@
-# CONCERNS.md
-
-## Technical Debt
-
-### High Priority
-
-#### 1. Test Isolation Complexity
-
-**Issue**: Tests require careful dependency mocking BEFORE importing to prevent import-time errors.
-
-**Evidence** (`tests/tests/test_agent_isolation.py`):
-
-```python
-# Mocking must happen BEFORE import
-# to prevent import-time database connections
-```
-
-**Impact:**
-
-- Easy to break tests by importing in wrong order
-- Fragile test setup
-- Debugging import cycles is difficult
-
-**Mitigation:**
-
-- Use `IsolatedAsyncioTestCase` patterns
-- Document import order requirements
-- Consider refactoring to dependency injection
-
-#### 2. Axiom Version Management
-
-**Issue**: Axiom purging and regeneration scripts exist but may not handle all edge cases.
-
-**Evidence**:
-
-- `scripts/purge_orphaned_axioms.py`
-- `scripts/regenerate_tools.py`
-
-**Impact:**
-
-- Orphaned axioms may accumulate
-- Regeneration may miss dependencies
-- Axiom drift over time
-
-**Mitigation:**
-
-- Automated axiom garbage collection
-- Version tracking for axioms
-- Dependency graph for axioms
-
-### Medium Priority
-
-#### 3. Async Event Loop Management
-
-**Issue**: `nest-asyncio` usage for REPL isolation may have edge cases.
-
-**Evidence**:
-
-- `nest-asyncio>=1.6.0` dependency
-
-**Impact:**
-
-- Potential event loop nesting bugs
-- Hard to debug async state
-- Race conditions possible
-
-**Mitigation:**
-
-- Comprehensive async tests
-- Clear event loop lifecycle documentation
-- Consider alternative isolation approaches
-
-#### 4. MCP Server Configuration
-
-**Issue**: `mcp_servers.json` configuration may become stale.
-
-**Impact:**
-
-- Server definitions may drift
-- Missing required fields
-- Hard to validate configurations
-
-**Mitigation:**
-
-- Schema validation for MCP config
-- Version checking for servers
-- Health checks for MCP connections
-
-### Low Priority
-
-#### 5. Token Counting Accuracy
-
-**Issue**: `tiktoken` may not perfectly match all LLM tokenizers.
-
-**Impact:**
-
-- Cost estimation errors
-- Context window limit confusion
-
-**Mitigation:**
-
-- Per-provider token counting
-- Fallback to provider estimates
-
-#### 6. Frontend-Backend Sync
-
-**Issue**: React frontend state may drift from backend API.
-
-**Impact:**
-
-- UI errors on API changes
-- Stale data displayed
-
-**Mitigation:**
-
-- TypeScript API client
-- Versioned API endpoints
-
-## Known Issues
-
-### 1. Vector Index Rebuild
-
-**Issue**: Vector indices may require manual rebuild after certain operations.
-
-**Status**: Known, workaround in place
-**Workaround**: `scripts/regenerate_tools.py`
-
-### 2. Dreamer Consolidation
-
-**Issue**: High-surprise event extraction may miss edge cases. Gatekeeper logic was previously too strict, causing runaway loops.
-
-**Status**: Partial Fix (Gatekeeper relaxed)
-**Workaround**: Manual review of `rules.md` updates. Runaway loop fixed in `agent.py`.
-
-### 3. Graph Pruning
-
-**Issue**: Automatic graph pruning may delete useful context.
-
-**Status**: Known, conservative settings
-**Workaround**: Manual graph inspection before pruning
-
-## Security Concerns
-
-### 1. API Key Exposure
-
-**Concern**: Keys in environment variables need careful management.
-
-**Mitigation:**
-
-- Never commit `.env` files
-- Use secrets management in production
-- Rotate keys regularly
-
-### 2. LLM Output Validation
-
-**Concern**: Axiomatic verification may not catch all malicious outputs.
-
-**Mitigation:**
-
-- Additional output sanitization
-- Rate limiting
-- Human-in-the-loop for critical operations
-
-### 3. MCP Tool Safety
-
-**Concern**: Dynamically loaded MCP tools may have security implications.
-
-**Mitigation:**
-
-- Tool whitelisting
-- Sandboxed execution
-- Permission models
-
-## Performance Concerns
-
-### 1. Graph Query Latency
-
-**Concern**: Large graphs may have slow query times.
-
-**Mitigation:**
-
-- Index optimization
-- Query caching
-- Graph partitioning
-
-### 2. LLM API Latency
-
-**Concern**: External LLM calls introduce latency.
-
-**Mitigation:**
-
-- Request batching
-- Streaming responses
-- Local caching
-
-### 3. Axiom Verification Overhead
-
-**Concern**: Running all axioms before each action may be slow.
-
-**Mitigation:**
-
-- Relevance-based axiom filtering
-- Parallel axiom execution
-- Axiom result caching
+# Codebase Concerns
+
+**Analysis Date:** 2026-02-12
+
+## Tech Debt
+
+### Broad Exception Handling
+- **Issue:** 141 instances of `except Exception` or bare `except` blocks found across the codebase
+- **Files:** `graph_rlm/backend/src/mcp_integration/skill_storage.py`, `graph_rlm/backend/src/mcp_integration/core/client.py`, `graph_rlm/backend/src/mcp_integration/generator.py`, and others
+- **Impact:** Errors are silently swallowed, making debugging difficult and masking real failures
+- **Fix approach:** Replace broad exception handlers with specific exception types. At minimum, log the exception with context before continuing.
+
+### Silent Pass Statements
+- **Issue:** Multiple locations where exceptions are caught and immediately passed without any handling
+- **Files:**
+  - `graph_rlm/backend/src/mcp_integration/generator.py:189`: `except RuntimeError: pass`
+  - `graph_rlm/backend/src/mcp_integration/core/client.py:237,362,363,480`: `except asyncio.CancelledError: pass`
+  - `graph_rlm/backend/src/mcp_integration/utils/task_schema.py:176,188`: `except ImportError: pass`
+- **Impact:** Failures are completely invisible to the system and operators
+- **Fix approach:** Replace `pass` with logging statements and/or proper error recovery logic
+
+### Duplicate Configuration
+- **Issue:** `LLM_PROVIDER` is defined twice in `Settings` class with different default values
+- **File:** `graph_rlm/backend/src/core/config.py:38,46`
+- **Impact:** Unclear which value takes precedence; potential configuration bugs
+- **Fix approach:** Remove duplicate definition and ensure single source of truth
+
+### Large File Complexity
+- **Issue:** Several files exceed recommended single-file complexity thresholds
+- **Files:**
+  - `graph_rlm/backend/src/core/agent.py` (2,292 lines)
+  - `graph_rlm/backend/src/core/dream.py` (1,135+ lines)
+  - `graph_rlm/backend/mcp_tools/desktop_commander.py` (1,696 lines)
+- **Impact:** Difficult to maintain, test, and understand. High cognitive load for modifications
+- **Fix approach:** Refactor into smaller, focused modules with single responsibilities
+
+## Known Bugs
+
+### No Explicit Bugs Identified
+- **Note:** No explicit `FIXME` or `BUG` comments found in source code
+- **Note:** The codebase uses TODO comments in desktop_commander.py for documentation purposes (search patterns)
+- **Risk:** This doesn't mean bugs don't exist - the broad exception handling likely masks many failure modes
+
+## Security Considerations
+
+### API Key Configuration
+- **Risk:** Empty default API key values in `config.py`
+- **Files:** `graph_rlm/backend/src/core/config.py:49,64`
+- **Current mitigation:** None - runtime failures if keys not configured
+- **Recommendations:**
+  - Add validation that API keys are present when LLM_PROVIDER requires them
+  - Consider using secrets management instead of .env files for production
+
+### Environment File Handling
+- **Risk:** `config.py` writes directly to `.env` file including API keys
+- **File:** `graph_rlm/backend/src/core/config.py:109-172`
+- **Current mitigation:** Attempts to filter out some sensitive defaults
+- **Recommendations:**
+  - Never write API keys to .env programmatically
+  - Separate configuration from secrets management
+
+### Process Isolation
+- **Positive:** Agent uses `uv` for process isolation (`graph_rlm/backend/src/core/agent.py:84`)
+- **Note:** This is a security feature, not a concern
+
+## Performance Bottlenecks
+
+### Recursive Query Depth
+- **Problem:** `MAX_RECURSION_DEPTH` is set to 3 in `config.py:43`
+- **Files:** `graph_rlm/backend/src/core/config.py`
+- **Cause:** Deep recursion without depth limits could cause stack overflow or infinite loops
+- **Improvement path:** Consider implementing iterative approaches with explicit stack management for complex recursive operations
+
+### Large Response Processing
+- **Problem:** No apparent streaming or chunking for large LLM responses
+- **Files:** `graph_rlm/backend/src/core/llm.py`
+- **Cause:** Blocking wait for complete LLM responses
+- **Improvement path:** Implement streaming responses and pagination for large outputs
+
+### Database Query Performance
+- **Problem:** Vector index creation happens on every GraphClient initialization
+- **File:** `graph_rlm/backend/src/core/db.py:39`
+- **Impact:** Slower startup time; potential duplicate index creation errors
+- **Improvement path:** Check if indexes exist before creation; defer to background task
 
 ## Fragile Areas
 
-### 1. Session State Management
+### Skill Storage Module
+- **Files:** `graph_rlm/backend/src/mcp_integration/skill_storage.py`
+- **Why fragile:** Heavy use of broad exception handlers (11+ instances); dynamic skill loading; complex file operations
+- **Safe modification:** Test all skill loading/unloading operations after changes
+- **Test coverage:** Limited - primarily integration tests in `tests/` directory
 
-**Area**: `graph_rlm/` session handling
+### MCP Integration Client
+- **Files:** `graph_rlm/backend/src/mcp_integration/core/client.py`
+- **Why fragile:** Connection handling with multiple exception types; async cancellation; complex shutdown logic
+- **Safe modification:** Test reconnection scenarios and graceful shutdown
+- **Test coverage:** Basic connection tests; missing chaos testing (network failures, timeouts)
 
-**Why Fragile:**
+### Axiom System
+- **Files:** `graph_rlm/backend/axioms_dir/`
+- **Why fragile:** Many disabled axioms in `_disabled/` subdirectory (10+ disabled files); experimental verification logic
+- **Safe modification:** Understand the axiom verification chain before modifying; test disabled axioms before enabling
+- **Test coverage:** Axiom-specific tests scattered; no comprehensive axiom integration test suite
 
-- Complex state inheritance
-- Multiple async contexts
-- REPL isolation boundaries
+## Scaling Limits
 
-**Protection:**
+### Session/Graph Memory
+- **Resource:** FalkorDB graph memory
+- **Current capacity:** No explicit limits configured
+- **Limit:** Memory-bound by FalkorDB instance
+- **Scaling path:** Implement graph cleanup policies; add TTL for old session data
 
-- Isolated test cases
-- Session ID validation
-- State reset mechanisms
+### Concurrent Sessions
+- **Resource:** Agent session management
+- **Current capacity:** In-memory session cache in `agent.py`
+- **Limit:** Memory-bound for `session_cache` dictionary
+- **Scaling path:** Implement external session store (Redis) for distributed deployment
 
-### 2. Axiom Library Updates
+### LLM Rate Limits
+- **Resource:** External LLM API calls
+- **Current capacity:** No rate limiting implemented
+- **Limit:** Provider-specific rate limits (OpenRouter, OpenAI, Ollama)
+- **Scaling path:** Implement request queuing and rate limiting with exponential backoff
 
-**Area**: `scripts/purge_orphaned_axioms.py` and related
+## Dependencies at Risk
 
-**Why Fragile:**
+### LangChain Version Pinning
+- **Package:** `langchain>=1.2.7`, `langchain-community>=0.4.1`
+- **Risk:** LangChain 1.x is in maintenance mode; 2.x has breaking changes
+- **Impact:** Security patches and new features will eventually stop for 1.x
+- **Migration plan:** Monitor LangChain 2.x migration path; plan 6-month upgrade timeline
 
-- Dependency tracking complex
-- Cascade effects hard to predict
-- Version compatibility
+### MCP Server Version
+- **Package:** `mcp>=1.26.0`
+- **Risk:** MCP is evolving rapidly; API changes likely
+- **Impact:** Breaking changes could break MCP tool integrations
+- **Migration plan:** Pin to specific version; test against newer versions before upgrading
 
-**Protection:**
+### Python 3.13 Requirement
+- **Package:** `requires-python = ">=3.13"`
+- **Risk:** Very new Python version; some packages may lack wheels or have bugs
+- **Impact:** Potential compatibility issues with packages that don't yet support 3.13
+- **Migration plan:** Monitor package compatibility; consider 3.12 as fallback for stability
 
-- Version pinning
-- Comprehensive test coverage
-- Incremental updates
+## Missing Critical Features
 
-### 3. MCP Tool Loading
+### Comprehensive Test Suite
+- **Problem:** No standard unit tests found in `tests/` directory
+- **What's missing:**
+  - No `test_*.py` or `*_test.py` files following pytest conventions
+  - Tests appear to be verification scripts (verify_*.py) rather than unit tests
+  - No test fixtures or mocking infrastructure
+- **Blocks:** Refactoring confidence; regression detection
+- **Priority:** High
 
-**Area**: `skills/` dynamic loading
+### Error Handling Framework
+- **Problem:** No structured error handling framework
+- **What's missing:**
+  - Custom exception hierarchy
+  - Error codes and error message templates
+  - Centralized error logging and alerting
+- **Blocks:** Production reliability; debugging efficiency
 
-**Why Fragile:**
+### Circuit Breaker Pattern
+- **Problem:** No circuit breaker for external service calls
+- **What's missing:** Automatic backoff and recovery for LLM APIs and MCP servers
+- **Blocks:** Resilience to external service failures
 
-- Runtime import errors
-- Missing dependencies
-- API changes
+## Test Coverage Gaps
 
-**Protection:**
+### Untested Critical Paths
+- **What's not tested:** Agent main loop and recursive reasoning (`agent.py`)
+- **File:** `graph_rlm/backend/src/core/agent.py`
+- **Risk:** Logic errors in the core RLM loop go undetected
+- **Priority:** Critical
 
-- Strict validation
-- Graceful degradation
-- Version requirements
+### Untested Error Scenarios
+- **What's not tested:** MCP server disconnections, database connection failures, LLM API timeouts
+- **Files:** `graph_rlm/backend/src/mcp_integration/core/client.py`, `graph_rlm/backend/src/core/db.py`
+- **Risk:** System fails silently or hangs in error conditions
+- **Priority:** High
 
-## Maintenance Issues
+### Untested Integration Points
+- **What's not tested:** Full skill execution lifecycle, axiom verification chain
+- **Files:** `graph_rlm/backend/src/mcp_integration/skill_storage.py`, `graph_rlm/backend/axioms_dir/`
+- **Risk:** Integration bugs between components
+- **Priority:** Medium
 
-### Documentation Drift
+---
 
-**Issue**: Code comments and docs may not match implementation.
-
-**Mitigation:**
-
-- Automated documentation generation
-- Code review for doc updates
-- Linting for doc quality
-
-### Test Maintenance
-
-**Issue**: Many test files with complex setups.
-
-**Mitigation:**
-
-- Shared test fixtures
-- Test pattern documentation
-- Automated test organization
-
-### Dependency Updates
-
-**Issue**: Many external dependencies with varying update cycles.
-
-**Mitigation:**
-
-- Dependency pinning
-- Automated vulnerability scanning
-- Regular update cadence
-
-## Areas Needing Attention
-
-1. **Axiom Serialization**: Consider adding serialization format documentation
-2. **Graph Query Optimization**: Profile and optimize slow queries
-3. **Test Coverage Gaps**: Identify untested code paths
-4. **Error Message Quality**: Improve error messages for debugging
-5. **Logging Standardization**: Consistent logging across modules
+*Concerns audit: 2026-02-12*
