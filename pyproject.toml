@@ -28,6 +28,7 @@ dependencies = [
     "psutil>=7.2.2",
     "unidecode>=1.4.0",
     "scipy>=1.17.0",
+    "structlog>=24.2.0",
 ]
 
 [build-system]

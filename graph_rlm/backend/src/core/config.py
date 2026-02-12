@@ -42,9 +42,6 @@ class Settings(BaseSettings):
     GRAPH_NAME: str = "rlm_graph"
     MAX_RECURSION_DEPTH: int = 3  # Maximum depth for rlm.query recursive calls
 
-    # LLM Settings (Primary Provider)
-    LLM_PROVIDER: str = "openrouter"  # ollama, openrouter, lmstudio, openai
-
     # OpenRouter
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
