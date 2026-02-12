@@ -531,6 +531,8 @@ class RLMInterface:
             "query(prompt, context)": "Spawn a recursive child agent.",
             "recall(query, limit)": "Semantic search through memory.",
             "search(query, limit)": "Graph search (alias for recall).",
+            "get_kernel_results()": "Retrieve kernel computation data (sheaf_score, spectral_energy, h0_rank) from DB.",
+            "generate_report_data(title)": "Generate complete report data from DB for template population.",
             "ingest_document(path, domain)": "CAG: Codify docs into Axioms.",
             "save_skill(name, code, desc)": "Persist a code block.",
             "save_instructional_skill(name, inst, desc)": (
@@ -548,7 +550,6 @@ class RLMInterface:
 
         # Dynamic MCP Tool Discovery
         try:
-
             # Resolve backend root to find mcp_tools
             backend_root = Path(__file__).parent.parent.parent
             tools_dir = backend_root / "mcp_tools"
@@ -590,6 +591,75 @@ class RLMInterface:
                 logger.error("Error in query_sync: %s", event.get("content"))
                 raise RuntimeError(event.get("content", "Unknown error"))
         return final_answer
+
+    async def get_kernel_results(self) -> Dict[str, Any]:
+        """
+        Retrieves kernel computation results (sheaf_score, spectral_energy, h0_rank)
+        for the current session from the database.
+
+        Returns:
+            Dictionary with kernel computation data that can be used for report generation.
+        """
+        self.record_tool_use("rlm.get_kernel_results")
+        try:
+            # Use root_session_id to get all session data
+            kernel_data = self.agent.db.get_kernel_results(self.root_session_id)
+            logger.info(
+                "Retrieved kernel results for session %s: %s",
+                self.root_session_id[:8],
+                kernel_data.get("status"),
+            )
+            return kernel_data
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("Failed to retrieve kernel results: %s", e)
+            return {
+                "status": "error",
+                "error": str(e),
+                "sheaf_scores": [],
+                "spectral_energies": [],
+                "h0_ranks": [],
+                "avg_sheaf_score": 0.0,
+                "avg_spectral_energy": 0.0,
+                "avg_h0_rank": 0,
+            }
+
+    async def generate_report_data(self, title: str = None) -> Dict[str, Any]:
+        """
+        Generates comprehensive report data for the current session.
+        Combines kernel results with session metadata for complete report generation.
+
+        Args:
+            title: Optional custom title for the report
+
+        Returns:
+            Complete report data dictionary ready for template population
+        """
+        self.record_tool_use("rlm.generate_report_data")
+        try:
+            report_data = self.agent.db.get_session_report_data(self.root_session_id)
+            if title:
+                report_data["paper_title"] = title
+            logger.info(
+                "Generated report data for session %s: %d thoughts, %s",
+                self.root_session_id[:8],
+                report_data.get("thought_count", 0),
+                report_data.get("kernel_results", {}).get("status"),
+            )
+            return report_data
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("Failed to generate report data: %s", e)
+            return {
+                "status": "error",
+                "error": str(e),
+                "session_id": self.root_session_id,
+                "paper_title": title or f"Error Report - {self.root_session_id[:8]}",
+                "kernel_results": {
+                    "status": "error",
+                    "avg_sheaf_score": 0.0,
+                    "avg_spectral_energy": 0.0,
+                    "avg_h0_rank": 0,
+                },
+            }
 
     def __repr__(self):
         return (

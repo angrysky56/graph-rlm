@@ -722,5 +722,105 @@ class GraphClient:
                 "🧠 Synaptic Homeostasis: Pruned %d saturated memory traces.", count
             )
 
+    def get_kernel_results(self, root_session_id: str) -> Dict[str, Any]:
+        """
+        Retrieves kernel computation results for a session.
+        Extracts sheaf_score, spectral_energy, and h0_rank from thought nodes.
+
+        Args:
+            root_session_id: The session ID to query
+
+        Returns:
+            Dictionary with kernel computation data:
+            {
+                'sheaf_scores': [list of scores],
+                'spectral_energies': [list of energies],
+                'h0_ranks': [list of ranks],
+                'avg_sheaf_score': float,
+                'avg_spectral_energy': float,
+                'avg_h0_rank': float,
+                'kernel_basis': [0.7071, 0.7071]  # Placeholder for actual kernel computation
+            }
+        """
+        q = """
+        MATCH (n:Thought)
+        WHERE n.root_session_id = $rsid
+        AND n.sheaf_score IS NOT NULL
+        RETURN n.sheaf_score as sheaf_score,
+               n.spectral_energy as spectral_energy,
+               n.h0_rank as h0_rank
+        """
+        results = self.query(q, {"rsid": root_session_id})
+
+        if not results:
+            return {
+                "sheaf_scores": [],
+                "spectral_energies": [],
+                "h0_ranks": [],
+                "avg_sheaf_score": 0.0,
+                "avg_spectral_energy": 0.0,
+                "avg_h0_rank": 0,
+                "kernel_basis": [0.7071, 0.7071],
+                "status": "no_data",
+            }
+
+        sheaf_scores = [
+            r.get("sheaf_score", 0.0)
+            for r in results
+            if r.get("sheaf_score") is not None
+        ]
+        spectral_energies = [
+            r.get("spectral_energy", 0.0)
+            for r in results
+            if r.get("spectral_energy") is not None
+        ]
+        h0_ranks = [
+            r.get("h0_rank", 0) for r in results if r.get("h0_rank") is not None
+        ]
+
+        return {
+            "sheaf_scores": sheaf_scores,
+            "spectral_energies": spectral_energies,
+            "h0_ranks": h0_ranks,
+            "avg_sheaf_score": sum(sheaf_scores) / len(sheaf_scores)
+            if sheaf_scores
+            else 0.0,
+            "avg_spectral_energy": sum(spectral_energies) / len(spectral_energies)
+            if spectral_energies
+            else 0.0,
+            "avg_h0_rank": sum(h0_ranks) / len(h0_ranks) if h0_ranks else 0,
+            "kernel_basis": [
+                0.7071,
+                0.7071,
+            ],  # TODO: Extract actual kernel basis from computation
+            "status": "success",
+        }
+
+    def get_session_report_data(self, root_session_id: str) -> Dict[str, Any]:
+        """
+        Comprehensive data retrieval for report generation.
+        Returns all relevant session data in a structured format.
+
+        Args:
+            root_session_id: The session ID to query
+
+        Returns:
+            Dictionary with complete session data for report population
+        """
+        kernel_results = self.get_kernel_results(root_session_id)
+
+        # Get session trace for additional context
+        trace = self.get_session_trace(root_session_id)
+
+        return {
+            "session_id": root_session_id,
+            "kernel_results": kernel_results,
+            "thought_count": len(trace),
+            "operations": [t for t in trace if t.get("step_id") is not None],
+            "results": [t for t in trace if t.get("result")],
+            "paper_title": f"Analysis Report - Session {root_session_id[:8]}",
+            "timestamp": time.strftime("%Y-%m-%d", time.localtime()),
+        }
+
 
 db = GraphClient()
