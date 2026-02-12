@@ -21,6 +21,7 @@ Example:
 
 from .base import BaseGraphRLMError, GraphRLMExceptionContext
 from .codes import ErrorCode, ErrorCodeCategory
+from .handlers import ExceptionHandler, safe_call, wrap_operation
 from .types import (
     CoreError,
     ExternalServiceError,
@@ -42,4 +43,8 @@ __all__ = [
     "SkillExecutionError",
     "ExternalServiceError",
     "ValidationError",
+    # Handler utilities
+    "ExceptionHandler",
+    "safe_call",
+    "wrap_operation",
 ]
