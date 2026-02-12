@@ -98,37 +98,45 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EXCP-01 | Phase 1 | Pending |
-| EXCP-02 | Phase 1 | Pending |
-| EXCP-03 | Phase 1 | Pending |
-| EXCP-04 | Phase 1 | Pending |
-| EXCP-05 | Phase 1 | Pending |
-| EXCP-06 | Phase 1 | Pending |
-| CIRCB-01 | Phase 2 | Pending |
-| CIRCB-02 | Phase 2 | Pending |
-| CIRCB-03 | Phase 2 | Pending |
-| CIRCB-04 | Phase 2 | Pending |
-| CIRCB-05 | Phase 2 | Pending |
-| CIRCB-06 | Phase 2 | Pending |
-| CIRCB-07 | Phase 2 | Pending |
-| TEST-01 | Phase 3 | Pending |
-| TEST-02 | Phase 3 | Pending |
-| TEST-03 | Phase 3 | Pending |
-| TEST-04 | Phase 3 | Pending |
-| TEST-05 | Phase 3 | Pending |
-| TEST-06 | Phase 3 | Pending |
-| TEST-07 | Phase 3 | Pending |
-| REFR-01 | Phase 1 | Pending |
-| REFR-02 | Phase 3 | Pending |
-| REFR-03 | Phase 1 | Pending |
-| LOG-01 | Phase 1 | Pending |
-| LOG-02 | Phase 1 | Pending |
-| LOG-03 | Phase 2 | Pending |
+| EXCP-01 | Phase 1: Foundation | Pending |
+| EXCP-02 | Phase 1: Foundation | Pending |
+| EXCP-03 | Phase 1: Foundation | Pending |
+| EXCP-04 | Phase 1: Foundation | Pending |
+| EXCP-05 | Phase 1: Foundation | Pending |
+| EXCP-06 | Phase 1: Foundation | Pending |
+| REFR-01 | Phase 1: Foundation | Pending |
+| REFR-03 | Phase 1: Foundation | Pending |
+| LOG-01 | Phase 1: Foundation | Pending |
+| LOG-02 | Phase 1: Foundation | Pending |
+| CIRCB-01 | Phase 2: Core Abstractions | Pending |
+| CIRCB-02 | Phase 2: Core Abstractions | Pending |
+| CIRCB-03 | Phase 2: Core Abstractions | Pending |
+| CIRCB-04 | Phase 2: Core Abstractions | Pending |
+| CIRCB-05 | Phase 2: Core Abstractions | Pending |
+| CIRCB-06 | Phase 2: Core Abstractions | Pending |
+| CIRCB-07 | Phase 2: Core Abstractions | Pending |
+| LOG-03 | Phase 2: Core Abstractions | Pending |
+| TEST-01 | Phase 3: Test Infrastructure | Pending |
+| TEST-02 | Phase 3: Test Infrastructure | Pending |
+| TEST-03 | Phase 3: Test Infrastructure | Pending |
+| TEST-04 | Phase 3: Test Infrastructure | Pending |
+| TEST-05 | Phase 3: Test Infrastructure | Pending |
+| TEST-06 | Phase 3: Test Infrastructure | Pending |
+| TEST-07 | Phase 3: Test Infrastructure | Pending |
+| REFR-02 | Phase 3: Test Infrastructure | Pending |
+
+**Phase Summary:**
+- **Phase 1 (Foundation):** 10 requirements (EXCP-01~06, REFR-01, REFR-03, LOG-01~02)
+- **Phase 2 (Core Abstractions):** 8 requirements (CIRCB-01~07, LOG-03)
+- **Phase 3 (Test Infrastructure):** 8 requirements (TEST-01~07, REFR-02)
+- **Phase 4 (Business Logic Integration):** Integration requirements (implicit, not explicit v1)
+- **Phase 5 (API and Integration):** Integration requirements (implicit, not explicit v1)
 
 **Coverage:**
-- v1 requirements: 29 total
-- Mapped to phases: 29
+- v1 requirements: 26 total (explicit, mappable)
+- Mapped to phases: 26
 - Unmapped: 0 ✓
+- Integration requirements: 3 (handled in Phases 4-5)
 
 ---
 
