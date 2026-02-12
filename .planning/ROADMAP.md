@@ -10,13 +10,13 @@ Engineering health improvements for Graph-RLM focusing on exception handling, te
 
 ## Phase Summary
 
-| Phase | Goal | Requirements | Success Criteria |
-|-------|------|--------------|------------------|
-| 1 - Foundation | Exception hierarchy, logging infrastructure, config cleanup | 9 | 5 |
-| 2 - Core Abstractions | Async circuit breaker pattern implementation | 7 | 5 |
-| 3 - Test Infrastructure | pytest setup, mocking, initial unit tests | 6 | 6 |
-| 4 - Business Logic Integration | Agent circuit breaker integration, error handling | 4 | 4 |
-| 5 - API and Integration | External service integration, coverage validation | 3 | 4 |
+| Phase | Goal | Plans | Requirements | Success Criteria |
+|-------|------|-------|--------------|------------------|
+| 1 - Foundation | Exception hierarchy, logging infrastructure, config cleanup | 5 plans | 9 | 5 |
+| 2 - Core Abstractions | Async circuit breaker pattern implementation | 3 plans | 7 | 5 |
+| 3 - Test Infrastructure | pytest setup, mocking, initial unit tests | — | 6 | 6 |
+| 4 - Business Logic Integration | Agent circuit breaker integration, error handling | — | 4 | 4 |
+| 5 - API and Integration | External service integration, coverage validation | — | 3 | 4 |
 
 ---
 
@@ -62,6 +62,11 @@ Engineering health improvements for Graph-RLM focusing on exception handling, te
 - CIRCB-06: MCP server connection integration
 - CIRCB-07: Metrics/observability hooks
 - LOG-03: Correlation ID propagation
+
+**Plans:**
+- [02-01-PLAN.md](./phases/02-core-abstractions/02-01-PLAN.md) — Core circuit breaker infrastructure (CircuitState, CircuitBreakerConfig, CircuitBreaker class, CircuitOpenError)
+- [02-02-PLAN.md](./phases/02-core-abstractions/02-02-PLAN.md) — LLM service integration with circuit breaker and correlation ID propagation
+- [02-03-PLAN.md](./phases/02-core-abstractions/02-03-PLAN.md) — MCP server integration with metrics/observability hooks
 
 **Success Criteria:**
 1. Developer can instantiate CircuitBreaker with configurable failure_threshold, timeout, success_threshold
