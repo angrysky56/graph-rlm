@@ -181,6 +181,31 @@ class BaseGraphRLMError(Exception):
             else None,
         }
 
+    def to_json(self, **kwargs) -> str:
+        """Convert exception to JSON string.
+
+        Args:
+            kwargs: Additional arguments for json.dumps
+
+        Returns:
+            JSON string representation
+        """
+        import json
+
+        return json.dumps(self.to_dict(), **kwargs)
+
+    def format_traceback(self) -> str:
+        """Format exception traceback as string."""
+        import traceback
+
+        return (
+            "".join(
+                traceback.format_exception(type(self), self, self.__traceback__)
+            ).strip()
+            if self.__traceback__
+            else ""
+        )
+
     def __str__(self) -> str:
         return f"[{self._error_code.value}] {self._message}"
 
