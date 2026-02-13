@@ -155,6 +155,11 @@ class ExternalServiceError(BaseGraphRLMError):
         """Add response status context."""
         return self.with_context(status_code=status_code)
 
+    @property
+    def http_status_code(self) -> int:
+        """Return 503 for external service errors."""
+        return 503
+
 
 class ValidationError(BaseGraphRLMError):
     """Input validation errors (VALIDATION_* error codes)."""
@@ -194,3 +199,8 @@ class ValidationError(BaseGraphRLMError):
     def with_constraint(self, constraint: str) -> "ValidationError":
         """Add constraint context."""
         return self.with_context(constraint=constraint)
+
+    @property
+    def http_status_code(self) -> int:
+        """Return 422 for validation errors."""
+        return 422

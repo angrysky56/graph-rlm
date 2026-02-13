@@ -128,6 +128,15 @@ class BaseGraphRLMError(Exception):
         """Get the context metadata."""
         return self._context
 
+    @property
+    def http_status_code(self) -> int:
+        """Get the HTTP status code for this exception.
+
+        Default is 500 (Internal Server Error).
+        Subclasses should override this for specific status codes.
+        """
+        return 500
+
     def with_correlation_id(self, correlation_id: str) -> "BaseGraphRLMError":
         """Create a new exception with a correlation ID.
 

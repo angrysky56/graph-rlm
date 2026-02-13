@@ -1,11 +1,15 @@
 """Exception handler utilities for consistent error handling.
 
-Provides standardized exception handling patterns with logging and context preservation.
+Provides standardized exception handling patterns with logging and context preservation
+and FastAPI exception handlers for HTTP response mapping.
 """
 
 from __future__ import annotations
 
 from typing import Any, TypeVar, Callable
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from structlog import get_logger
 
@@ -165,3 +169,60 @@ def wrap_operation(
         return wrapper
 
     return decorator
+
+
+# =============================================================================
+# FastAPI Exception Handlers
+# =============================================================================
+
+
+async def graphrlm_exception_handler(
+    request: Request, exc: BaseGraphRLMError
+) -> JSONResponse:
+    """Handle all GraphRLM exceptions with proper HTTP status codes.
+
+    This is the generic handler for BaseGraphRLMError and its subclasses.
+    More specific handlers should be registered for ValidationError, etc.
+    to ensure proper status code mapping.
+    """
+    # Get http_status_code if the exception has it, otherwise default to 500
+    status_code = getattr(exc, "http_status_code", 500)
+
+    return JSONResponse(status_code=status_code, content=exc.to_dict())
+
+
+async def validation_exception_handler(
+    request: Request, exc: ValidationError
+) -> JSONResponse:
+    """Handle validation errors with 422 status code."""
+    # Build response content including validation details from context
+    response_content = exc.to_dict()
+
+    return JSONResponse(status_code=422, content=response_content)
+
+
+async def circuit_open_exception_handler(
+    request: Request, exc: BaseGraphRLMError
+) -> JSONResponse:
+    """Handle circuit breaker open errors with 503 status code."""
+    # Lazy import to avoid circular dependency
+    from ..circuit import CircuitOpenError as CircuitOpenErrorClass
+
+    # Ensure this handler is only called for CircuitOpenError
+    if not isinstance(exc, CircuitOpenErrorClass):
+        raise TypeError(f"Expected CircuitOpenError, got {type(exc).__name__}")
+
+    # CircuitOpenError may have circuit_name in context
+    response_content = exc.to_dict()
+
+    return JSONResponse(status_code=503, content=response_content)
+
+
+async def external_service_exception_handler(
+    request: Request, exc: ExternalServiceError
+) -> JSONResponse:
+    """Handle external service errors with 503 status code."""
+    # ExternalServiceError may have service/endpoint info in context
+    response_content = exc.to_dict()
+
+    return JSONResponse(status_code=503, content=response_content)

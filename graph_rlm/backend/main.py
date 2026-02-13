@@ -15,6 +15,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from graph_rlm.backend.src.core.config import settings
 from graph_rlm.backend.src.core.endpoints import router as api_router
+from graph_rlm.backend.src.core.exceptions.handlers import (
+    graphrlm_exception_handler,
+    validation_exception_handler,
+    circuit_open_exception_handler,
+    external_service_exception_handler,
+)
+from graph_rlm.backend.src.core.exceptions.base import BaseGraphRLMError
+from graph_rlm.backend.src.core.exceptions.types import (
+    ValidationError,
+    ExternalServiceError,
+)
+from graph_rlm.backend.src.core.circuit import CircuitOpenError
 
 project_root = Path(__file__).parent.parent.parent.resolve()
 load_dotenv(project_root / ".env")
@@ -166,6 +178,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register exception handlers (specific handlers first, general handler last)
+app.add_exception_handler(ValidationError, validation_exception_handler)
+app.add_exception_handler(CircuitOpenError, circuit_open_exception_handler)
+app.add_exception_handler(ExternalServiceError, external_service_exception_handler)
+app.add_exception_handler(BaseGraphRLMError, graphrlm_exception_handler)
 
 app.include_router(api_router, prefix="/api/v1")
 

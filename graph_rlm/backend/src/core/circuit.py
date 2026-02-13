@@ -78,6 +78,11 @@ class CircuitOpenError(BaseGraphRLMError):
             circuit_name=circuit_name,
         )
 
+    @property
+    def http_status_code(self) -> int:
+        """Return 503 for circuit breaker open errors."""
+        return 503
+
 
 # Correlation ID propagation utilities
 correlation_id_var: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
