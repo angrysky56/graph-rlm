@@ -143,6 +143,11 @@ Engineering health improvements for Graph-RLM focusing on exception handling, te
 
 **Dependencies:** Phase 4 complete (business logic must be protected)
 
+**Plans:**
+- [05-01-PLAN.md](./phases/05-api-integration/05-01-PLAN.md) — FastAPI exception handlers and HTTP status code mapping
+- [05-02-PLAN.md](./phases/05-api-integration/05-02-PLAN.md) — MCP server circuit breaker validation tests
+- [05-03-PLAN.md](./phases/05-api-integration/05-03-PLAN.md) — Coverage validation and full test suite run
+
 **Requirements:**
 - (MCP server integration validation - implicit from Phase 2 CIRCB-06)
 - (Comprehensive coverage validation - implicit from Phase 3 TEST-07)
