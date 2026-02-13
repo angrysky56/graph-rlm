@@ -8,6 +8,23 @@ import pytest
 import asyncio
 from tests.mocking.mocks import MockRegistry
 
+# Import mock fixtures from mocking modules
+from tests.mocking.falkordb import (
+    mock_falkordb,
+    mock_registry_with_falkordb,
+    async_mock_falkordb,
+)
+from tests.mocking.llm import (
+    mock_llm_service,
+    mock_registry_with_llm,
+    async_mock_llm_service,
+)
+from tests.mocking.external import (
+    mock_http_client,
+    mock_registry_with_external,
+    async_mock_http_client,
+)
+
 
 @pytest.fixture(scope="session")
 def event_loop() -> asyncio.AbstractEventLoop:
