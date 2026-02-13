@@ -102,7 +102,12 @@ Engineering health improvements for Graph-RLM focusing on exception handling, te
 6. Developer can achieve 100% coverage on src/core/exceptions/base.py
 7. Developer can write unit tests for agent.py using legacy mocking patterns
 
----
+**Plans:**
+- [03-01-PLAN.md](./phases/03-test-infrastructure/03-01-PLAN.md) — pytest configuration + MockRegistry class foundation
+- [03-02-PLAN.md](./phases/03-test-infrastructure/03-02-PLAN.md) — FalkorDB/LLM/external mocks + enhanced fixtures
+- [03-03-PLAN.md](./phases/03-test-infrastructure/03-03-PLAN.md) — Unit tests for config.py, exceptions/base.py, agent.py
+
+ ---
 
 ## Phase 4: Business Logic Integration
 
