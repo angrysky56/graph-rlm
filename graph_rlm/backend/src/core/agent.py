@@ -170,6 +170,42 @@ class Agent:
         except (OSError, AttributeError) as e:
             logger.warning("Failed to verify Knowledge Base structure: %s", e)
 
+    async def _handle_llm_circuit_open(self, error: CircuitOpenError) -> str:
+        """Handle LLM circuit open with graceful degradation.
+
+        Called when circuit breaker is open and LLM service is unavailable.
+        Provides fallback behavior to keep agent operational.
+
+        Args:
+            error: The CircuitOpenError that was raised.
+
+        Returns:
+            Fallback response string for the agent to use.
+        """
+        correlation_id = error.correlation_id or get_correlation_id()
+
+        # Log with full context for debugging
+        logger.error(
+            "llm_service_degraded",
+            correlation_id=correlation_id,
+            circuit=error.circuit_name or "llm",
+            message=error.message,
+        )
+
+        # Emit event for user feedback if emit_event exists
+        if hasattr(self, "emit_event"):
+            self.emit_event(
+                "error",
+                content="AI service is experiencing high demand. "
+                "Continuing with limited capabilities.",
+            )
+
+        # Return graceful fallback - agent continues with reduced capabilities
+        return (
+            "AI service temporarily unavailable. "
+            "Attempting to continue with cached knowledge."
+        )
+
     # --- SESSION-ISOLATED PROPERTIES ---
     def get_state(self) -> ExecutionState:
         """Retrieves or initializes the execution state for the current session."""
@@ -852,7 +888,8 @@ class Agent:
                     circuit=e.circuit_name,
                     error=e.message,
                 )
-                response_text = "AI service temporarily unavailable. Please retry."
+                # Use graceful degradation handler
+                response_text = await self._handle_llm_circuit_open(e)
 
             # Raw response logging restored for visibility
             trace_action(
@@ -1214,7 +1251,10 @@ STATUS: {thought_status}
 
 Summary (describe WHAT was done and KEY outcome):"""
                     exec_summary = await protected_llm_generate(
-                        summary_prompt, model=summary_model, correlation_id=get_correlation_id() or generate_correlation_id()
+                        summary_prompt,
+                        model=summary_model,
+                        correlation_id=get_correlation_id()
+                        or generate_correlation_id(),
                     )
                     exec_summary = exec_summary.strip()[:150]
 
@@ -2131,7 +2171,10 @@ Summary (describe WHAT was done and KEY outcome):"""
             )
 
             response = await protected_llm_generate(
-                user_prompt, system=system_prompt, stream=False, correlation_id=get_correlation_id() or generate_correlation_id()
+                user_prompt,
+                system=system_prompt,
+                stream=False,
+                correlation_id=get_correlation_id() or generate_correlation_id(),
             )
             return response
         except Exception as e:  # noqa: BLE001
@@ -2253,7 +2296,10 @@ Summary (describe WHAT was done and KEY outcome):"""
         """
         try:
             # 1. Identify invariants
-            invariants_text = await protected_llm_generate(analysis_prompt, correlation_id=get_correlation_id() or generate_correlation_id())
+            invariants_text = await protected_llm_generate(
+                analysis_prompt,
+                correlation_id=get_correlation_id() or generate_correlation_id(),
+            )
             if not invariants_text:
                 return ["general"]
 

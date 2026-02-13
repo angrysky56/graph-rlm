@@ -18,11 +18,13 @@ import numpy as np
 from ..mcp_integration.skill_storage import get_axioms_manager
 from .config import settings
 from .core import PythonREPL
+from .circuit import CircuitOpenError
 from .db import GraphClient, db
 from .llm import llm
 from .logger import get_logger
 from .navigator import navigator
 from .omcd import omcd
+from .services.circuit import protected_llm_with_fallback
 from .sheaf import sheaf
 from .trace import trace_action
 
@@ -97,6 +99,7 @@ class Dreamer:
         session_id: Optional[str] = None,
         final_response_candidate: Optional[str] = None,
         context: Optional[str] = None,
+        goal_embedding: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
         """
         Main Sleep Cycle:
@@ -112,6 +115,7 @@ class Dreamer:
                                       Dreamer checks if this resolves the failures.
             context: The full Agent Scratchpad (history, REPL IDs, recent topology)
                      for cross-verification.
+            goal_embedding: Optional embedding of the overall task goal for contextual analysis.
         """
 
         def emit(event_type, content, is_internal=False):
@@ -335,6 +339,11 @@ class Dreamer:
             "Instructions:\n"
             "1. **Fidelity & Topic Check**: Compare the 'Proposed Final Response' (if exists) "
             "against the actual 'Trace' and 'Original Task'. Did the agent USE CODE to interact with task_input?\n"
+            "   - **Side Effect Verification**: If the agent claims to have performed a specific action "
+            "(e.g., 'saved to file', 'ingested document', 'fixed bug'), you MUST verify that the "
+            "'IMMEDIATE RECENT CONTEXT' actually contains a successful result for that action.\n"
+            "   - **Absence of Proof is Proof of Failure**: If the claim exists in the Proposed Response but "
+            "is missing from the Trace results, you MUST reject the response as a hallucination.\n"
             "2. **Safety Check**: Are there any dangerous patterns?\n"
             "3. **Resolution**: \n"
             "   - Check the 'IMMEDIATE RECENT CONTEXT'. If the latest node has "
@@ -370,11 +379,15 @@ class Dreamer:
             is_internal=True,
         )
         try:
-            insight_text = await self.llm.generate(
+            insight_text, was_fallback = await protected_llm_with_fallback(
                 prompt=dream_prompt,
                 system="You are a Meta-Cognitive Analysis Engine. Be concise and prescriptive.",
                 stream=False,
             )
+            if was_fallback:
+                logger.warning(
+                    "dream_llm_fallback_used", prompt_length=len(dream_prompt)
+                )
 
             # Check for explicitly peaceful resolution
             if "System Status: Peaceful" in insight_text:
@@ -509,6 +522,7 @@ class Dreamer:
         context: str,
         session_id: Optional[str] = None,
         current_step: int = 1,
+        goal_embedding: Optional[List[float]] = None,
     ) -> Dict[str, Any]:
         """
         Orchestrated Validation Phase (v2 Protocol).
@@ -517,9 +531,9 @@ class Dreamer:
         1. RepE: Check Psychological State (Shakiness).
         2. Sheaf: Check Topological State (Loops/Drift).
         3. oMCD: Check Economic State (Cost vs Benefit).
-        4. Reflexion: If invalid, generate improvement directive.
+        4. Physical: Check for HALLUCINATED ARTIFACTS (via Sheaf/Graph).
+        5. Semantic: Check for PLACEHOLDERS (Unfilled brackets/TODOs).
         """
-        from .reflexion import intelli_synth
         from .repe import repe
 
         logger.info("🛡️ [Dreamer] Validating Agent Response Candidate...")
@@ -528,110 +542,109 @@ class Dreamer:
         candidate_vec = await self.llm.get_embedding(candidate)
 
         # 1. RepE: Psychological Profile
-        # 'Shakiness' > 0.5 implies the agent is guessing or confused.
         psych_profile = repe.scan_thought(candidate_vec)
-        shakiness = psych_profile.get("Shakiness", 0.0)
+        groundedness = psych_profile.get("Shakiness", 0.0)
 
         # 2. Sheaf: Topological Diagnosis
-        # Checks for loops (LOGICAL_KNOT) or goal drift (SEMANTIC_DRIFT)
-        # We pass the candidate as a hypothetical node
+        # The Sheaf now handles both Holonomy (loops) and Empirical Consistency (lies).
         diagnosis = sheaf.diagnose_trace(
             root_id=str(session_id) if session_id else "unknown",
-            hypothetical_node={"content": candidate, "role": "assistant"},
-            goal_embedding=None,
+            hypothetical_node={
+                "content": candidate,
+                "role": "assistant",
+                "embedding": candidate_vec,
+            },
+            goal_embedding=goal_embedding,
         )
         topo_status = diagnosis.get("status", "HEALTHY")
 
         # 3. oMCD: Economic Feasibility
-        # Should we stop even if imperfect?
-        omcd_decision = omcd.evaluate_step(
-            step=current_step, confidence=1.0 - shakiness
-        )
-        should_force_stop = omcd_decision.get("should_stop", False)
+        confidence = max(0.0, min(1.0, groundedness))
+        omcd_decision = omcd.evaluate_step(step=current_step, confidence=confidence)
+        should_escalate_or_stop = omcd_decision.get("should_stop", False)
 
-        # 4. RLM Pattern Compliance: Did agent use scripting to interact with context?
-        # This is a heuristic check: look for evidence of code-based task_input interaction.
+        # 4. Semantic Integrity Check (Template Detection)
+        # Search for unfilled brackets {placeholder} or TODO markers
+        placeholders = re.findall(r"\{[a-zA-Z0-9_]+\}", candidate)
+        has_placeholders = len(placeholders) > 0
+        has_todo = any(m in candidate for m in ["[TODO]", "TODO:", "FIXME", "..."])
+
+        # 5. Physical Grounding Check (Topological Verification)
+        # [CAG Pivot]: We no longer regex the log here. We trust the Sheaf's
+        # diagnostic on the trajectory's consistency energy (Topological Obstructions).
+        is_lying_about_writing = topo_status == "EMPIRICAL_CONTRADICTION"
+
+        # 6. RLM Pattern Compliance
         rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
         rlm_compliance = any(pattern in context for pattern in rlm_patterns)
-
-        # --- DECISION LOGIC ---
-
-        is_psych_safe = shakiness < 0.5
-        is_topo_safe = topo_status == "HEALTHY"
-
-        # 5. [RLM Compliance] Context Fidelity Check
-        # If the scratchpad indicates TRUNCATION, the agent MUST have used RLM tools to fetch data.
         has_truncation = "[Output Truncated]" in context or "[...]" in context
         is_rlm_critical = has_truncation and not rlm_compliance
 
-        if is_psych_safe and is_topo_safe and not is_rlm_critical:
-            # ALL GREEN -> VALID
-            rlm_note = (
-                " (RLM patterns detected)"
-                if rlm_compliance
-                else " (Consider using scripting patterns)"
+        # --- EVALUATE ---
+        is_psych_safe = groundedness > 0.15
+        is_topo_safe = topo_status == "HEALTHY"
+        is_semantic_safe = not has_placeholders and not has_todo
+        is_physical_safe = not is_lying_about_writing
+
+        failure_reasons = []
+        if not is_psych_safe:
+            failure_reasons.append(
+                f"Psychological: Groundedness ({groundedness:.2f}) low."
             )
+        if not is_topo_safe:
+            failure_reasons.append(f"Topological: {topo_status} detected.")
+        if is_rlm_critical:
+            failure_reasons.append("RLM: Truncation without retrieval.")
+        if not is_semantic_safe:
+            failure_reasons.append(
+                f"Semantic: Placeholder/Template detected ({', '.join(placeholders) if placeholders else 'TODO'})."
+            )
+        if not is_physical_safe:
+            failure_reasons.append(
+                "Physical: Claimed file artifacts do not exist on disk/logs."
+            )
+
+        if (
+            is_psych_safe
+            and is_topo_safe
+            and not is_rlm_critical
+            and is_semantic_safe
+            and is_physical_safe
+        ):
+            # ALL GREEN
             return {
                 "status": "valid",
                 "event": "RLM_VALIDATED_RESPONSE",
-                "message": f"Response verified. Psychological and Topological state healthy.{rlm_note}",
+                "message": f"Response verified. Psych state: {groundedness:.2f}, Topo: {topo_status}",
             }
 
-        # If we are here, something is wrong.
-        # Check if we must Force Stop (Degradation Strategy)
-        if should_force_stop:
-            logger.warning(
-                "🔸 [Dreamer] Validation failed but oMCD forced stop (Cost > Benefit). Accepting degraded response."
-            )
-            return {
-                "status": "forced_valid",
-                "event": "RLM_VALIDATED_RESPONSE",
-                "is_degraded": True,
-                "message": f"Forced valid despite defects: Shakiness={shakiness:.2f}, Status={topo_status}",
-            }
+        # REJECTED BRANCH
+        instruction_parts = [
+            "RE-EVALUATE: I identified the following GROUNDING ISSUES with your candidate response:"
+        ]
+        for r in failure_reasons:
+            instruction_parts.append(f"- {r}")
+        instruction_parts.append(
+            "\nYou MUST perform a grounded verification using `rlm.recall()` or `rlm.query()` to fix these before trying again."
+        )
+        instruction = "\n".join(instruction_parts)
 
-        # [RLM CRITICAL FAILURE]
-        if is_rlm_critical:
+        if should_escalate_or_stop:
             logger.warning(
-                "🔸 [Dreamer] Validation Failed: Truncated context without active retrieval."
+                "🔸 [Dreamer] Validation failed. Budget exhausted. ESCALATING."
             )
             return {
                 "status": "invalid",
                 "event": "RLM_WAKE",
-                "instruction": (
-                    "SYSTEM WAKE: I detected '[Output Truncated]' in your context summary, but you did not use "
-                    "`rlm.recall()` or code inspection to retrieve the missing data.\n"
-                    "You are likely hallucinating the content. **RETRIEVE the full data now.**"
-                ),
+                "instruction": f"SYSTEM CRITICAL: Result is hallucinated or incomplete.\n{instruction}",
             }
 
-        # --- REFLEXION (Self-Healing) ---
-        # Generate specific directive to fix the issue
-        logger.info("🔥 [Dreamer] Validation Failed. Triggering Reflexion...")
-
-        # Construct context for Reflexion
-        failure_reason = []
-        if not is_psych_safe:
-            failure_reason.append(f"High Uncertainty (Shakiness={shakiness:.2f})")
-        if not is_topo_safe:
-            failure_reason.append(f"Topological Defect ({topo_status})")
-        if not rlm_compliance:
-            failure_reason.append("No RLM scripting patterns detected in context")
-
-        critique = f"Validation Failed: {'; '.join(failure_reason)}."
-
-        # Call IntelliSynth
-        instruction = await intelli_synth.advancement_cycle(
-            trace_context=context,
-            current_thought=critique,
-            divergence_point="validation_check",
-        )
-
+        # [RLM CRITICAL FAILURE] - Fallthrough for specific handling if needed,
+        # but the common RLM_WAKE handles it now.
         return {
             "status": "invalid",
             "event": "RLM_WAKE",
             "instruction": instruction,
-            "reason": critique,
         }
 
     async def rem_sleep_cycle(self, axiom_code: str) -> bool:
@@ -640,9 +653,7 @@ class Dreamer:
         Generates "bizarre" or adversarial inputs to stress-test the new Axiom
         before it is committed to long-term memory.
         """
-        logger.info(
-            "👁️ REM SLEEP: Hallucinating adversarial scenarios for new Axiom..."
-        )
+        logger.info("👁️ REM SLEEP: Hallucinating adversarial scenarios for new Axiom...")
 
         # 1. Hallucinate a "Nightmare" (Edge Case)
         nightmare_prompt = (
@@ -653,9 +664,15 @@ class Dreamer:
             f"Think of null values, infinite loops, or type mismatches. "
             f"Return ONLY the python dictionary string."
         )
-        nightmare_input = await self.llm.generate(
-            nightmare_prompt, system="Generate Python dict string only."
+        nightmare_input, was_fallback = await protected_llm_with_fallback(
+            prompt=nightmare_prompt,
+            fallback_message="Nightmare input generation unavailable",
+            system="Generate Python dict string only.",
         )
+        if was_fallback:
+            logger.warning(
+                "dream_nightmare_fallback_used", prompt_length=len(nightmare_prompt)
+            )
 
         # [STABILITY] Sanitize input: Extract JSON/Dict object if embedded in text
         # Regex to find the first outer-most curly brace pair
@@ -771,11 +788,14 @@ except Exception as e:
             '"description": "precise requirement", "healing_hint": "optional prompt for the solver logic"}]\n\n'
             f"Text content:\n{text[:50000]}"
         )
-        res = await self.llm.generate(
+        res, was_fallback = await protected_llm_with_fallback(
             prompt=prompt,
+            fallback_message="Knowledge mining unavailable",
             system=f"Extract structured domain knowledge for the {domain} domain as JSON.",
             stream=False,
         )
+        if was_fallback:
+            logger.warning("dream_knowledge_mining_fallback_used", domain=domain)
         # Basic JSON extraction
         try:
             match = re.search(r"(\[.*\])", res, re.DOTALL)
@@ -806,8 +826,9 @@ except Exception as e:
             "2. Validators must return True/False. Solvers/Advisors should perform the action.\n"
             "3. Use raw strings (r'pattern') for regex.\n"
         )
-        res = await self.llm.generate(
+        res, was_fallback = await protected_llm_with_fallback(
             prompt=prompt,
+            fallback_message="Axiom codification unavailable",
             system=(
                 "Generate Python code blocks only. "
                 "Block 1 is the Axiom, Block 2 is the optional Healing Script. "
@@ -817,6 +838,8 @@ except Exception as e:
             ),
             stream=False,
         )
+        if was_fallback:
+            logger.warning("dream_codify_fallback_used", domain=domain)
 
         blocks = re.findall(r"```python(.*?)```", res, re.DOTALL)
         axiom_code = blocks[0].strip() if blocks else ""
@@ -831,9 +854,14 @@ except Exception as e:
             f"one passing case and one failing case for the invariant: '{invariant}'.\n"
             f"Use assertions. If an assertion fails, the script should crash."
         )
-        test_code = await self.llm.generate(
-            prompt=test_prompt, system="Generate test code only.", stream=False
+        test_code, was_fallback = await protected_llm_with_fallback(
+            prompt=test_prompt,
+            fallback_message="Axiom verification unavailable",
+            system="Generate test code only.",
+            stream=False,
         )
+        if was_fallback:
+            logger.warning("dream_verify_fallback_used")
 
         repl = PythonREPL()
         pure_code = code.replace("```python", "").replace("```", "").strip()
@@ -943,7 +971,6 @@ except Exception as e:
         axiom_type: str = "validator",
         healing_code: str | None = None,
     ) -> str:
-
         axioms_mgr = get_axioms_manager()
         match = re.search(r"def ([\w_]+)", code)
         name = match.group(1)[:64] if match else f"axiom_{uuid.uuid4().hex[:8]}"
@@ -1032,9 +1059,14 @@ except Exception as e:
             f"Output ONE word only.\n\n"
             f"Insight: {insight[:16000]}"
         )
-        domain = await self.llm.generate(
-            prompt=prompt, system="Output a single CamelCase domain name.", stream=False
+        domain, was_fallback = await protected_llm_with_fallback(
+            prompt=prompt,
+            fallback_message="General",
+            system="Output a single CamelCase domain name.",
+            stream=False,
         )
+        if was_fallback:
+            logger.warning("dream_domain_classification_fallback_used")
         return domain.strip().replace(" ", "") or "General"
 
     async def ingest_document_text_async(
