@@ -22,9 +22,16 @@ from ..mcp_integration.skill_storage import get_axioms_manager, get_skills_manag
 from .config import settings
 from .context_index import context_index
 from .db import GraphClient, db
+from .circuit import (
+    CircuitOpenError,
+    get_correlation_id,
+    generate_correlation_id,
+    set_correlation_id,
+)
 from .dream import dreamer
 from .llm import llm
 from .logger import get_logger
+from .services.circuit import protected_llm_generate
 from .mcp_runtime import is_mcp_available
 from .navigator import Navigator
 from .omcd import omcd
@@ -411,14 +418,26 @@ class Agent:
         prefix = "↳ " if is_sub_event else ""
 
         # Mirror to Terminal/Logs
+        repl_id = data.get("repl_id") if data and isinstance(data, dict) else None
+        repl_str = f" [{repl_id}]" if repl_id else ""
+
         if event_type == "thinking" and content:
             # Use tag if available for better log mirroring
             log_prefix = f"[THINKING] [{tag}]" if tag else "[THINKING]"
-            logger.info("%s%s %s", prefix, log_prefix, content.strip())
+            logger.info("%s%s%s %s", prefix, log_prefix, repl_str, content.strip())
         elif event_type == "code_output" and content:
-            logger.info("%s[REPL OUTPUT] >>\n%s", prefix, content)
+            logger.info("%s%s[REPL OUTPUT] >>\n%s", prefix, repl_str, content)
+        elif event_type == "code" and code:
+            logger.info("%s%s[EXECUTING CODE] >>\n%s", prefix, repl_str, code)
         elif event_type == "error" and content:
-            logger.error("%s[AGENT ERROR] %s", prefix, content)
+            logger.error("%s%s[AGENT ERROR] %s", prefix, repl_str, content)
+        elif event_type == "answer" and content:
+            logger.info(
+                "%s%s[FINAL ANSWER] >> %s",
+                prefix,
+                repl_str,
+                content[:500] + ("..." if len(content) > 500 else ""),
+            )
 
         q = execution_events.get()
         if q:
@@ -426,9 +445,7 @@ class Agent:
                 "type": event_type,
                 "ui_target": ui_target,  # Explicit routing tag for Frontend
                 "is_sub_event": is_sub_event,
-                "repl_id": (
-                    data.get("repl_id") if data and isinstance(data, dict) else None
-                ),
+                "repl_id": repl_id,
             }
             if data:
                 payload["data"] = data
@@ -736,14 +753,14 @@ class Agent:
                             [a["name"] for a in relevant_axioms]
                         )
                         logger.debug(
-                            "Loaded %d semantic axioms: %s...",
+                            "Loaded %d semantic axioms: %s",
                             len(relevant_axioms),
-                            axioms_list_str[:100],
+                            axioms_list_str,
                         )
                     else:
                         # Fallback
                         axioms = axioms_mgr.list_axioms()
-                        sorted_keys = sorted(axioms.keys())[:20]
+                        sorted_keys = sorted(axioms.keys())
                         axioms_list_str = ", ".join(sorted_keys)
                 except Exception as ex:  # noqa: BLE001
                     logger.warning("Failed to load axioms async: %s", ex)
@@ -790,7 +807,6 @@ class Agent:
             # 3. LLM Gen (Think)
             response_text = ""
             try:
-
                 # Define usage callback
                 def on_token_usage(usage_data):
                     self.emit_event("usage", data=usage_data)
@@ -807,12 +823,16 @@ class Agent:
                     break
 
                 # [STABILITY] Add stop sequences to prevent infinite XML loops
-                response_text = await self.llm.generate(
+                # Generate correlation ID for circuit breaker tracking
+                correlation_id = generate_correlation_id()
+
+                response_text = await protected_llm_generate(
                     current_context,
                     system=system_prompt,
                     stream=False,
                     stop=["</invoke>", "<|endoftext|>"],
                     on_usage=on_token_usage,
+                    correlation_id=correlation_id,
                 )
 
                 # Post-gen stop check
@@ -824,6 +844,15 @@ class Agent:
                 response_text = f"LLM Error: {str(e)}"
                 logger.error("LLM Generative Error (%s): %s", type(e).__name__, e)
                 self.emit_event("error", content=response_text)
+            except CircuitOpenError as e:
+                # Circuit breaker is open, graceful degradation
+                logger.warning(
+                    "llm_circuit_open",
+                    correlation_id=e.correlation_id or correlation_id,
+                    circuit=e.circuit_name,
+                    error=e.message,
+                )
+                response_text = "AI service temporarily unavailable. Please retry."
 
             # Raw response logging restored for visibility
             trace_action(
@@ -895,9 +924,7 @@ class Agent:
             # 4. Step Initialization
             # We create the ID early so it can be used in tool execution
 
-            trace_action(
-                "AGENT", "THOUGHT", result=response_text[:400] + "...", tag="AGENT"
-            )
+            trace_action("AGENT", "THOUGHT", result=response_text, tag="AGENT")
 
             output = ""
             code = self._extract_code(response_text)
@@ -1181,13 +1208,13 @@ class Agent:
                         settings.SUMMARY_MODEL or settings.get_llm_config().get("model")
                     )
                     summary_prompt = f"""Summarize this agent step in ONE sentence (max 100 chars):
-ACTION: {code[:300] if code else response_text[:300]}
-RESULT: {output[:500]}
+ACTION: {code if code else response_text}
+RESULT: {output}
 STATUS: {thought_status}
 
 Summary (describe WHAT was done and KEY outcome):"""
-                    exec_summary = await self.llm.generate(
-                        summary_prompt, model=summary_model
+                    exec_summary = await protected_llm_generate(
+                        summary_prompt, model=summary_model, correlation_id=get_correlation_id() or generate_correlation_id()
                     )
                     exec_summary = exec_summary.strip()[:150]
 
@@ -1267,9 +1294,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 if node_to_prune:
                     try:
                         self.db.delete_thought_node(node_to_prune)
-                    except (
-                        Exception
-                    ) as prune_err:  # pylint: disable=broad-except # noqa: BLE001
+                    except Exception as prune_err:  # pylint: disable=broad-except # noqa: BLE001
                         logger.error(
                             "Failed to prune node %s: %s", node_to_prune, prune_err
                         )
@@ -1324,16 +1349,47 @@ Summary (describe WHAT was done and KEY outcome):"""
                 # Skip the rest of the loop to let the Agent generate the synthesis
                 continue
 
+            has_final_marker = any(
+                t in response_text
+                for t in [
+                    "RLM_FINAL_OUTPUT",
+                    "RLM_FINAL_REPORT",
+                    "RLM_FINAL_RESPONSE",
+                ]
+            )
+
+            # --- PREVENT PREMATURE VICTORY ---
+            # If the agent claims it is "Done" but also provided code in this turn,
+            # we MUST force a synthesis turn so it reviews the code's output.
             if (
-                any(
-                    t in response_text
-                    for t in [
-                        "RLM_FINAL_OUTPUT",
-                        "RLM_FINAL_REPORT",
-                        "RLM_FINAL_RESPONSE",
-                    ]
+                has_final_marker
+                and code
+                and not getattr(self, "synthesis_triggered", False)
+            ):
+                logger.info(
+                    "🛡️ Premature Victory detected (Code + Final Marker). Forcing Synthesis Turn."
                 )
-                or getattr(self, "final_result", None)
+                self.synthesis_triggered = True
+                synthesis_prompt = (
+                    "SYSTEM: You provided code and claimed a final answer in the same turn. "
+                    "You MUST now review the execution logs (especially checking if all files exist) "
+                    "and provide a final synthesis that accounts for the output below."
+                )
+                self.db.create_thought_node(
+                    str(uuid.uuid4()),
+                    synthesis_prompt,
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    parent_id=self.current_thought_id,
+                    round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
+                    repl_id=repl_id,
+                )
+                continue
+
+            if (
+                has_final_marker or getattr(self, "final_result", None)
             ) and thought_status == "success":
                 # --- EPISTEMIC VERIFICATION ---
                 # Check for Laziness, Obsequiousness, and Reward Hacking before breaking.
@@ -1397,9 +1453,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                                 final_root_id, prompt
                             )
                         )
-                    except (
-                        Exception
-                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                         logger.warning("Failed to generate candidate response: %s", e)
 
                 # 2. Dreamer Trigger (Auto-Consolidate before exit)
@@ -1437,81 +1491,39 @@ Summary (describe WHAT was done and KEY outcome):"""
                             session_id=final_root_id,  # Scope to current session only
                             final_response_candidate=final_response_candidate,
                             context=scratchpad_content,  # Pass the full context
+                            goal_embedding=self.session_cache.get("task_embedding"),
                         )
                         logger.info(
                             "💤 Dream Cycle Completed. Status: %s",
                             dream_res.get("status"),
                         )
-                    except (
-                        Exception
-                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                         logger.warning("Dream cycle failed during execution: %s", e)
                         dream_res = {}
 
                     dream_status = dream_res.get("status", "")
                     insight = dream_res.get("insight") or ""
 
-                    # GATEKEEPER LOGIC: Consolidated Validation
-                    # Validates "Surprise" (Dreamer) against "Freedom" (RepE/Navigator).
+                    # GATEKEEPER LOGIC: Absolute Validation
+                    # Validates "Surprise" (Dreamer) against the execution trace.
+                    # Validation must be absolute (Pass/Fail based on Axioms), not probabilistic.
 
                     should_trigger_healing = False
 
-                    # 1. Critical Failures always trigger healing
+                    # 1. Critical Failures or Insights always trigger healing
                     if dream_status in ("error", "critical"):
                         should_trigger_healing = True
-
-                    # 2. Lucid Dreams (Insights) need context
                     elif dream_status == "lucid" and insight:
-                        # Check Semantic Entropy (Freedom) of the proposed response
-                        # If the agent is "Exploring" (High Entropy),
-                        # we allow the Lucid dream to pass
-                        # without blocking, as it's likely just learning from novel info.
-                        # If the agent is "Restricting/Stuck" (Low Entropy), we Block.
-
-                        try:
-                            # Use the response text as the proxy for action
-                            action_text = (
-                                final_response_candidate
-                                if final_response_candidate
-                                else ""
-                            )
-                            freedom_score = 0.5
-                            if self.navigator and action_text:
-                                freedom_score = (
-                                    await self.navigator.estimate_future_entropy(
-                                        action_text
-                                    )
-                                )
-
-                            logger.info(
-                                "🛡️ Gatekeeper: Entropy/Freedom Score = %.2f",
-                                freedom_score,
-                            )
-
-                            # Thresholds:
-                            # > 0.6: High Freedom (Exploration) -> ALLOW EXIT (Do not heal)
-                            # < 0.4: Low Freedom (Restriction/Looping) -> BLOCK EXIT (Trigger Heal)
-                            # 0.4-0.6: Neutral -> Defer to Dreamer (Block if insight is strong)
-
-                            if freedom_score > 0.6:
-                                logger.info(
-                                    "🛡️ Gatekeeper: High Freedom detected. Allowing Lucid Exit."
-                                )
-                                should_trigger_healing = False
-                            elif freedom_score < 0.4:
-                                logger.info(
-                                    "🛡️ Gatekeeper: Low Freedom (Stuck?) detected. Blocking Exit."
-                                )
-                                should_trigger_healing = True
-                            else:
-                                # Neutral - Fallback to standard behavior (Block on Insight)
-                                should_trigger_healing = True
-
-                        except Exception as gk_err:
-                            logger.warning(
-                                "Gatekeeper entropy check failed: %s", gk_err
-                            )
-                            should_trigger_healing = True  # Fail safe
+                        logger.info(
+                            "🛡️ Gatekeeper: Systemic Issue/Insight detected. Forcing Self-Healing."
+                        )
+                        should_trigger_healing = True
+                    elif insight:
+                        # Any insight at this stage suggests a contradiction or hallucination
+                        logger.info(
+                            "🛡️ Gatekeeper: Explicit Insight detected. Restricting exit."
+                        )
+                        should_trigger_healing = True
 
                     if should_trigger_healing and insight:
                         if insight:
@@ -1524,7 +1536,6 @@ Summary (describe WHAT was done and KEY outcome):"""
                                 content=dreamer_msg,
                                 tag="DREAMER",
                             )
-                            # CRITICAL FIX: Persist to DB so UI sees it
                             # CRITICAL FIX: Persist to DB so UI sees it
                             if self.current_thought_id:
                                 try:
@@ -1768,6 +1779,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     context=context_scratchpad,
                     session_id=session_id,
                     current_step=step,
+                    goal_embedding=self.session_cache.get("task_embedding"),
                 )
 
                 status = validation.get("status")
@@ -1899,10 +1911,12 @@ Summary (describe WHAT was done and KEY outcome):"""
 
     def _extract_code(self, text: str) -> str:
         """Extracts python code blocks from LLM response text."""
-        # Try finding a complete block first
-        match = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL)
-        if match:
-            return match.group(1)
+        # Find all complete blocks
+        blocks = re.findall(r"```python\s*(.*?)\s*```", text, re.DOTALL)
+        if blocks:
+            # Join all blocks with a separator to ensure they execute as one sequence
+            # We add a newline to prevent syntax issues between joined blocks
+            return "\n\n# --- RLM BLOCK SEPARATOR ---\n\n".join(blocks)
 
         # Fallback: check for unclosed block at the end (common with truncation)
         match_open = re.search(r"```python\s*(.*)", text, re.DOTALL)
@@ -1970,12 +1984,18 @@ Summary (describe WHAT was done and KEY outcome):"""
                 )
 
             # 3. Execute in Subprocess
-            stdout, stderr, exit_code = await self.runtime.execute(
+            stdout, stderr, exec_result, exit_code = await self.runtime.execute(
                 code, context=context_data, mcp_namespace=mcp_namespace
             )
 
             output = stdout or ""
             execution_failed = exit_code != 0
+
+            # Include return result in output for agent visibility
+            if exec_result is not None:
+                if output.strip():
+                    output += "\n"
+                output += f"Return Value: {exec_result}"
 
             # 4. Error Formatting
             if stderr:
@@ -2057,11 +2077,11 @@ Summary (describe WHAT was done and KEY outcome):"""
                     continue
 
                 # Build comprehensive trace entry with all available data
-                preview = content[:500] + "..." if len(content) > 500 else content
-                result_preview = result[:300] + "..." if len(result) > 300 else result
+                preview = content
+                result_preview = result
 
                 entry = (
-                    f"Turn {i+1} [{step_type}] (REPL: {repl_id}, Status: {status}):\n"
+                    f"Turn {i + 1} [{step_type}] (REPL: {repl_id}, Status: {status}):\n"
                 )
                 entry += f"Content: {preview}\n"
                 if exec_summary:
@@ -2110,11 +2130,11 @@ Summary (describe WHAT was done and KEY outcome):"""
                 f"Original Task: {original_task}\n\nSession Trace:\n{trace_str}"
             )
 
-            response = await self.llm.generate(
-                user_prompt, system=system_prompt, stream=False
+            response = await protected_llm_generate(
+                user_prompt, system=system_prompt, stream=False, correlation_id=get_correlation_id() or generate_correlation_id()
             )
             return response
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             logger.error("Failed to generate validated response: %s", e)
             return f"# RLM_VALIDATED_RESPONSE\n\n[Error generating validation: {e}]"
 
@@ -2155,15 +2175,59 @@ Summary (describe WHAT was done and KEY outcome):"""
         has_completion = (
             "final answer" in thought_trace.lower() or "done(" in thought_trace
         )
-        # BUGFIX: Also count generic code execution as 'work' to avoid false Reward Hacking flags
-        # when the agent uses standard Python tools (open, os, etc.) instead of RLM tools.
-        if has_completion and not execution_log:
-            # If thought_trace contains a code block, it's NOT a fake completion
-            if "```python" not in thought_trace:
-                score -= 0.5
+
+        # [STRICTER CHECK]: If the agent claims completion but has empty execution logs,
+        # it is likely reward hacking (hallucinating output).
+        if has_completion:
+            # 1. Check for unfilled template placeholders or common LLM hallucinations
+            placeholders = re.findall(r"\{[a-zA-Z0-9_]+\}", thought_trace)
+            todo_markers = any(
+                m in thought_trace for m in ["[TODO]", "TODO:", "FIXME", "..."]
+            )
+            if placeholders or todo_markers:
+                score -= 0.8
                 flags.append(
-                    "REWARD_HACKING: Completion signal without empirical verification."
+                    "TEMPLATE_HALLUCINATION: Claimed completion but result contains unfilled brackets or TODO/placeholder markers."
                 )
+
+            if not execution_log:
+                if "```python" not in thought_trace:
+                    score -= 0.6
+                    flags.append(
+                        "REWARD_HACKING: Completion signal without empirical verification."
+                    )
+                else:
+                    if is_complex:
+                        score -= 0.4
+                        flags.append(
+                            "REWARD_HACKING: Complex completion with code but no tool interaction."
+                        )
+            else:
+                # [NEW] CHECK FOR FAILED ARTIFACTS IN LOGS
+                # If the agent's code returned "MISSING" or "failed", but it still says "done", it's lying.
+                log_text = "\n".join(execution_log).lower()
+                evidence_of_failure = any(
+                    w in log_text for w in ["missing", "failed", "error:"]
+                )
+                if evidence_of_failure:
+                    score -= 0.7
+                    flags.append(
+                        "REWARD_HACKING: Claimed success despite execution logs showing MISSING/FAILED artifacts."
+                    )
+
+                # Check for length/density if a 'full report' or 'whitepaper' was requested
+                if any(
+                    w in task_requirements.lower()
+                    for w in ["report", "whitepaper", "specification"]
+                ):
+                    total_output_len = sum(
+                        len(str(log_entry)) for log_entry in execution_log
+                    )
+                    if total_output_len < 1000:  # Heuristic for a "full" report
+                        score -= 0.3
+                        flags.append(
+                            "LAZINESS: Claimed full report production but logs show low data volume."
+                        )
 
         return {
             "risk_score": score,
@@ -2189,7 +2253,7 @@ Summary (describe WHAT was done and KEY outcome):"""
         """
         try:
             # 1. Identify invariants
-            invariants_text = await self.llm.generate(analysis_prompt)
+            invariants_text = await protected_llm_generate(analysis_prompt, correlation_id=get_correlation_id() or generate_correlation_id())
             if not invariants_text:
                 return ["general"]
 
