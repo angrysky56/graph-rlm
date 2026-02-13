@@ -47,6 +47,8 @@ from .state import (
     execution_events,
 )
 from .trace import register_monitor, trace_action
+from .exceptions import ValidationError
+from .exceptions.codes import ErrorCode
 
 if TYPE_CHECKING:
     from graph_rlm.backend.src.mcp_integration.skill_storage import SkillsManager
@@ -63,6 +65,66 @@ def is_skills_available():
 
 
 logger = get_logger("graph_rlm.agent")
+
+
+def validate_agent_prompt(prompt: str, max_length: int = 100000) -> None:
+    """Validate agent prompt input.
+
+    Args:
+        prompt: The prompt to validate.
+        max_length: Maximum allowed prompt length.
+
+    Raises:
+        ValidationError: If prompt is invalid.
+    """
+    if not prompt or not prompt.strip():
+        raise ValidationError(
+            message="Prompt cannot be empty",
+            error_code=ErrorCode.VALIDATION_FIELD_REQUIRED,
+            field="prompt",
+            constraint="non_empty",
+        )
+
+    if len(prompt) > max_length:
+        raise ValidationError(
+            message=f"Prompt exceeds maximum length of {max_length} characters",
+            error_code=ErrorCode.VALIDATION_VALUE_OUT_OF_RANGE,
+            field="prompt",
+            constraint=f"length <= {max_length}",
+            actual_length=len(prompt),
+        )
+
+
+def validate_session_id(session_id: str) -> None:
+    """Validate session ID format.
+
+    Args:
+        session_id: The session ID to validate.
+
+    Raises:
+        ValidationError: If session_id is invalid.
+    """
+    if not session_id or not isinstance(session_id, str):
+        raise ValidationError(
+            message="Session ID must be a non-empty string",
+            error_code=ErrorCode.VALIDATION_FIELD_REQUIRED,
+            field="session_id",
+            constraint="non_empty_string",
+        )
+
+    # UUID format check (session IDs should be UUIDs)
+    import re
+
+    uuid_pattern = re.compile(
+        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+    )
+    if not uuid_pattern.match(session_id):
+        raise ValidationError(
+            message="Session ID must be a valid UUID",
+            error_code=ErrorCode.VALIDATION_FIELD_INVALID,
+            field="session_id",
+            constraint="uuid_format",
+        )
 
 
 # Register the monitor
