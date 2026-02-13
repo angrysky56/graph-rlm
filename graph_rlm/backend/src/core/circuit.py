@@ -71,6 +71,8 @@ class CircuitOpenError(BaseGraphRLMError):
             correlation_id: Request correlation ID for tracing.
             circuit_name: Name of the circuit that is open.
         """
+        # Store circuit_name as instance attribute for proper access
+        self.circuit_name = circuit_name
         super().__init__(
             message=message,
             error_code=ErrorCode.CORE_CIRCUIT_OPEN,

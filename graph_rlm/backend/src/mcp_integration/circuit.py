@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional
 
 import structlog
 
-from ..circuit import (
+from graph_rlm.backend.src.core.circuit import (
     CircuitOpenError,
     get_correlation_id,
     generate_correlation_id,
