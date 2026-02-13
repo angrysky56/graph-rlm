@@ -1,6 +1,4 @@
-""""""
-MCP Integration Core Package.
-"""
+"""MCP Integration Core Package."""
 
 from .circuit import (
     safe_mcp_call,
@@ -14,4 +12,4 @@ __all__ = [
     "safe_mcp_connection",
     "get_mcp_circuit_metrics",
     "get_all_circuit_metrics",
-]"""
+]

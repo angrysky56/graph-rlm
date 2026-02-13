@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .base import BaseGraphRLMError
-from .codes import ErrorCode
+from .codes import ErrorCode, ErrorCodeCategory
 
 
 class CoreError(BaseGraphRLMError):
@@ -28,7 +28,7 @@ class CoreError(BaseGraphRLMError):
         cause: Optional[BaseException] = None,
         **context: Any,
     ) -> None:
-        if not error_code.category == ErrorCode.CORE:
+        if not error_code.category == ErrorCodeCategory.CORE:
             error_code = ErrorCode.CORE_INTERNAL_ERROR
 
         super().__init__(
@@ -56,7 +56,7 @@ class GraphError(BaseGraphRLMError):
         cause: Optional[BaseException] = None,
         **context: Any,
     ) -> None:
-        if not error_code.category == ErrorCode.GRAPH:
+        if not error_code.category == ErrorCodeCategory.GRAPH:
             error_code = ErrorCode.GRAPH_OPERATION_FAILED
 
         super().__init__(
@@ -92,7 +92,7 @@ class SkillExecutionError(BaseGraphRLMError):
         cause: Optional[BaseException] = None,
         **context: Any,
     ) -> None:
-        if not error_code.category == ErrorCode.SKILL:
+        if not error_code.category == ErrorCodeCategory.SKILL:
             error_code = ErrorCode.SKILL_EXECUTION_FAILED
 
         super().__init__(
@@ -128,7 +128,7 @@ class ExternalServiceError(BaseGraphRLMError):
         cause: Optional[BaseException] = None,
         **context: Any,
     ) -> None:
-        if not error_code.category == ErrorCode.EXTERNAL:
+        if not error_code.category == ErrorCodeCategory.EXTERNAL:
             error_code = ErrorCode.EXTERNAL_SERVICE_ERROR
 
         super().__init__(
@@ -168,7 +168,7 @@ class ValidationError(BaseGraphRLMError):
         cause: Optional[BaseException] = None,
         **context: Any,
     ) -> None:
-        if not error_code.category == ErrorCode.VALIDATION:
+        if not error_code.category == ErrorCodeCategory.VALIDATION:
             error_code = ErrorCode.VALIDATION_FIELD_INVALID
 
         super().__init__(
