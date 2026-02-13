@@ -66,9 +66,6 @@ source = ["graph_rlm.backend.src"]
 omit = ["*/tests/*", "*/__pycache__/*", "*/migrations/*"]
 branch = true
 
-[tool.coverage.run.per_module]
-# Per-module coverage tracking
-
 [tool.coverage.report]
 exclude_lines = [
     "pragma: no cover",
@@ -78,12 +75,8 @@ exclude_lines = [
     "if TYPE_CHECKING:",
 ]
 
-# Coverage thresholds for infrastructure modules
+# Coverage thresholds
 fail_under = 85
-
-[tool.coverage.report.partial]
-# Partial coverage exclusions by module
-ignore_errors = false
 
 [tool.coverage.html]
 title = "Graph-RLM Coverage Report"
