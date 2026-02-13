@@ -51,11 +51,23 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+addopts = """
+    -v
+    --tb=short
+    --cov=graph_rlm.backend.src
+    --cov-context=test
+    --cov-report=term-missing
+    --cov-report=html:htmlcov
+    --cov-report=lcov:coverage.lcov
+"""
 
 [tool.coverage.run]
-source = ["src"]
-omit = ["*/tests/*", "*/__pycache__/*"]
+source = ["graph_rlm.backend.src"]
+omit = ["*/tests/*", "*/__pycache__/*", "*/migrations/*"]
+branch = true
+
+[tool.coverage.run.per_module]
+# Per-module coverage tracking
 
 [tool.coverage.report]
 exclude_lines = [
@@ -63,4 +75,16 @@ exclude_lines = [
     "def __repr__",
     "raise AssertionError",
     "raise NotImplementedError",
+    "if TYPE_CHECKING:",
 ]
+
+# Coverage thresholds for infrastructure modules
+fail_under = 85
+
+[tool.coverage.report.partial]
+# Partial coverage exclusions by module
+ignore_errors = false
+
+[tool.coverage.html]
+title = "Graph-RLM Coverage Report"
+show_contexts = true
