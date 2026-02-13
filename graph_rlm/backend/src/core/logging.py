@@ -13,10 +13,9 @@ import structlog
 from structlog import processors as structlog_processors
 from structlog.contextvars import merge_contextvars, clear_contextvars, bind_contextvars
 from structlog.stdlib import add_log_level, ProcessorFormatter
+from contextvars import ContextVar
 
-CORRELATION_ID_CTX: structlog.contextvars.ContextVar[str | None] = (
-    structlog.contextvars.ContextVar("correlation_id", default=None)
-)
+CORRELATION_ID_CTX: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
 def get_correlation_id() -> str | None:
