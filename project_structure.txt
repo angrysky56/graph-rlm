@@ -17,7 +17,9 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
     setup_env.sh
     src_reference.md
     start.sh
+    test_pydantic_ai.py
     test_report_data_pipeline.py
+    test_rlm_list_skills.py
     uv.lock
     falkordb_data/
     CODEAGENCY/
@@ -25,6 +27,10 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         evaluation.md
         plan.md
         trace_analysis.md
+    .ralph/
+        GUARDRAILS.md
+        PROGRESS.md
+        SPEC.md
     .planning/
         PROJECT.md
         REQUIREMENTS.md
@@ -110,170 +116,20 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
             svgo.config.mjs
         plugins/
     knowledge_base/
-        README.md
-        reports/
-            2406_19108_analysis_report.md
-            agi_consistency_final_paper_grounded.md
-            agi_consistency_final_paper_grounded_v17.md
-            agi_consistency_final_paper_grounded_v3.md
-            agi_sheaf_paper_final_v2.md
-            agi_sheaf_reasoning_final_analysis.md
-            agi_sheaf_topology_final_grounded.md
-            agi_sheaf_topology_final_v15.md
-            agi_sheaf_topology_final_v16.md
-            agi_sheaf_topology_final_v18.md
-            agi_sheaf_topology_final_v4.md
-            arxiv_2111_00600_analysis.md
-            arxiv_2406_19108_analysis.md
-            arxiv_sheaf_analysis.md
-            arxiv_sheaf_analysis_grounded.md
-            arxiv_sheaf_grounding_complete.md
-            arxiv_sheaf_grounding_complete_final.md
-            arxiv_sheaf_grounding_final.md
-            arxiv_sheaf_reasoning_final.md
-            arxiv_sheaf_reasoning_final_analysis.md
-            arxiv_sheaf_reasoning_final_grounding.md
-            arxiv_sheaf_reasoning_synthesis.md
-            arxiv_sheaf_reasoning_synthesis_final.md
-            arxiv_sheaf_reasoning_synthesis_v33.md
-            arxiv_sheaf_reasoning_terminal_audit.md
-            arxiv_sheaf_reasoning_v12_final.md
-            cohomology_report_v2.md
-            final_arxiv_grounding_analysis.md
-            grounded_arxiv_synthesis.md
-            long_context_llms_report.md
-            paper_2406_19108.pdf
-            paper_analysis_2406.19108.md
-            research_2406_19108_raw.txt
-            review_2406.19108.md
-            sheaf_agi_expansion_vFinal.md
-            sheaf_rationality_final_synthesis.md
-            sheaf_reasoning_final_analysis.md
-            sheaf_reasoning_final_grounding.md
-            sheaf_reasoning_grounded_synthesis.md
-            sheaf_reasoning_synthesis_final.md
-            sheaf_reasoning_synthesis_final_grounded.md
-            sheaf_reasoning_synthesis_v17.md
-            sheaf_reasoning_terminal_synthesis.md
-            sheaf_system_whitepaper_ieee.md
-            sheaf_system_whitepaper_ieee_full.md
-            sheaf_theoretic_ade_optimization.md
-            sheaf_theoretic_ade_optimization_v2.md
-            system_error_report.md
-            system_issues_report.md
-            unified_agi_sheaf_synthesis.md
         research-reports/
             2410.06277.pdf
             2410.06277.txt
-            2601_18064v1_dev_doc.md
-            2602.01566.pdf
-            G-RLM_Evaluation_2602_01566.md
-            G_RLM_Analysis_Grounded.md
-            agentic_topology_draft.txt
-            agentic_workflow_provenance.txt
-            ai_ml_local_dev_report.md
-            ai_ml_report_2026.md
-            alignment_research_report.md
-            artifact_ui_research_raw.txt
             arxiv_2103.00079_llm_ad_quantization_report.md
-            arxiv_2602_01566.md
-            arxiv_downloads_summary.md
-            axiomatic_recovery_vFinal.md
-            bardo_logic_guide.md
-            cag_initial_research.txt
-            crystallized_2601_18064v1.md
-            crystallized_verification_report.md
-            diagrammatic_reasoner_dev_plan.md
-            epistemic_validation_report.md
-            falkordb_agent_knowledge.md
-            final_axiomatic_crystallization.md
-            final_axiomatic_recovery.md
-            full_text_2309.12307v3.txt
             graph_rlm_framework_report.md
             graph_rlm_implementation_audit.md
-            graph_rlm_improvement_report.md
-            infiAgent_comparison_report.md
-            infranodus_study.md
-            metadata_1607.01713v2.txt
-            metadata_1808.08289v2.txt
-            metadata_2008.12586v1.txt
-            metadata_2110.04206v2.txt
-            metadata_2303.00154v1.txt
-            metadata_2309.12307v3.txt
-            paper_2501_13978.txt
-            plan_kr_whitepaper.md
-            raw_2602_01566.txt
-            raw_rope_search.txt
-            react_llm_artifacts_ui.md
-            recursive_stability_analysis_v2.txt
-            rope_scaling_2025.md
-            rope_scaling_2025_report.md
-            rope_scaling_2025_v2.md
-            rope_scaling_final.md
-            rope_scaling_metadata.json
-            rope_scaling_report_v1.md
-            rope_scaling_research.json
-            rope_scaling_technical_v1.md
-            rope_scaling_technical_v2.md
-            rope_scaling_technical_v3.md
-            stability_convergence_report.md
             toe-report.md
-            whitepaper_synthesis.md
-            rope_scaling/
-                1607.01713v2.txt
-                2008.12586v1.txt
-                2110.04206v2.txt
-                2303.00154v1.txt
-                2309.12307v3.txt
-                metadata.json
         plans/
             implementation_plan.md
-            session_resumption_anchor.md
-        workspace/
-            projects/
-            debug_logs/
         outputs/
-            KR_Whitepaper_GraphRLM.md
-            RoPE_Scaling_Report_IEEE.txt
-            continuation_grounding_verification.md
-            empirical_report.md
-            final_diagnostic_report.txt
-            final_environmental_audit.md
-            final_grounded_integrity.md
-            final_literal_audit.md
-            final_realism_verified.md
-            final_system_report.md
-            final_verified_grounded_state.md
-            final_verified_report.md
-            final_verified_status.md
-            graph_viz_dev_doc_infranodus.md
-            grounded_integrity_report.md
-            mcp_diagnostic_success.txt
-            paper_2406.19108.pdf
-            rope_scaling_final_report.md
-            session_resume_verification.md
-            test_connection.txt
-            verified_grounded_state.md
             raw_demo_results/
-                2-6-26-2350.md
-                bardo_raw.md
-                bardo_raw_2.md
-                coherent_agent_raw.md
-                continue_prompt_2_2_26_1600.md
-                full_pipeline_1_31_0100.md
                 gen_idea_test_1.md
                 jan-27-test1.md
-                jan31-26-0330.md
                 meta-workflow-system.md
-                ooda-recursive-eval-raw.md
-                quantum-battery.md
-                raw-issues-2-5-26.md
-                scratchpad-2-3-26.md
-                scratchpad_issues_jan_31_1400.md
-                spectral-supersampling.md
-                terminal-issues-jan30-530am.md
-        axioms/
-            heartbeat.txt
     docs/
         10 Advanced Feature Engineering Methods.md
         2025-11-memory-perception-hebbian-recall-events.pdf
@@ -291,6 +147,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         agentic_tdd_spec.md
         googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
         implementation_plan.md
+        rlm_prompting_from_paper.md
         rlm_self_healing_pipeline.md
         rlm_system_alignment.md
         schmid-applied-sheaf-theory.pdf
@@ -500,19 +357,15 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         debug_paper_read.py
         debug_prompt.py
         diagnose_overlap.py
-        exam_cli.py
         full_prompt.txt
         full_prompt_fixed.txt
         get_axiom_code.py
         inspect_db.py
-        inspect_logging.py
         list_skills_db.py
         purge_poisonous_axiom.py
         regenerate_tools.py
         reproduce_dream_warning.py
         reproduce_filtering_failure.py
-        rope_research_buffer.txt
-        test_agent_morph_integration.py
         test_axiom_relevance.py
         test_cag_basics.py
         test_cag_ingest.py
@@ -520,49 +373,29 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         test_cypher_diag.py
         test_cypher_edge.py
         test_cypher_fail.py
-        test_debug_pipeline.py
-        test_discovery.py
         test_drop_syntax.py
         test_emergency_fix.py
-        test_execution_verification.txt
         test_import.py
         test_indexes.py
         test_integrity_upgrade.py
-        test_llm_resilience.py
         test_mcp_reflection.py
-        test_morphogenesis.py
-        test_numpy.py
-        test_reflexion.py
-        test_repe_gatekeeper.py
         test_shadowing_fail.py
         test_skill_import_fix.py
         test_skills.py
-        test_sync.py
         test_tool_recovery.py
-        test_validation_protocol.py
         test_vec_dist.py
         test_vector_syntax.py
-        verify_agent_recovery.py
         verify_agentic_axioms.py
         verify_axiom_transparency.py
-        verify_backend.py
-        verify_comm_flow.py
-        verify_curiosity.py
         verify_honest_sheaf.py
-        verify_loop_fix.py
         verify_mcp_counts.py
         verify_namespacing.py
-        verify_output.txt
         verify_prompt.py
         verify_reliability.py
         verify_repl_v2.py
-        verify_routing.py
         verify_scratchpad_compression.py
-        verify_scratchpad_truncation.py
         verify_self_healing.py
-        verify_skill_output.py
         verify_stateless.py
-        verify_traceability.py
         legacy/
             __init__.py
             test_agent.py
@@ -577,22 +410,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                 test_validation.py
         integration/
             test_mcp_circuit_breaker.py
-        tests/
-            __init__.py
-            probe_index.py
-            probe_index_2.py
-            probe_vector.py
-            test_agent_isolation.py
-            test_agent_manual.py
-            test_core_isolation.py
-            test_mcp_ipc_resolution.py
-            test_normalization.py
-            test_recursive_isolation.py
-            test_repl_auto_await.py
-            test_sheaf.py
-            test_skill_proxy.py
-            test_vectors.py
-            verify_traceability.py
         mocking/
             __init__.py
             external.py
@@ -603,74 +420,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         rules/
             ast-asg-tools.md
             tdd.md
-    skills/
-        README.md
-        __init__.py
-        ask_gordon.py
-        atmospheric_entropy.py
-        auto_crystallize_insights_skill.py
-        auto_decay_ruminator_skill.py
-        bootstrap_environment.py
-        calculate_marathon_pace.py
-        categorical_kg_bridge.py
-        check_return_type.py
-        cognitive_research.py
-        coherence_shield.py
-        commit_epistemic_victory_skill.py
-        coordinator_enhanced_task.py
-        crystallize_epistemic_victory.py
-        daily_knowledge_digest.py
-        debug_path.py
-        debug_team.py
-        demo_math.py
-        difficult_problem_solver.py
-        dikw_modeler.py
-        docker_ps_raw.py
-        docker_safe_write.py
-        entropy_walker_experiment.py
-        epistemic_agency_loop_skill.py
-        epistemic_renormalization_protocol_v3.py
-        file_writer.py
-        firecrawl_web_search.py
-        generate_adapters.py
-        get_wolfram_simple_answer.py
-        higuchi_fractal_dimension.py
-        hybrid_cognitive_search_skill.py
-        list_mcp_containers.py
-        logic_gated_ingestion_final.py
-        market_analysis.py
-        ralph_protocol.py
-        replay_entropy_trace_skill.py
-        research.py
-        run_code_agency.py
-        run_physics_screener.py
-        safe_write_file.py
-        save_entropy_trace_skill.py
-        schema_builder.py
-        schema_category_integration.py
-        scientific_orchestrator.py
-        search_web.py
-        snapshot_crypto.py
-        test_requests.py
-        test_skill_1.py
-        test_vg_skill.py
-        track_alpha_signals.py
-        validate_system_health.py
-        verify_barber_paradox.py
-        verify_coinbase_tradability.py
-        verify_epistemic_integrity.py
-        wiki_extract.py
-        wolfram_query.py
-        xuanji_proof.py
-        skill-scaffolder/
-            SKILL.md
-            references/
-                best-practices.md
-            scripts/
-                skill_scaffolder.md
-                template.py
-        agentskills/
-            SKILL.md
     scripts/
         generate_structure.py
         purge_orphaned_axioms.py

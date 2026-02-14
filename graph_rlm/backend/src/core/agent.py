@@ -39,6 +39,7 @@ from .morphogenesis import MorphologicalMemory
 from .navigator import Navigator
 from .omcd import omcd
 from .prompts import build_system_prompt
+from .reflexion import intelli_synth
 from .repe import repe
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
@@ -179,6 +180,7 @@ class Agent:
         # --- STATE INITIALIZATION (Linter safety) ---
         self.last_dream_insight: Optional[str] = None
         self._dreamer_retry_count: int = 0  # Counter for repeated insight escalation
+        self._validation_retries: int = 0  # Counter for validation attempt loops
         self.stop_requested: bool = False
         self.final_result: Optional[str] = None
         self.synthesis_triggered: bool = False
@@ -811,6 +813,25 @@ class Agent:
                     result=plan_summary,
                     tag="AGENT",
                 )
+
+                # --- BREAKER PROTOCOL INJECTION ---
+                # If the task is complex enough, inject a decomposition directive
+                # so the agent naturally breaks it into sub-tasks.
+                context_size = len(prompt)
+                if meta_agents.should_spawn_breakers(prompt, context_size, depth=depth):
+                    breaker_instructions = meta_agents.get_breaker_instructions(
+                        prompt, fragment_index=0
+                    )
+                    self.emit_event(
+                        "RLM_BREAKER_PROTOCOL",
+                        content="Task complexity detected. BREAKER protocol injected.",
+                        tag="META_AGENT",
+                    )
+                    # Prepend to prompt so the agent sees it as a system directive
+                    prompt = f"{breaker_instructions}\n\n{prompt}"
+                    logger.info(
+                        "[MetaAgent] BREAKER protocol injected for complex task."
+                    )
             except (ImportError, AttributeError, RuntimeError) as e:
                 logger.warning("Task plan generation failed: %s", e)
 
@@ -1327,7 +1348,7 @@ class Agent:
                     )
 
                     intervention_prompt = (
-                        f"SYSTEM INTERVENTION (Sheaf Topology): Logical Knot detected. "
+                        f"SYSTEM INTERVENTION (Sheaf Topology/IntelliSynth): Logical Knot detected. "
                         f"REPL ID: {repl_id} | Point: {thought_id} | Issue: {dream_critique} "
                     )
 
@@ -1583,6 +1604,41 @@ Summary (describe WHAT was done and KEY outcome):"""
             # Update previous status for next iteration
             previous_thought_status = thought_status
             self.current_thought_id = thought_id
+
+            # --- CONTINUOUS MORPHOLOGICAL MEMORY ---
+            # Feed every committed thought's embedding back into the grid
+            # so the gestalt evolves with the agent's actual trajectory.
+            if final_vec is not None:
+                try:
+                    self.morph_memory.seed(final_vec)
+                except (ValueError, TypeError, AttributeError) as morph_err:
+                    logger.debug("Morph memory continuous seed skipped: %s", morph_err)
+
+            # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
+            # If the Sheaf detected fragmented reasoning (h0_rank > 1),
+            # inject a SYNTHESIZER directive to force unification.
+            h0_rank_raw = sheaf_diag.get("h0_rank") if sheaf_diag else None
+            h0_rank = int(h0_rank_raw) if h0_rank_raw is not None else None
+            if h0_rank is not None and h0_rank > 1:
+                try:
+                    from .meta_agents import meta_agents as _ma
+
+                    synth_instructions = _ma.get_synthesizer_instructions(final_root_id)
+                    if synth_instructions:
+                        logger.warning(
+                            "🧩 Topological Fragmentation (H0=%d). "
+                            "Injecting SYNTHESIZER directive.",
+                            h0_rank,
+                        )
+                        # Prepend to next iteration's context
+                        context_scratchpad = (
+                            f"\n--- 🧩 SYNTHESIZER DIRECTIVE (H0={h0_rank}) ---\n"
+                            f"Your reasoning graph has {h0_rank} disconnected components. "
+                            "You MUST unify your approach before proceeding.\n"
+                            f"---\n{context_scratchpad}"
+                        )
+                except (ImportError, AttributeError, RuntimeError) as synth_err:
+                    logger.debug("Synthesizer injection skipped: %s", synth_err)
 
             # 1. Answer Detection & Terminal Triggers
             code_result = getattr(self, "final_result", None)
@@ -1987,12 +2043,31 @@ Summary (describe WHAT was done and KEY outcome):"""
                     energy,
                 )
 
-                # Overwrite the 'thought' with a Meta-Cognitive critique
-                reflexion_content = (
-                    f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {energy:.2f}). "
-                    "I am repeating myself or contradicting recent history. "
-                    "I MUST now change my approach completely. Am I stuck in a meta-loop? Break it."
+                # Overwrite the 'thought' with a Meta-Cognitive critique (IntelliSynth)
+                # Dynamic Logic Analysis instead of static warning
+                logger.warning(
+                    "Sheaf detected logical knot (Energy %.2f). triggering IntelliSynth Advancement Cycle.",
+                    energy,
                 )
+
+                try:
+                    # Trigger the real Truth -> Scrutiny -> Improvement cycle
+                    # self.current_thought_id is the PARENT of the knot, or the knot itself?
+                    # We pass the scratchpad as context.
+                    directive = await intelli_synth.advancement_cycle(
+                        trace_context=context_scratchpad,  # Pass the current scratchpad as reality
+                        current_thought=response_text,
+                        divergence_point=f"High-Energy Logical Knot (Energy: {energy:.2f}) at Step {step}",
+                    )
+                    reflexion_content = f"SYSTEM REFLEXION (IntelliSynth): {directive}"
+                except (AttributeError, RuntimeError, ValueError) as e:
+                    logger.error("IntelliSynth cycle failed: %s", e)
+                    # Fallback
+                    reflexion_content = (
+                        f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {energy:.2f}). "
+                        "I am repeating myself or contradicting recent history. "
+                        "I MUST now change my approach completely. Am I stuck in a meta-loop? Break it."
+                    )
 
                 # Create a specific 'Reflexion' node
                 reflexion_id = str(uuid.uuid4())
