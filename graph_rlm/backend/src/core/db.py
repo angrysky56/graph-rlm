@@ -8,6 +8,7 @@ import time
 import traceback
 from typing import Any, Dict, List, Optional
 
+import redis
 from falkordb import FalkorDB
 from langchain_community.graphs import FalkorDBGraph
 
@@ -58,7 +59,7 @@ class GraphClient:
             for row in res.result_set:
                 results.append(dict(zip(column_names, row, strict=True)))
             return results
-        except Exception as e:
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             logger.error(
                 "FalkorDB Query Error: %s\nQuery: %s\nParams: %s", e, query, params
             )
@@ -106,7 +107,7 @@ class GraphClient:
             result: Full execution output
             next_action: What the agent should do next
             dreamer_analysis: Analysis from dreamer cycle
-            final_response: RLM_FINAL_RESPONSE if terminal step
+            final_response: RLM_FINAL_OUTPUT if terminal step
             round_id: ID of the current round
             turn_id: High-level turn counter
             step_id: Atomic step counter
@@ -124,14 +125,18 @@ class GraphClient:
             try:
                 # Check if parent exists and get its metadata for continuity check
                 parent_meta = None
+                parent_type = None
                 if parent_id:
                     p_res = self.query(
-                        "MATCH (p:Thought {id: $pid}) "
-                        "RETURN p.session_id as session_id, p.root_session_id as root_session_id",
+                        "MATCH (p) WHERE p.id = $pid "
+                        "RETURN labels(p)[0] as type, p.session_id as session_id, p.root_session_id as root_session_id",
                         {"pid": parent_id},
                     )
                     if p_res:
                         parent_meta = p_res[0]
+                        parent_type = parent_meta.get("type")
+
+                from .guardrails import validate_no_blind_transitions
 
                 validate_thought_node(
                     thought_id=thought_id,
@@ -143,11 +148,24 @@ class GraphClient:
                     turn_id=turn_id,
                     step_id=step_id,
                     parent_metadata=parent_meta,
+                    node_type="Thought",
+                )
+
+                validate_no_blind_transitions(
+                    node_type="Thought",
+                    _content=prompt,
+                    parent_type=parent_type,
                 )
             except GuardrailError as ge:
                 logger.error("Guardrail Violation: %s", ge)
                 raise
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except (
+                RuntimeError,
+                AttributeError,
+                ValueError,
+                TypeError,
+                redis.exceptions.RedisError,
+            ) as e:
                 logger.error("Guardrail internal error: %s", e)
 
         params: Dict[str, Any] = {
@@ -334,7 +352,7 @@ class GraphClient:
                     {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
                 )
             return results
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             logger.warning("Vector search failed: %s", e)
             return []
 
@@ -354,7 +372,7 @@ class GraphClient:
             logger.info(
                 "Sync: Vector Index on Thought(embedding) created (dim=%d)", dim
             )
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             if "already indexed" not in str(e).lower():
                 logger.warning("Thought vector index creation skipped: %s", e)
 
@@ -366,7 +384,7 @@ class GraphClient:
             )
             self.raw_graph.query(cypher)
             logger.info("Sync: Vector Index on Skill(embedding) created (dim=%d)", dim)
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             if "already indexed" not in str(e).lower():
                 logger.warning("Skill vector index creation skipped: %s", e)
 
@@ -378,7 +396,7 @@ class GraphClient:
             )
             self.raw_graph.query(cypher)
             logger.info("Sync: Vector Index on Axiom(embedding) created (dim=%d)", dim)
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             if "already indexed" not in str(e).lower():
                 logger.warning("Axiom vector index creation skipped: %s", e)
 
@@ -390,7 +408,7 @@ class GraphClient:
             # FalkorDB standard index drop syntax
             self.query("DROP INDEX FOR (t:Thought) ON (t.embedding)")
             logger.info("Dropped Vector Index on Thought.embedding")
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
             logger.debug("Vector index drop skipped: %s", e)
 
     def wait_for_index(self, label: str):
@@ -416,7 +434,7 @@ class GraphClient:
 
                     if r_label == label and r_status == "OPERATIONAL":
                         return
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:
                 logger.debug("Index check polling error: %s", e)
             time.sleep(0.5)
 
@@ -455,7 +473,13 @@ class GraphClient:
 
         try:
             return self.query(cypher, params)
-        except Exception as e:  # pylint: disable=broad-exception-caught
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            TypeError,
+            redis.exceptions.RedisError,
+        ) as e:
             logger.error("Failed to get context frontier: %s", e)
             return []
 
@@ -520,7 +544,13 @@ class GraphClient:
                         status="complete",
                     )
                     count += 1
-            except Exception as e:  # pylint: disable=broad-exception-caught
+            except (
+                RuntimeError,
+                AttributeError,
+                ValueError,
+                TypeError,
+                redis.exceptions.RedisError,
+            ) as e:
                 logger.error("Failed to re-embed thought %s: %s", node_id, e)
 
         logger.info("Re-embedding complete. Updated %d thoughts.", count)
@@ -542,7 +572,7 @@ class GraphClient:
         """
         Archives a completed round to the graph.
 
-        A 'round' is one user prompt -> agent steps -> RLM_FINAL_RESPONSE cycle.
+        A 'round' is one user prompt -> agent steps -> RLM_FINAL_OUTPUT cycle.
         Saved for compressed reference in future scratchpads.
         """
         params = {
@@ -748,9 +778,33 @@ class GraphClient:
         AND n.sheaf_score IS NOT NULL
         RETURN n.sheaf_score as sheaf_score,
                n.spectral_energy as spectral_energy,
-               n.h0_rank as h0_rank
+               n.h0_rank as h0_rank,
+               n.id as id
         """
         results = self.query(q, {"rsid": root_session_id})
+
+        # 2. Extract Graph Topology for Basis Computation
+        graph_nodes = [{"id": r.get("id")} for r in results if r.get("id")]
+
+        # We need edges to build the Laplacian
+        q_edges = """
+        MATCH (n:Thought)-[:DECOMPOSES_INTO]->(m:Thought)
+        WHERE n.root_session_id = $rsid
+        RETURN n.id as source, m.id as target
+        """
+        edges_res = self.query(q_edges, {"rsid": root_session_id})
+        graph_edges = [(r["source"], r["target"]) for r in edges_res]
+
+        # 3. Compute Kernel Basis
+        # Lazy import to avoid circular dependencies
+        from .topology import compute_sheaf_laplacian, extract_kernel_basis
+
+        try:
+            laplacian = compute_sheaf_laplacian(graph_nodes, graph_edges)
+            kernel_basis = extract_kernel_basis(laplacian)
+        except (RuntimeError, ValueError, AttributeError, TypeError) as e:
+            logger.warning("Failed to compute actual kernel basis: %s", e)
+            kernel_basis = [[0.7071, 0.7071]]  # Final fallback
 
         if not results:
             return {
@@ -760,7 +814,7 @@ class GraphClient:
                 "avg_sheaf_score": 0.0,
                 "avg_spectral_energy": 0.0,
                 "avg_h0_rank": 0,
-                "kernel_basis": [0.7071, 0.7071],
+                "kernel_basis": [[0.7071, 0.7071]],  # Use the fallback here too
                 "status": "no_data",
             }
 
@@ -782,17 +836,16 @@ class GraphClient:
             "sheaf_scores": sheaf_scores,
             "spectral_energies": spectral_energies,
             "h0_ranks": h0_ranks,
-            "avg_sheaf_score": sum(sheaf_scores) / len(sheaf_scores)
-            if sheaf_scores
-            else 0.0,
-            "avg_spectral_energy": sum(spectral_energies) / len(spectral_energies)
-            if spectral_energies
-            else 0.0,
+            "avg_sheaf_score": (
+                sum(sheaf_scores) / len(sheaf_scores) if sheaf_scores else 0.0
+            ),
+            "avg_spectral_energy": (
+                sum(spectral_energies) / len(spectral_energies)
+                if spectral_energies
+                else 0.0
+            ),
             "avg_h0_rank": sum(h0_ranks) / len(h0_ranks) if h0_ranks else 0,
-            "kernel_basis": [
-                0.7071,
-                0.7071,
-            ],  # TODO: Extract actual kernel basis from computation
+            "kernel_basis": kernel_basis,
             "status": "success",
         }
 

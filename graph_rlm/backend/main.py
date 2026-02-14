@@ -3,6 +3,7 @@ Entry point for the Graph-RLM Backend API.
 Handles startup/shutdown lifecycle, MCP tool discovery, and API routing.
 """
 
+import json
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -13,20 +14,20 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from graph_rlm.backend.src.core.circuit import CircuitOpenError
 from graph_rlm.backend.src.core.config import settings
 from graph_rlm.backend.src.core.endpoints import router as api_router
+from graph_rlm.backend.src.core.exceptions.base import BaseGraphRLMError
 from graph_rlm.backend.src.core.exceptions.handlers import (
-    graphrlm_exception_handler,
-    validation_exception_handler,
     circuit_open_exception_handler,
     external_service_exception_handler,
+    graphrlm_exception_handler,
+    validation_exception_handler,
 )
-from graph_rlm.backend.src.core.exceptions.base import BaseGraphRLMError
 from graph_rlm.backend.src.core.exceptions.types import (
-    ValidationError,
     ExternalServiceError,
+    ValidationError,
 )
-from graph_rlm.backend.src.core.circuit import CircuitOpenError
 
 project_root = Path(__file__).parent.parent.parent.resolve()
 load_dotenv(project_root / ".env")
@@ -79,8 +80,6 @@ async def lifespan(fastapi_app: FastAPI):
             if output_dir.exists():
                 # Load config to check if any servers are missing files
                 try:
-                    import json
-
                     with open(config_path, encoding="utf-8") as f:
                         config_data = json.load(f)
                     config_servers = config_data.get("mcpServers", {})
@@ -127,10 +126,17 @@ async def lifespan(fastapi_app: FastAPI):
                                     pass
 
                             print(
-                                f"MCP: Cached - Found {server_count} servers and {tool_count} tools in {output_dir.name}/"
+                                f"MCP: Cached - Found {server_count} servers and "
+                                f"{tool_count} tools in {output_dir.name}/"
                             )
                             should_regenerate = False
-                except Exception as e:
+                except (
+                    OSError,
+                    IOError,
+                    json.JSONDecodeError,
+                    AttributeError,
+                    ValueError,
+                ) as e:
                     logging.getLogger(__name__).error(
                         "Failed to verify MCP cache consistency: %s", e
                     )
@@ -147,7 +153,14 @@ async def lifespan(fastapi_app: FastAPI):
         else:
             print("MCP: No mcp_servers.json found, skipping tool generation.")
 
-    except Exception as e:
+    except (
+        RuntimeError,
+        ValueError,
+        KeyError,
+        AttributeError,
+        OSError,
+        ImportError,
+    ) as e:
         print(f"MCP Initialization Failed: {e}")
 
     # --- STARTUP COMPLETE ---
@@ -160,7 +173,7 @@ async def lifespan(fastapi_app: FastAPI):
 
         agent.stop_generation()
         print("    -> Agent told to stop.")
-    except Exception as e:  # pylint: disable=broad-except
+    except (AttributeError, RuntimeError, ImportError) as e:
         print(f"Cleanup Failed: {e}")
 
 
@@ -180,10 +193,10 @@ app.add_middleware(
 )
 
 # Register exception handlers (specific handlers first, general handler last)
-app.add_exception_handler(ValidationError, validation_exception_handler)
-app.add_exception_handler(CircuitOpenError, circuit_open_exception_handler)
-app.add_exception_handler(ExternalServiceError, external_service_exception_handler)
-app.add_exception_handler(BaseGraphRLMError, graphrlm_exception_handler)
+app.add_exception_handler(ValidationError, validation_exception_handler)  # type: ignore
+app.add_exception_handler(CircuitOpenError, circuit_open_exception_handler)  # type: ignore
+app.add_exception_handler(ExternalServiceError, external_service_exception_handler)  # type: ignore
+app.add_exception_handler(BaseGraphRLMError, graphrlm_exception_handler)  # type: ignore
 
 app.include_router(api_router, prefix="/api/v1")
 

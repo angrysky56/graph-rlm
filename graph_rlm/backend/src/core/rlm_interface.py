@@ -72,7 +72,15 @@ class RLMInterface:
             if server_name in servers:
                 return servers[server_name]
             return {"error": f"Server '{server_name}' not found in configuration."}
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            ImportError,
+            AttributeError,
+            ValueError,
+            TypeError,
+        ) as e:
             return {"error": f"Failed to read MCP config: {e}"}
 
     def record_tool_use(self, name: str):
@@ -92,12 +100,12 @@ class RLMInterface:
             self.agent.execution_logs[self.session_id] = []
         self.agent.execution_logs[self.session_id].append(name)
 
-    async def history(self, limit: int = 20):
+    async def history(self, limit: int = 1000):
         """Retrieve recent thought history for the current session."""
         self.record_tool_use("rlm.history")
         try:
             return self.agent.db.get_session_trace(self.root_session_id, limit=limit)
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.error("Failed to fetch history for rlm.history: %s", e)
             return []
 
@@ -186,12 +194,52 @@ class RLMInterface:
         if context:
             full_prompt = f"Context:\n{context}\n\nTask: {prompt}"
 
-        # --- META-AGENT: Inject Breaker Protocol ---
-        # Sub-REPLs receive Breaker instructions to extract/summarize
-        breaker_instructions = meta_agents.get_breaker_instructions(
-            subtask=prompt, fragment_index=new_depth
+        # --- ATOMIC WORKER PROTOCOL (v2) ---
+        # 1. Generate specialized profile based on subtask
+        profile = meta_agents.generate_sub_agent_profile(prompt)
+
+        # 2. Get high-execution worker instructions
+        worker_instructions = meta_agents.get_worker_instructions(
+            subtask=prompt, tools=profile.get("tools", [])
         )
-        full_prompt = f"{breaker_instructions}\n\n{full_prompt}"
+
+        # 3. Inject Persona and Instructions
+        persona_prefix = f"[PERSONA: {profile['persona']}]\n"
+
+        # 4. Contextual Grounding (REPL ID & Axioms)
+        parent_repl_id = self.agent.active_repls.get(self.session_id, "unknown")
+
+        # Semantic Axiom Retrieval for Child Context
+        axioms_ctx = ""
+        if is_skills_available():
+            try:
+                axioms_mgr = get_axioms_manager()
+                # Find axioms relevant to the SUBTASK
+                relevant_axioms = await axioms_mgr.find_similar_axioms(prompt, limit=5)
+                if relevant_axioms:
+                    axioms_ctx = (
+                        "[RULES & AXIOMS]\n"
+                        + "\n".join(
+                            [
+                                f"- {a['name']}: {a['description']}"
+                                for a in relevant_axioms
+                            ]
+                        )
+                        + "\n"
+                    )
+            except (RuntimeError, AttributeError, ValueError) as e:
+                logger.warning("Failed to load axioms for child query: %s", e)
+
+        full_prompt = (
+            f"{persona_prefix}{worker_instructions}\n\n"
+            f"{axioms_ctx}[PARENT_REPL: {parent_repl_id}]\n\n"
+            f"{full_prompt}"
+        )
+
+        # 5. Metadata Enrichment
+        metadata = metadata or {}
+        metadata["parent_repl_id"] = parent_repl_id
+        metadata["persona"] = profile["persona"]
 
         # stream_query is async, so we await it
         results = ""
@@ -223,9 +271,13 @@ class RLMInterface:
             # Prefix content for better visibility
             content = event.get("content", "")
             if event["type"] == "code_output_chunk":
-                content = f"[RLM Child Output] {content}"
+                content = f"↳ [Child Output] {content}"
+            elif event["type"] == "code_output":
+                content = f"↳ [Child Result] {content}"
             elif event["type"] == "thinking" and content:
                 content = f"⚡ [RLM Child]: {content}"
+            elif event["type"] == "answer" and content:
+                content = f"✅ [Child Answer]: {content}"
 
             self.agent.emit_event(
                 event["type"],
@@ -245,12 +297,19 @@ class RLMInterface:
         # Register this Sub-REPL's output as a Fragment for the parent to synthesize
         fragment = Fragment(
             session_id=new_session_id,
-            summary=results[:500] if results else "",
+            summary=results if results else "",
             subtopics=[],  # Could be parsed from structured output
             confidence=0.7,  # Could be derived from oMCD evaluation
             raw_output=results,
         )
-        meta_agents.register_fragment(self.root_session_id, fragment)
+        # Store metadata for traceability
+        fragment_metadata = {
+            "repl_id": parent_repl_id,
+            "persona": profile.get("persona"),
+        }
+        meta_agents.register_fragment(
+            self.root_session_id, fragment, metadata=fragment_metadata
+        )
 
         return results
 
@@ -363,7 +422,7 @@ class RLMInterface:
                 else "No relevant past thoughts found."
             )
 
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.error("Recall Error: %s", e)
             return f"Error during memory recall: {e}"
 
@@ -430,6 +489,14 @@ class RLMInterface:
         """Reads the source code or instructions of a skill."""
         self.record_tool_use("rlm.read_skill")
         return self.agent.read_skill(name)
+
+    def list_skills(self) -> dict:
+        """Lists all available skills with their descriptions."""
+        self.record_tool_use("rlm.list_skills")
+        if not is_skills_available():
+            return {"error": "Skills system not available."}
+        mgr = get_skills_manager()
+        return mgr.list_skills()
 
     async def run_skill(self, name: str = "", args: Optional[dict] = None, **kwargs):
         """Executes a registered skill."""
@@ -501,21 +568,37 @@ class RLMInterface:
         return self.agent.install_skill_package(package_name)
 
     async def done(self, final_answer: str = ""):
-        """Signifies the agent has reached a final conclusion."""
+        """
+        Signifies the agent has reached an initial conclusion.
+
+        This does NOT stop the agent. Instead, it submits the candidate answer
+        to the Dreamer Validation Pipeline:
+          RLM_INITIAL_RESPONSE -> Dreamer Validation -> RLM_FINAL_OUTPUT
+
+        The UI stop button (global_stop_event) remains an immediate kill switch.
+        """
         self.record_tool_use("rlm.done")
-        self.agent.stop_requested = True
+
+        # Store the candidate — do NOT set stop_requested
         if final_answer:
             self.agent.final_result = final_answer
 
-        # Log a summary to console, but return full confirmation
-        summary = final_answer
-        msg = f"Task Marked Complete. Summary: {summary}"
-        print(f"\n[RLM] {msg}")
+        # Signal the agent loop to enter validation phase
+        self.agent.awaiting_validation = True
 
-        # Emit final answer to UI
-        self.agent.emit_event("answer", content=final_answer)
+        # Log for terminal visibility
+        summary = final_answer[:200] if final_answer else "(no answer provided)"
+        print(
+            f"\n[RLM] 📋 Initial Response submitted for Dreamer Validation: {summary}"
+        )
 
-        return "Task completed successfully."
+        # Emit to UI as a status update (not final)
+        self.agent.emit_event(
+            "RLM_INITIAL_RESPONSE",
+            content=final_answer or "Agent signaled completion. Awaiting validation.",
+        )
+
+        return "Initial response submitted. Awaiting Dreamer Validation."
 
     async def stop(self, final_answer: str = ""):
         """Alias for done()."""
@@ -539,6 +622,7 @@ class RLMInterface:
                 "Persist an instructional skill (SKILL.md)."
             ),
             "read_skill(name)": "Read source code or instructions of a skill.",
+            "list_skills()": "List all available skills with descriptions.",
             "run_skill(name, args)": "Run a saved code block.",
             "get_axiom(name)": "Retrieve axiom code and metadata.",
             "recall_axioms(query, limit)": "Semantic search for domain rules.",
@@ -576,10 +660,59 @@ class RLMInterface:
                         "Failed to load module '%s' for help: %s", module_name, e
                     )
                     continue
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            OSError,
+            json.JSONDecodeError,
+            KeyError,
+            ImportError,
+            AttributeError,
+            ValueError,
+            TypeError,
+        ) as e:
             logger.warning("Error discovering MCP tools for help(): %s", e)
 
         return help_dict
+
+    async def describe_tools(self, module_name: str) -> str:
+        """
+        Returns a formatted string describing all tools in a specific MCP module.
+        Includes function signatures and docstrings.
+        Usage: await rlm.describe_tools('mcp.brave_search')
+        """
+        self.record_tool_use("rlm.describe_tools")
+
+        # Strip 'mcp.' prefix if present
+        clean_name = module_name.replace("mcp.", "")
+
+        try:
+            # Try to load the module
+            mod = importlib.import_module(f"graph_rlm.backend.mcp_tools.{clean_name}")
+
+            lines = [f"## Tools in '{clean_name}'"]
+            found = False
+
+            for name, obj in inspect.getmembers(mod, inspect.isfunction):
+                if not name.startswith("_") and name != "list_tools":
+                    found = True
+                    sig = str(inspect.signature(obj))
+                    doc = inspect.getdoc(obj) or "No description."
+                    # Indent docstring
+                    doc_indented = "\n".join([f"  {line}" for line in doc.split("\n")])
+
+                    lines.append(f"- **{name}{sig}**")
+                    lines.append(f"{doc_indented}")
+                    lines.append("")
+
+            if not found:
+                return f"No tools found in module '{clean_name}'."
+
+            return "\n".join(lines)
+
+        except ImportError:
+            return f"Module '{clean_name}' not found in mcp_tools."
+        except (AttributeError, ValueError, TypeError) as e:
+            logger.error("Error describing tools for %s: %s", clean_name, e)
+            return f"Error describing tools: {e}"
 
     async def query_sync(self, prompt: str, **kwargs):
         """Helper to run a full stream_query to completion and return the final text."""
@@ -610,7 +743,7 @@ class RLMInterface:
                 kernel_data.get("status"),
             )
             return kernel_data
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.error("Failed to retrieve kernel results: %s", e)
             return {
                 "status": "error",
@@ -623,7 +756,7 @@ class RLMInterface:
                 "avg_h0_rank": 0,
             }
 
-    async def generate_report_data(self, title: str = None) -> Dict[str, Any]:
+    async def generate_report_data(self, title: Optional[str] = None) -> Dict[str, Any]:
         """
         Generates comprehensive report data for the current session.
         Combines kernel results with session metadata for complete report generation.
@@ -646,7 +779,7 @@ class RLMInterface:
                 report_data.get("kernel_results", {}).get("status"),
             )
             return report_data
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.error("Failed to generate report data: %s", e)
             return {
                 "status": "error",

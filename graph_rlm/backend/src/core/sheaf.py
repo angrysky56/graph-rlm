@@ -11,16 +11,40 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 import numpy as np
 import scipy.sparse as sp  # type: ignore
 import scipy.sparse.linalg as spla  # type: ignore
+from pydantic import BaseModel, Field
 
 from .core import PythonREPL
 from .db import db
+from .llm import llm
 from .logger import get_logger
+from .topology import compute_sheaf_laplacian
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.sheaf")
+
+
+class SpectralAnalysis(BaseModel):
+    """
+    Structured results for Sheaf-theoretic Spectral Diagnosis.
+    """
+
+    h0_rank: int = Field(
+        ..., description="Number of connected components (zero eigenvalues)."
+    )
+    spectral_gap: float = Field(
+        ..., description="First non-zero eigenvalue (Fiedler value)."
+    )
+    status: str = Field(
+        ..., description="Overall consistency status: consistent, fragmented, or error."
+    )
+    interpretation: str = Field(
+        ..., description="LLM-driven interpretation of the topological state."
+    )
+    confidence: float = Field(..., description="Confidence score for this analysis.")
 
 
 class MockREPLInterface:
@@ -79,43 +103,11 @@ class SheafMonitor:
     ) -> np.ndarray:
         """
         Constructs the Sheaf Laplacian matrix (L = D - A).
-        Used by Navigator to detect topological bottlenecks.
+        Calls the shared topological primitive in topology.py.
         """
-        num_nodes = len(graph_nodes)
-        if num_nodes == 0:
-            return np.zeros((0, 0))
+        return compute_sheaf_laplacian(graph_nodes, graph_edges)
 
-        # ID map
-        id_map = {n["id"]: i for i, n in enumerate(graph_nodes)}
-
-        # Adjacency Matrix
-        row = []
-        col = []
-        data = []
-
-        for u_id, v_id in graph_edges:
-            if u_id in id_map and v_id in id_map:
-                u, v = id_map[u_id], id_map[v_id]
-                # Weight by consistency (default 1.0 for now)
-                weight = 1.0
-                row.append(u)
-                col.append(v)
-                data.append(weight)
-                # undirected
-                row.append(v)
-                col.append(u)
-                data.append(weight)
-
-        adj_matrix = sp.coo_matrix((data, (row, col)), shape=(num_nodes, num_nodes))
-
-        # Degree Matrix
-        degrees = np.array(adj_matrix.sum(axis=1)).flatten()
-        degree_matrix = sp.diags(degrees)
-
-        laplacian = degree_matrix - adj_matrix
-        return laplacian.toarray()
-
-    def check_cohomology_obstruction(
+    async def check_cohomology_obstruction(
         self, local_sections: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
@@ -137,7 +129,7 @@ class SheafMonitor:
             logger.info(
                 "High complexity (N=%d). Pivoting to Spectral Hodge Laplacian.", n
             )
-            return self._spectral_diagnosis(local_sections)
+            return await self._spectral_diagnosis(local_sections)
 
         # Pairwise check
         for i in range(n):
@@ -145,10 +137,24 @@ class SheafMonitor:
                 k1, k2 = keys[i], keys[j]
                 val1, val2 = local_sections[k1], local_sections[k2]
 
-                # Check for logical contradiction if they overlap in topic
-                # (Heuristic: simple string equality for now)
-                if val1 != val2:
-                    obstructions.append((k1, k2))
+                # Use semantic containment check rather than naive equality
+                # We check if one section significantly contradicts the other's essence.
+                # (Still heuristic, but better than exact match)
+                if val1 and val2 and isinstance(val1, str) and isinstance(val2, str):
+                    v1_words = set(re.findall(r"\w+", val1.lower()))
+                    v2_words = set(re.findall(r"\w+", val2.lower()))
+                    common = v1_words & v2_words
+                    if not common:
+                        continue  # No overlap, no contradiction
+
+                    overlap = len(common) / max(min(len(v1_words), len(v2_words)), 1)
+
+                    # If they overlap in vocabulary but have different specific content,
+                    # we only flag if they are actually DIFFERENT (val1 != val2).
+                    # This prevents false positives on identical snippets.
+                    if 0.2 < overlap < 0.9 and val1 != val2:
+                        # Moderate overlap but different results -> potential obstruction
+                        obstructions.append((k1, k2))
 
         return {
             "h0_rank": n - len(obstructions),
@@ -157,12 +163,12 @@ class SheafMonitor:
             "status": "consistent" if not obstructions else "obstructed",
         }
 
-    def _spectral_diagnosis(self, local_sections: Dict[str, Any]) -> Dict[str, Any]:
+    async def _spectral_diagnosis(
+        self, local_sections: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """
         Implements Spectral Sensing via Hodge Laplacians (Delta_0 approximation).
-        Strategy: Construct 'Agreement Graph' (Local Nerve), compute Laplacian, check spectral gap.
-        Complexity: O(N * k) with sparse methods vs O(N^2) dense check.
-        See: sheaf_theoretic_ade_optimization_v2.md
+        Enhanced with LLM-driven interpretation using Pydantic AI.
         """
         keys = list(local_sections.keys())
         n = len(keys)
@@ -170,22 +176,17 @@ class SheafMonitor:
             return {"status": "empty", "h0_rank": 0}
 
         # 1. Construct Sparse Adjacency (Local Nerve Approximation)
-        # We assume keys are roughly ordered (e.g. chronological thoughts).
-        # We use a sliding window of size k to build a 'Ribbon Graph'.
         row, col, data = [], [], []
-        k_window = 10  # Local neighborhood size
+        k_window = 10
 
         for i in range(n):
             val1 = local_sections[keys[i]]
-            # Check interaction with frontier (Local Nerve)
             start = max(0, i - k_window)
             end = min(n, i + k_window + 1)
-
             for j in range(start, end):
                 if i == j:
                     continue
                 val2 = local_sections[keys[j]]
-                # Heuristic: Agreement = Edge
                 if val1 == val2:
                     row.append(i)
                     col.append(j)
@@ -198,37 +199,50 @@ class SheafMonitor:
         laplacian = degree_matrix - adj_matrix
 
         # 2. Spectral Sensing (Eigenvalues)
-        # We look for the number of zero eigenvalues (H^0 rank - Connected Components)
-        # And the "Spectral Gap" (First non-zero eigenvalue - Fiedler Value)
-        # Use shift-invert mode via 'sigma' to find eigenvalues near 0
         try:
-            # We need k+1 eigenvalues to detect k components
             k_eigen = min(n - 1, 5)
             if k_eigen < 1:
-                return {"status": "trivial", "h0_rank": 1}
+                h0_rank = 1
+                spectral_gap = 0.0
+                status = "trivial"
+            else:
+                vals, _ = spla.eigsh(laplacian, k=k_eigen, which="SM", sigma=1e-5)
+                zeros = int(np.sum(np.abs(vals) < 1e-4))
+                h0_rank = max(1, zeros)
+                sorted_vals = np.sort(np.abs(vals))
+                spectral_gap = 0.0
+                for v in sorted_vals:
+                    if v > 1e-4:
+                        spectral_gap = float(v)
+                        break
+                status = "consistent" if h0_rank == 1 else "fragmented"
 
-            vals, _ = spla.eigsh(laplacian, k=k_eigen, which="SM", sigma=1e-5)
+            # 3. [NEW] Synthesize Interpretation via Structured LLM
+            prompt = (
+                f"Topological State of Sheaf (Local Sections):\n"
+                f"- Number of Sections: {n}\n"
+                f"- H0 Rank (Components): {h0_rank}\n"
+                f"- Spectral Gap (Fiedler): {spectral_gap:.4f}\n"
+                f"- Status: {status}\n\n"
+                f"Provide a brief, high-level interpretation of this sheaf consistency state "
+                f"for a cognitive agent's self-monitor. Is the reasoning unified or fragmented?"
+            )
 
-            # Count effectively zero eigenvalues (tolerance 1e-4)
-            zeros = int(np.sum(np.abs(vals) < 1e-4))
-            h0_rank = max(1, zeros)  # At least 1 component
+            structured_res = await llm.generate_structured(
+                prompt=prompt,
+                output_type=SpectralAnalysis,
+                system="You are the Sheaf Monitor Synthesizer. You interpret topological signals into cognitive insights.",
+            )
 
-            # Fiedler value (first non-zero)
-            sorted_vals = np.sort(np.abs(vals))
-            spectral_gap = 0.0
-            for v in sorted_vals:
-                if v > 1e-4:
-                    spectral_gap = v
-                    break
+            # Update the analysis with our numerical truth to be certain
+            structured_res.h0_rank = h0_rank
+            structured_res.spectral_gap = spectral_gap
+            structured_res.status = status
 
-            return {
-                "method": "spectral_hodge",
-                "h0_rank": int(h0_rank),
-                "spectral_gap": float(spectral_gap),
-                "status": "consistent" if h0_rank == 1 else "fragmented",
-            }
-        except Exception as e:
-            logger.warning("Spectral diagnosis failed: %s", e)
+            return structured_res.model_dump()
+
+        except (RuntimeError, ValueError, AttributeError, httpx.RequestError) as e:
+            logger.warning("Spectral diagnosis/synthesis failed: %s", e)
             return {"status": "error", "error": str(e)}
 
     def diagnose_trace(
@@ -243,7 +257,14 @@ class SheafMonitor:
         Higher energy = Lower consistency.
         """
         if not hypothetical_node or not hypothetical_node.get("embedding"):
-            return {"status": "HEALTHY", "energy": 0.0}
+            logger.warning(
+                "Sheaf: Diagnosis requested for node without embedding. Marking as UNCERTAIN."
+            )
+            return {
+                "status": "UNCERTAIN",
+                "energy": 0.5,
+                "critique": "Missing semantic embedding context.",
+            }
 
         current_vec = self._normalize(hypothetical_node["embedding"])
 
@@ -255,15 +276,84 @@ class SheafMonitor:
         cypher = """
         MATCH (n:Thought)
         WHERE n.id IN $fids
-        RETURN n.id as id, n.embedding as embedding, n.status as status, n.prompt as prompt
-        ORDER BY n.created_at DESC LIMIT 5
+        RETURN n.id as id, n.embedding as embedding, n.status as status,
+               n.prompt as prompt, n.result as result, n.execution_summary as summary,
+               n.repl_id as repl_id
+        ORDER BY n.created_at DESC
         """
         history_nodes = db.query(cypher, {"fids": frontier_ids})
 
         if not history_nodes:
             return {"status": "HEALTHY", "energy": 0.0}
 
-        # --- DIAGNOSTIC 1: HOLONOMY (The Loop Detector) ---
+        # --- DIAGNOSTIC 0: EMPIRICAL INTEGRITY (The Lie Detector) ---
+        # [NEW] Topological Grounding: Check if the trajectory is physically consistent.
+        # If the agent's logic machine (Thought) says "Done" or "Success" but the
+        # actual outcome (REPL Result) shows a crash or contradiction, it's an obstruction.
+        for node in history_nodes:
+            node_status = node.get("status")
+            node_result = (node.get("result") or "").lower()
+            node_prompt = (node.get("prompt") or "").lower()
+
+            # Pattern: Agent claims it solved it, but result is an error
+            is_success_claimed = any(
+                w in node_prompt for w in ["success", "completed", "solved", "fixed"]
+            )
+            is_error_found = any(
+                w in node_result for w in ["error", "failed", "traceback", "not found"]
+            )
+
+            if is_success_claimed and is_error_found and node_status != "failed":
+                trace_action(
+                    "SHEAF",
+                    "EMPIRICAL_CONTRADICTION",
+                    result=f"Node {node['id'][:8]} claims success but result has errors.",
+                    tag="SHEAF",
+                )
+                return {
+                    "status": "EMPIRICAL_CONTRADICTION",
+                    "energy": 1.0,
+                    "consistency_energy": 1.0,
+                    "critique": (
+                        f"Empirical Contradiction: Your previous thought ({node['id'][:8]}) "
+                        f"using REPL [{node.get('repl_id', 'unknown')}] claimed success, "
+                        "but the REPL returned an error. You are hallucinating "
+                        "progress. Review the actual output before proceeding."
+                    ),
+                    "should_halt": False,
+                    "loop_nodes": [node],
+                }
+
+        # [NEW] Check Hypothetical Node (Current Response) for obvious errors
+        # If the agent is submitting a final response that contains a traceback, it's invalid.
+        if hypothetical_node:
+            hypo_content = (hypothetical_node.get("content") or "").lower()
+
+            # Check for error signatures in the output itself
+            if any(
+                err in hypo_content
+                for err in [
+                    "traceback (most recent call last)",
+                    "modulenotfounderror",
+                    "importerror",
+                ]
+            ):
+                trace_action(
+                    "SHEAF",
+                    "EMPIRICAL_CONTRADICTION",
+                    result="Hypothetical node contains explicit error traceback.",
+                    tag="SHEAF",
+                )
+                return {
+                    "status": "EMPIRICAL_CONTRADICTION",
+                    "energy": 1.0,
+                    "consistency_energy": 1.0,
+                    "critique": (
+                        "Empirical Contradiction: Your proposed response contains a Python Traceback. "
+                        "You cannot submit an error stack trace as a final answer. Fix the code."
+                    ),
+                    "should_halt": False,
+                }
         max_similarity = 0.0
         prev_vec: Optional[np.ndarray] = None
 
@@ -379,30 +469,72 @@ class SheafMonitor:
         }
 
     def compute_sheaf_surprise_score(
-        self, limit: int = 10, session_id: Optional[str] = None
+        self,
+        limit: int = 10,
+        session_id: Optional[str] = None,
+        turn_id: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         Queries the graph for edges with high surprise or failure status.
+
+        Resolution filter: uses OPTIONAL MATCH to exclude failures that have
+        a later healed node (status 'completed'/'success' with a newer
+        timestamp) in the same scope (turn > session > global).
         """
         session_filter = ""
-        params = {}
+        turn_filter = ""
+        params: Dict[str, Any] = {}
+
         if session_id:
             session_filter = "AND (m.session_id = $sid OR m.root_session_id = $sid)"
             params["sid"] = session_id
 
+        if turn_id is not None:
+            turn_filter = "AND m.turn_id = $tid"
+            params["tid"] = turn_id
+
+        # Build healing check via OPTIONAL MATCH (FalkorDB-compatible)
+        if session_id:
+            # Session-scoped: any later success in the session = healed
+            heal_match = """
+            OPTIONAL MATCH (healed:Thought)
+            WHERE (healed.session_id = $sid OR healed.root_session_id = $sid)
+              AND healed.status IN ['completed', 'success']
+              AND healed.created_at > m.created_at
+            """
+        else:
+            # Global fallback: sibling healing only
+            heal_match = """
+            OPTIONAL MATCH (n)-[:DECOMPOSES_INTO]->(healed:Thought)
+            WHERE healed.status IN ['completed', 'success']
+              AND healed.created_at > m.created_at
+            """
+
+        # Primary query: unresolved failures only
         cypher = f"""
         MATCH (n:Thought)-[r:DECOMPOSES_INTO]->(m:Thought)
-        WHERE (m.status = 'failed' OR m.status = 'error' OR m.status = 'reflexion') {session_filter}
-        RETURN n.id as source, m.id as target, 1.0 as surprise_score, m.status as status
+        WHERE m.status IN ['failed', 'error', 'reflexion']
+        {session_filter}
+        {turn_filter}
+        {heal_match}
+        WITH n, m, count(healed) as healed_count
+        WHERE healed_count = 0
+        RETURN n.id as source, m.id as target,
+               1.0 as surprise_score, m.status as status,
+               m.created_at as timestamp
+        ORDER BY m.created_at DESC
         LIMIT {limit}
         """
         results = db.query(cypher, params) if params else db.query(cypher)
 
         if not results:
+            # Fallback: recent nodes regardless of status
             cypher = f"""
             MATCH (n:Thought)-[r:DECOMPOSES_INTO]->(m:Thought)
-            WHERE true {session_filter}
-            RETURN n.id as source, m.id as target, 0.5 as surprise_score, m.status as status
+            WHERE true {session_filter} {turn_filter}
+            RETURN n.id as source, m.id as target,
+                   0.5 as surprise_score, m.status as status,
+                   m.created_at as timestamp
             ORDER BY m.created_at DESC
             LIMIT {limit}
             """
@@ -433,7 +565,9 @@ class SheafMonitor:
         """
         # Lazy import to avoid circular dependencies if any
         # pylint: disable=import-outside-toplevel
-        from graph_rlm.backend.src.mcp_integration.skill_storage import get_axioms_manager
+        from graph_rlm.backend.src.mcp_integration.skill_storage import (
+            get_axioms_manager,
+        )
 
         axioms_mgr = get_axioms_manager()
         all_axioms = axioms_mgr.list_axioms()
@@ -599,7 +733,11 @@ class SheafMonitor:
                         else:
                             # Fallback
                             val_call = f"{func_name}(_axiom_target)"
-                    except Exception:  # pylint: disable=broad-except
+                    except (
+                        AttributeError,
+                        ValueError,
+                        TypeError,
+                    ):  # pylint: disable=broad-except
                         val_call = f"{func_name}(_axiom_target)"
 
                     try:
@@ -636,16 +774,19 @@ class SheafMonitor:
                                         f"### Suggested Healing Strategy (from {h.get('name')}):\n"
                                         f"```python\n{h.get('healing_code') or h.get('code')}\n```"
                                     )
-                    except (
-                        Exception
-                    ) as err:  # pylint: disable=broad-except # noqa: BLE001
+                    except (AttributeError, ValueError, TypeError, RuntimeError) as err:
                         logger.warning(
                             "Sandbox invocation failure for axiom %s: %s",
                             axiom_name,
                             err,
                         )
 
-                except Exception as e:  # pylint: disable=broad-except
+                except (
+                    AttributeError,
+                    KeyError,
+                    ValueError,
+                    RuntimeError,
+                ) as e:  # pylint: disable=broad-except
                     logger.warning("Error processing axiom %s: %s", axiom_name, e)
 
             if violations:
@@ -686,7 +827,11 @@ class SheafMonitor:
                 "axioms_run": axioms,
                 "should_halt": False,
             }
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            RuntimeError,
+            ValueError,
+            TypeError,
+        ) as e:  # pylint: disable=broad-except
             logger.error("Axiomatic validation system failure: %s", e)
             return {"status": "HEALTHY", "energy": 0.0, "error": str(e)}
 

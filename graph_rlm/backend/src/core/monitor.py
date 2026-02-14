@@ -59,7 +59,7 @@ class BackgroundMonitor:
                         "Monitor Scan Complete using Sheaf Theory. Energy Profile: %s",
                         energies,
                     )
-            except Exception as e:
+            except (RuntimeError, AttributeError, ValueError) as e:
                 logger.error("Monitor Loop Error: %s", e)
 
             time.sleep(self.interval)

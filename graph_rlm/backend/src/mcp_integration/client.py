@@ -5,6 +5,7 @@ generated tool wrappers and real MCP servers, using the robust
 McpClientManager for connection management.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -94,8 +95,21 @@ async def call_mcp_tool(
     """
     global _global_client
 
+    # Simple loop integrity check for the global instance
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
     # Use global client for efficiency
-    if _global_client is None:
+    if _global_client is None or (
+        current_loop
+        and getattr(_global_client.manager, "_loop", None) is not current_loop
+    ):
+        if _global_client is not None:
+            logger.warning("Global MCP client loop mismatch. Re-initializing.")
+            # We don't await cleanup here as the old loop might be closed/stale
+            # The new manager in the new client will start fresh.
         _global_client = CoordinatorClient(config_path)
 
     return await _global_client.call_tool(server_name, tool_name, arguments)

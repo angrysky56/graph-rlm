@@ -29,7 +29,7 @@ class REPLManager:
         Returns:
             The ID of the created REPL.
         """
-        repl = PythonREPL(repl_id)
+        repl = PythonREPL(repl_id=repl_id)
         self._repls[repl.repl_id] = repl
         logger.info("Created REPL session: %s", repl.repl_id)
         return repl.repl_id

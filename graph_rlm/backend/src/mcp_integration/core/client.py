@@ -6,8 +6,11 @@ an explicit state machine.
 """
 
 import asyncio
+import json
 import logging
 import os
+import shutil
+import sys
 import threading
 from enum import Enum
 from pathlib import Path
@@ -18,6 +21,7 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import stdio_client
 from mcp.types import Tool
 
+from .. import skill_storage as skills_tool
 from ..config import ConfigManager
 from .config import McpConfig, ServerConfig
 
@@ -30,9 +34,9 @@ class PermissiveClientSession(ClientSession):
     async def _validate_tool_result(self, name: str, result: Any) -> None:
         try:
             await super()._validate_tool_result(name, result)
-        except Exception as e:
+        except (ValueError, TypeError, AttributeError) as e:
             logger.warning(
-                f"Validation failed for tool '{name}', suppressing error: {e}"
+                "Validation failed for tool '%s', suppressing error: %s", name, e
             )
 
 
@@ -79,6 +83,7 @@ class McpClientManager:
         # Connection supervision
         self._connection_tasks: dict[str, asyncio.Task] = {}
         self._stop_events: dict[str, asyncio.Event] = {}
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
 
         # Load timeouts
         config_manager = ConfigManager()
@@ -126,18 +131,36 @@ class McpClientManager:
         self.state = ConnectionState.UNINITIALIZED
         logger.debug("State transition: -> UNINITIALIZED")
 
+    def _reset_state_sync(self) -> None:
+        """Clear all loop-tethered state synchronously."""
+        logger.warning("Synchronously resetting MCP Client manager state.")
+        self.sessions.clear()
+        self.tools_cache.clear()
+        # Connection tasks are async, we can't await them here but we can clear refs
+        self._connection_tasks.clear()
+        self._stop_events.clear()
+        self._loop = None
+        self.state = ConnectionState.UNINITIALIZED
+
     def initialize(self, config_path: Path | None = None) -> None:
         """Initialize the manager by loading configuration.
 
         Args:
-            config_path: Path to mcp_config.json. If None, looks in default locations.
+            config_path: Path to MCP server configuration.
         """
         if self.state != ConnectionState.UNINITIALIZED:
-            logger.warning("Manager already initialized, reloading config")
+            logger.warning("Manager already initialized, re-initializing state.")
+            self._reset_state_sync()
+
+        # Track the loop this manager is initialized in
+        try:
+            self._loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self._loop = None
 
         # Load configuration
         if config_path:
-            with open(config_path) as f:
+            with open(config_path, encoding="utf-8") as f:
                 self.config = McpConfig.from_json(f.read())
         else:
             # Try default locations
@@ -145,16 +168,19 @@ class McpClientManager:
                 Path("mcp_servers.json"),
                 Path(os.getenv("MCP_JSON", "")),
             ]
+            found_config = False
             for path in possible_paths:
                 if path and path.exists():
-                    with open(path) as f:
+                    with open(path, encoding="utf-8") as f:
                         self.config = McpConfig.from_json(f.read())
+                    found_config = True
                     break
 
-            if not self.config:
+            if not found_config:
                 raise FileNotFoundError("Could not find MCP configuration file")
 
         self._mark_initialized()
+        logger.info("MCP Client Manager initialized (Lazy-loading enabled)")
 
     async def _maintain_connection(
         self,
@@ -179,7 +205,7 @@ class McpClientManager:
                 # This ensures MCP servers use their own defined environments (via uv run etc)
                 if "VIRTUAL_ENV" in env:
                     logger.debug(
-                        f"Stripping VIRTUAL_ENV from {server_name} process env"
+                        "Stripping VIRTUAL_ENV from %s process env", server_name
                     )
                     env.pop("VIRTUAL_ENV", None)
                 env.pop("UV_PROJECT_ENVIRONMENT", None)
@@ -231,8 +257,8 @@ class McpClientManager:
         except asyncio.CancelledError:
             # Expected on shutdown if we cancel tasks directly
             pass
-        except Exception as e:
-            logger.error(f"Connection task failure for {server_name}: {e}")
+        except (asyncio.TimeoutError, ConnectionError, ValueError, RuntimeError) as e:
+            logger.error("Connection task failure for %s: %s", server_name, e)
             # If we failed before ready, we should set it so the waiter doesn't hang
             if not ready_event.is_set():
                 # We can't really signal error via event, but we can prevent hang.
@@ -242,7 +268,7 @@ class McpClientManager:
             # Cleanup registry
             if server_name in self.sessions:
                 del self.sessions[server_name]
-            logger.debug(f"Connection task for {server_name} exited")
+            logger.debug("Connection task for %s exited", server_name)
 
     def _resolve_command(self, command: str, env: dict[str, str]) -> str:
         """
@@ -251,8 +277,6 @@ class McpClientManager:
         Searches common user paths (nvm, pyenv, cargo, etc.) if the command
         is not found in the provided PATH environment variable.
         """
-        import shutil
-        import sys
 
         # 1. Try with provided PATH
         path_env = env.get("PATH", os.environ.get("PATH", ""))
@@ -311,7 +335,7 @@ class McpClientManager:
         if server_name in self.sessions:
             return self.sessions[server_name]
 
-        logger.info(f"Connecting to server: {server_name} ({server_config.type})")
+        logger.info("Connecting to server: %s (%s)", server_name, server_config.type)
 
         ready_event = asyncio.Event()
         stop_event = asyncio.Event()
@@ -329,7 +353,7 @@ class McpClientManager:
             await asyncio.wait_for(ready_event.wait(), timeout=self.connect_timeout)
         except Exception as e:
             # Connection failed or timed out
-            logger.error(f"Failed to connect to {server_name}: {e}")
+            logger.error("Failed to connect to %s: %s", server_name, e)
             stop_event.set()  # Signal task to exit
             # Clean up
             if server_name in self._connection_tasks:
@@ -359,8 +383,10 @@ class McpClientManager:
                 await asyncio.wait_for(self._connection_tasks[server_name], timeout=2.0)
             except (TimeoutError, asyncio.CancelledError):
                 pass
-            except Exception as e:
-                logger.warning(f"Error awaiting connection task for {server_name}: {e}")
+            except ConnectionError as e:
+                logger.warning(
+                    "Error awaiting connection task for %s: %s", server_name, e
+                )
             del self._connection_tasks[server_name]
 
         if server_name in self._stop_events:
@@ -368,6 +394,31 @@ class McpClientManager:
 
         if server_name in self.sessions:
             del self.sessions[server_name]
+
+    def _check_loop_integrity(self) -> None:
+        """Verifies that the current event loop matches the initialization loop.
+
+        If a mismatch is detected, it clears the stale state to prevent
+        'Event loop is closed' errors.
+        """
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+
+        if self._loop is not None and self._loop is not current_loop:
+            logger.warning(
+                "Event loop mismatch in McpClientManager! Manager initialized in %s, current loop %s. Clearing stale state.",
+                self._loop,
+                current_loop,
+            )
+            # Clear stale sessions and tasks tethered to the old loop
+            self.sessions.clear()
+            self._connection_tasks.clear()
+            self._stop_events.clear()
+            # Update to new loop
+            self._loop = current_loop
+            self.state = ConnectionState.INITIALIZED
 
     async def _ensure_connection(
         self, server_name: str, server_config: ServerConfig, max_retries: int = 2
@@ -377,6 +428,7 @@ class McpClientManager:
 
         If the server connection is stale or broken, cleans up and retries.
         """
+        self._check_loop_integrity()
         last_error = None
 
         for attempt in range(max_retries + 1):
@@ -390,7 +442,8 @@ class McpClientManager:
                 else:
                     # Task died - clean up stale session
                     logger.warning(
-                        f"Server {server_name} connection task died, cleaning up for reconnect"
+                        "Server %s connection task died, cleaning up for reconnect",
+                        server_name,
                     )
                     await self._cleanup_server(server_name)
 
@@ -398,11 +451,20 @@ class McpClientManager:
             try:
                 session = await self._connect_to_server(server_name, server_config)
                 return session
-            except Exception as e:
+            except (
+                asyncio.TimeoutError,
+                ConnectionError,
+                ValueError,
+                RuntimeError,
+            ) as e:
                 last_error = e
                 if attempt < max_retries:
                     logger.warning(
-                        f"Connection attempt {attempt + 1}/{max_retries + 1} to {server_name} failed: {e}. Retrying..."
+                        "Connection attempt %d/%d to %s failed: %s. Retrying...",
+                        attempt + 1,
+                        max_retries + 1,
+                        server_name,
+                        e,
                     )
                     # Clean up before retry
                     await self._cleanup_server(server_name)
@@ -421,10 +483,10 @@ class McpClientManager:
         stop_event: Optional[threading.Event] = None,
     ) -> Any:
         """Call an MCP tool with lazy server connection and auto-reconnect."""
+        self._check_loop_integrity()
+
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from .. import skill_storage as skills_tool
-
             func = getattr(skills_tool, tool_name, None)
             if not func:
                 raise ValueError(f"Tool {tool_name} not found in skills")
@@ -456,7 +518,9 @@ class McpClientManager:
             while not tool_task.done():
                 if stop_event and stop_event.is_set():
                     logger.warning(
-                        f"Stop signal received during tool call: {server_name}.{tool_name}. Cancelling."
+                        "Stop signal received during tool call: %s.%s. Cancelling.",
+                        server_name,
+                        tool_name,
                     )
                     tool_task.cancel()
                     # Wait a moment for cancellation to propagate
@@ -480,8 +544,6 @@ class McpClientManager:
             raise TimeoutError(
                 f"Tool call {tool_name} on {server_name} timed out after {self.read_timeout}s"
             ) from None
-        except InterruptedError:
-            raise
         except (
             ConnectionError,
             BrokenPipeError,
@@ -492,7 +554,7 @@ class McpClientManager:
                 raise
             # Connection died during call - try to reconnect once
             logger.warning(
-                f"Connection error during tool call, attempting reconnect: {e}"
+                "Connection error during tool call, attempting reconnect: %s", e
             )
             await self._cleanup_server(server_name)
             session = await self._ensure_connection(server_name, server_config)
@@ -505,17 +567,16 @@ class McpClientManager:
             text = "\n".join([c.text for c in result.content if c.type == "text"])
             # Attempt to parse as JSON for structured return handling
             try:
-                import json
-
                 # If it looks like a JSON object or array, try parsing
                 stripped = text.strip()
                 if (stripped.startswith("{") and stripped.endswith("}")) or (
                     stripped.startswith("[") and stripped.endswith("]")
                 ):
                     return json.loads(stripped)
-            except Exception as e:
+            except (json.JSONDecodeError, AttributeError, ValueError) as e:
                 logger.debug(
-                    f"Failed to parse tool result as JSON, falling back to raw text: {e}"
+                    "Failed to parse tool result as JSON, falling back to raw text: %s",
+                    e,
                 )
             return text
         return result
@@ -524,8 +585,6 @@ class McpClientManager:
         """List tools for a server, using cache if available."""
         # Custom dispatch for internal 'skills' server
         if server_name == "skills":
-            from .. import skill_storage as skills_tool
-
             # Synthesize Tool objects
             tools = []
             for tool_def in skills_tool.TOOLS:
@@ -560,7 +619,7 @@ class McpClientManager:
         except (ConnectionError, BrokenPipeError, EOFError) as e:
             # Connection died - try to reconnect once
             logger.warning(
-                f"Connection error during list_tools, attempting reconnect: {e}"
+                "Connection error during list_tools, attempting reconnect: %s", e
             )
             await self._cleanup_server(server_name)
             session = await self._ensure_connection(server_name, server_config)
@@ -590,12 +649,19 @@ class McpClientManager:
                     asyncio.gather(*shutdown_tasks, return_exceptions=True),  # type: ignore
                     timeout=2.0,
                 )
-            except Exception as e:
-                logger.warning(f"Error during cleanup wait: {e}")
+            except (asyncio.TimeoutError, ConnectionError, RuntimeError) as e:
+                logger.warning("Error during cleanup wait: %s", e)
+
+        # Cancel connection tasks
+        for _, task in self._connection_tasks.items():
+            if not task.done():
+                task.cancel()
 
         self.sessions.clear()
         self.tools_cache.clear()
         self._connection_tasks.clear()
         self._stop_events.clear()
+        self._loop = None
 
         self._mark_uninitialized()
+        logger.info("MCP Client Manager cleaned up")

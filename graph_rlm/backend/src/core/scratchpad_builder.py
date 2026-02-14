@@ -13,7 +13,7 @@ but NOT included in immediate context to prevent bloat.
 
 from contextlib import suppress
 from datetime import datetime, timezone
-from typing import Any, List
+from typing import Any, List, Optional
 
 from .db import GraphClient, db
 from .logger import get_logger
@@ -35,6 +35,7 @@ class ScratchpadBuilder:
         current_step: int = 0,
         max_steps: int = 1000,
         current_round_id: str = "",
+        morph_gestalt: Optional[str] = None,
     ) -> str:
         """
         Build a complete scratchpad for the agent.
@@ -143,6 +144,15 @@ class ScratchpadBuilder:
                 lines.append(repl)
             lines.append("")
 
+        # === Morphological Memory Gestalt ===
+        if morph_gestalt:
+            lines.append("## Morphological Memory Gestalt")
+            lines.append(morph_gestalt)
+            lines.append(
+                "*(This vector represents the healed context of your original intent.)*"
+            )
+            lines.append("")
+
         # === Recall Instructions ===
         lines.append("## Data Recall")
         lines.append(
@@ -200,14 +210,14 @@ class ScratchpadBuilder:
 
             return self._format_progress_rows(results)
 
-        except Exception as e:  # pylint: disable=broad-except
+        except (RuntimeError, KeyError, ValueError, AttributeError) as e:
             logger.error("Failed to build current round progress: %s", e)
             return f"Error loading progress: {e}"
 
     def _format_progress_rows(self, results: List[Any]) -> str:
         """
         Format progress rows as lean summaries with REPL pointers.
-        Each step shows: status, step #, timestamp, action type, summary (~150 chars), REPL ID.
+        Older steps (beyond the last 5) are condensed to rely on Morphological Memory.
         Full code/results live in the REPL/DB — agent can query if needed.
         """
         lines = []
@@ -282,8 +292,31 @@ class ScratchpadBuilder:
                     continue
 
             # === LEAN SUMMARY FORMATTING ===
-            # Goal: ~150 char summary per step with REPL pointer for stateless continuity
+            # [OPTIMIZATION] Condense older history
+            total_count = len(processed_data)
+            # Increase window to 10 to keep more recent context visible
+            is_old_step = i < (total_count - 10)
+
             prompt = row.get("prompt") or ""
+            clean_prompt = prompt.strip()
+
+            # [CRITICAL FIX] Do NOT condense "Discovery" steps even if old.
+            # If the agent spent a step learning about tools, we must keep that knowledge visible.
+            is_discovery = any(
+                k in clean_prompt
+                for k in [
+                    "dir(",
+                    "help(",
+                    "list_tools",
+                    "describe_tools",
+                    "get_mcp_config",
+                    "import ",
+                ]
+            )
+
+            if is_discovery:
+                is_old_step = False
+
             status_sym = {
                 "success": "✓",
                 "running": "⏳",
@@ -297,7 +330,7 @@ class ScratchpadBuilder:
             ts_str = ""
             created_at = row.get("created_at")
             if created_at:
-                with suppress(Exception):
+                with suppress(AttributeError, ValueError, TypeError):
                     ts = datetime.fromtimestamp(created_at / 1000)
                     ts_str = ts.strftime("%H:%M:%S")
 
@@ -310,15 +343,22 @@ class ScratchpadBuilder:
             else:
                 action_type = "Thought"
 
-            # Build concise summary (flattened, no truncation)
-            summary = clean_prompt.replace("\n", " ").strip()
+            if is_old_step:
+                summary = "[Detail integrated in Morphological Gestalt]"
+            else:
+                # Build concise summary (flattened, no truncation)
+                summary = clean_prompt.replace("\n", " ").strip()
+                if len(summary) > 200:
+                    summary = summary[:197] + "..."
 
-            # For Code: add brief result indicator
-            exec_summary = row.get("execution_summary") or row.get("result") or ""
-            if action_type == "Code" and exec_summary:
-                result_preview = str(exec_summary).strip().replace("\n", " ")
-                if result_preview:
-                    summary += f" → {result_preview}"
+                # For Code: add brief result indicator
+                exec_summary = row.get("execution_summary") or row.get("result") or ""
+                if action_type == "Code" and exec_summary:
+                    result_preview = str(exec_summary).strip().replace("\n", " ")
+                    if len(result_preview) > 100:
+                        result_preview = result_preview[:97] + "..."
+                    if result_preview:
+                        summary += f" → {result_preview}"
 
             step_num = row.get("step_id") if row.get("step_id") is not None else i + 1
             code_hash = row.get("code_hash")
@@ -359,7 +399,7 @@ class ScratchpadBuilder:
                  collect(n.prompt)[-1] as last_action
             RETURN sid, thought_count, initial_prompt, last_activity, last_status, last_result, last_action
             ORDER BY last_activity DESC
-            LIMIT 10
+            LIMIT 1000
             """
             results = self.db.query(
                 q, {"root_id": root_session_id, "current_id": current_session_id}
@@ -393,7 +433,7 @@ class ScratchpadBuilder:
                         if isinstance(last_activity, (int, float)):
                             ts = datetime.fromtimestamp(last_activity / 1000)
                             ts_str = ts.strftime("%H:%M:%S")
-                    except Exception as e:  # pylint: disable=broad-except
+                    except (AttributeError, ValueError, TypeError) as e:
                         logger.warning("Failed to format sub-REPL timestamp: %s", e)
 
                 status_sym = (
@@ -420,7 +460,7 @@ class ScratchpadBuilder:
 
             return lines
 
-        except Exception as e:  # pylint: disable=broad-except
+        except (RuntimeError, KeyError, ValueError, AttributeError) as e:
             logger.error("Failed to get sub-REPLs: %s", e)
             return []
 
@@ -535,7 +575,7 @@ class ScratchpadBuilder:
 
             return "\n".join(lines)
 
-        except Exception as e:  # pylint: disable=broad-except
+        except (RuntimeError, KeyError, ValueError, AttributeError) as e:
             logger.error("Failed to build task completion gate: %s", e)
             return ""
 
@@ -605,7 +645,7 @@ class ScratchpadBuilder:
 
             return "\n".join(lines)
 
-        except Exception as e:  # pylint: disable=broad-except
+        except (RuntimeError, KeyError, ValueError, AttributeError) as e:
             logger.error("Failed to build logical audit: %s", e)
             return ""
 

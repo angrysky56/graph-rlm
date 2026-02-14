@@ -11,14 +11,15 @@ Refactored to use FalkorDB.
 
 Axiom Archival Policy:
 Problematic or redundant axioms should be moved to the '_disabled' subdirectory
-within the axioms_dir. The system's sync logic is non-recursive and will
-automatically ignore these files.
 """
 
 import ast
 import re
+import shutil
+import subprocess
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from graph_rlm.backend.src.core.db import db
 from graph_rlm.backend.src.core.llm import llm
@@ -115,7 +116,8 @@ class SkillsManager:
                     tags.append("coding")
                 elif "math" in name.lower() or "logic" in name.lower():
                     tags.append("math")
-                # If still no tags, we leave it empty (SheafMonitor will treat as general for general tasks)
+                # If still no tags, we leave it empty
+                # (SheafMonitor will treat as general for general tasks)
 
             # Generate embedding for semantic search
             text_to_embed = f"{name}: {description}" if description else name
@@ -214,10 +216,15 @@ class SkillsManager:
         Install a skill from a remote source (Git URL or HTTP URL).
         mimics 'repo2skill' functionality.
         """
-        import subprocess
+        # Validate that we have the necessary tools
+        git_path = shutil.which("git")
+        curl_path = shutil.which("curl")
 
         # 1. Handle Git URL
         if source.endswith(".git") or "github.com" in source:
+            if not git_path:
+                raise RuntimeError("Git executable not found in PATH.")
+
             try:
                 skill_name = source.split("/")[-1].replace(".git", "")
                 skill_path = self.skills_dir / skill_name
@@ -226,14 +233,14 @@ class SkillsManager:
                     logger.warning("Skill %s already exists. Updating...", skill_name)
                     # Perform git pull
                     subprocess.run(
-                        ["git", "-C", str(skill_path), "pull"],
+                        [git_path, "-C", str(skill_path), "pull"],
                         check=True,
                         capture_output=True,
                     )
                 else:
                     logger.info("Cloning skill from %s...", source)
                     subprocess.run(
-                        ["git", "clone", source, str(skill_path)],
+                        [git_path, "clone", source, str(skill_path)],
                         check=True,
                         capture_output=True,
                     )
@@ -247,7 +254,10 @@ class SkillsManager:
                         content = readme.read_text()
                         # Create minimal SKILL.md
                         (skill_path / "SKILL.md").write_text(
-                            f"---\nname: {skill_name}\ndescription: Auto-imported skill from {source}\n---\n\n{content}"
+                            f"---\nname: {skill_name}\n"
+                            f"description: Auto-imported skill from {source}\n"
+                            "---\n\n"
+                            f"{content}"
                         )
 
                 # Sync
@@ -259,6 +269,9 @@ class SkillsManager:
 
         # 2. Handle Single File URL (assumed to be raw content or downloadable)
         else:
+            if not curl_path:
+                raise RuntimeError("Curl executable not found in PATH.")
+
             try:
                 skill_name = source.split("/")[-1].replace(".py", "")
                 skill_file = self.skills_dir / f"{skill_name}.py"
@@ -271,7 +284,7 @@ class SkillsManager:
                 logger.info("Downloading skill from %s...", source)
                 # Use curl to download
                 subprocess.run(
-                    ["curl", "-L", "-o", str(skill_file), source],
+                    [curl_path, "-L", "-o", str(skill_file), source],
                     check=True,
                     capture_output=True,
                 )
@@ -550,40 +563,40 @@ type: instructional
         return None
 
 
-# Global skills manager instance
-_global_skills_manager: SkillsManager | None = None
+@dataclass
+class _ManagerState:
+    """Internal state container for singleton managers."""
+
+    skills_manager: Optional["SkillsManager"] = None
+    axioms_manager: Optional["AxiomsManager"] = None
+
+
+_state = _ManagerState()
 
 
 def get_skills_manager() -> SkillsManager:
     """
     Get or create the global skills manager instance.
     """
-    global _global_skills_manager
-
-    if _global_skills_manager is None:
-        # Resolve skills directory relative to backend root or workspace
-        # Let's put it in backend/src/skills_dir to be importable as a module if we add __init__?
-        # Or better, a dedicated skills_dir alongside src?
-        # User repo has graph_rlm/backend/skills_dir already in previous implementations?
-        # Let's use: graph_rlm/backend/skills_cache
-
+    if _state.skills_manager is None:
         # Resolve skills directory relative to repo root
         if "graph_rlm" in str(Path(__file__).absolute()):
             # If we are inside the package, go up to repo root
             # mcp_integration -> src -> backend -> graph_rlm -> repo_root
             repo_root = Path(__file__).parent.parent.parent.parent.parent
+            skills_dir = repo_root / "graph_rlm" / "backend" / "skills"
         else:
             # Fallback
             repo_root = Path.cwd()
+            skills_dir = repo_root / "skills"
 
-        skills_dir = repo_root / "skills"
         if not skills_dir.exists():
-            # Try alternative location if we are in a different context
-            skills_dir = Path("skills").absolute()
+            # Try creating it if we are sure of the path, or fallback
+            skills_dir.mkdir(parents=True, exist_ok=True)
 
-        _global_skills_manager = SkillsManager(skills_dir)
+        _state.skills_manager = SkillsManager(skills_dir)
 
-    return _global_skills_manager
+    return _state.skills_manager
 
 
 # =============================================================================
@@ -601,6 +614,7 @@ class AxiomsManager:
         self.db = db
         self.axioms_dir = axioms_dir
         self.axioms_dir.mkdir(parents=True, exist_ok=True)
+        # Ensure __init__ exists
         (self.axioms_dir / "__init__.py").touch(exist_ok=True)
         # NOTE: sync_from_disk() removed from __init__ to avoid loop conflicts.
 
@@ -870,9 +884,6 @@ class AxiomsManager:
 
             if axiom_file.exists():
                 target_path = disabled_dir / axiom_file.name
-                # Use shutil or just rename
-                import shutil
-
                 shutil.move(str(axiom_file), str(target_path))
                 logger.info("Axiom '%s' moved to _disabled.", name)
 
@@ -880,25 +891,28 @@ class AxiomsManager:
             self.db.query("MATCH (a:Axiom {name: $name}) DELETE a", {"name": name})
             logger.info("Axiom '%s' removed from database.", name)
             return True
-        except Exception as e:
+        except (OSError, RuntimeError) as e:
             logger.error("Failed to disable axiom '%s': %s", name, e)
             return False
-
-
-# Global axioms manager instance
-_global_axioms_manager: AxiomsManager | None = None
+        except Exception as e:  # pylint: disable=broad-except
+            logger.error("Unexpected error disabling axiom '%s': %s", name, e)
+            return False
 
 
 def get_axioms_manager() -> AxiomsManager:
     """Get or create the global axioms manager instance."""
-    global _global_axioms_manager
+    if _state.axioms_manager is None:
+        if "graph_rlm" in str(Path(__file__).absolute()):
+            repo_root = Path(__file__).parent.parent.parent.parent.parent
+            axioms_dir = repo_root / "graph_rlm" / "backend" / "axioms_dir"
+        else:
+            # Fallback
+            backend_root = Path(__file__).parent.parent.parent
+            axioms_dir = backend_root / "axioms_dir"
 
-    if _global_axioms_manager is None:
-        backend_root = Path(__file__).parent.parent.parent
-        axioms_dir = backend_root / "axioms_dir"
-        _global_axioms_manager = AxiomsManager(axioms_dir)
+        _state.axioms_manager = AxiomsManager(axioms_dir)
 
-    return _global_axioms_manager
+    return _state.axioms_manager
 
 
 # =============================================================================
@@ -955,6 +969,7 @@ TOOLS = [
 
 async def run_skill(name: str, args: dict | None = None, **_kwargs) -> Any:
     """MCP Wrapper for executing a skill."""
+    # pylint: disable=import-outside-toplevel
     from .skill_harness import execute_skill
 
     return await execute_skill(name, args or {})

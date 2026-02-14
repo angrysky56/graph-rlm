@@ -34,14 +34,14 @@ async def verify():
 
     return "SUCCESS"
 
-result = asyncio.run(verify())
-result
+result = await verify()
+print(f"Result: {result}")
 """
 
-    output = await agent._execute_code(code, "thought_1", session_id)
-    print(f"Output:\n{output}")
+    output_text, failed = await agent._execute_code(code, "thought_1", session_id)
+    print(f"Output:\n{output_text}")
 
-    if "SERVERS:" in output and "Result: SUCCESS" in output:
+    if not failed and "SERVERS:" in output_text and "Result: SUCCESS" in output_text:
         print("✅ MCP Reflection verification passed!")
         return True
     else:

@@ -12,10 +12,13 @@ Principles:
 4. Feedback Loops: Integrate with Dreamer/IntelliSynth for refinement.
 """
 
+import datetime
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
+from .config import settings
 from .logger import get_logger
 from .omcd import omcd
 from .trace import trace_action
@@ -29,6 +32,7 @@ class AgentRole(Enum):
     BREAKER = "contextualization"
     SYNTHESIZER = "integration"
     EVALUATOR = "feedback"
+    WORKER = "execution"
 
 
 @dataclass
@@ -40,6 +44,7 @@ class Fragment:
     subtopics: List[str] = field(default_factory=list)
     confidence: float = 0.5
     raw_output: str = ""
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -83,7 +88,7 @@ class MetaAgentController:
         trace_action(
             "META_AGENT",
             "COLLABORATION_START",
-            result=f"Task: {task[:100]}...",
+            result=f"Task: {task}",
             tag="SYSTEM",
         )
         return state
@@ -132,33 +137,110 @@ class MetaAgentController:
         return should_spawn
 
     def get_breaker_instructions(self, subtask: str, fragment_index: int = 0) -> str:
-        """Generate Breaker-specific system prompt injection."""
+        """Generate Breaker-specific system prompt injection (Legacy/Contextualization only)."""
         return f"""
 ═══════════════════════════════════════════════════════════════
 [BREAKER PROTOCOL] — Fragment #{fragment_index}
 ═══════════════════════════════════════════════════════════════
 Role: CONTEXTUALIZATION (Extract & Summarize)
-Task Fragment: {subtask[:500]}
+Task Fragment: {subtask}
 
 INSTRUCTIONS:
-1. Extract ONLY core ideas (max 3-5 key points)
-2. Create structured subtopics as bullet points
-3. Return a HIGH-LEVEL SUMMARY (≤500 tokens)
-4. Do NOT perform full analysis — the Synthesizer will do that
+1. Extract core ideas.
+2. Create structured subtopics.
+3. Return a detailed analysis (the Synthesizer will integrate this).
+4. Feel free to use all tools to provide a complete picture.
 
 OUTPUT FORMAT:
-## Key Ideas
-- Idea 1: [Brief explanation]
-- Idea 2: [Brief explanation]
+## Analysis
+[Detailed analysis here]
+
+## Key Findings
+- Finding 1: [Explanation]
+- Finding 2: [Explanation]
 
 ## Subtopics Identified
-- Topic A: [One-line description]
-- Topic B: [One-line description]
-
-## Summary (≤200 words)
-[Your concise summary here]
+- Topic A: [Description]
 ═══════════════════════════════════════════════════════════════
 """
+
+    def get_worker_instructions(
+        self, subtask: str, tools: Optional[List[str]] = None
+    ) -> str:
+        """Generate specialized Worker instructions for atomic task execution."""
+        tools_str = ", ".join(tools) if tools else "All Available Tools"
+        return f"""
+═══════════════════════════════════════════════════════════════
+[ATOMIC WORKER PROTOCOL]
+═══════════════════════════════════════════════════════════════
+Role: EXECUTION (Act & Solve)
+Task: {subtask}
+Available Tools: {tools_str}
+
+INSTRUCTIONS:
+1. You are an autonomous sub-process dedicated to this specific task.
+2. EXECUTE the task as far as possible using your tools (Code, Search, etc.).
+3. DO NOT summarize what you *would* do. DO IT.
+4. If the task requires research, perform it. If it requires code, write/run it.
+5. Return the raw output, artifacts, or definitive answers.
+6. Use rlm.done() or rlm.stop() when finished.
+
+OUTPUT FORMAT:
+## Execution Results
+[The actual work performed]
+
+## Artifacts Produced
+- [File paths, data points, or code blocks]
+═══════════════════════════════════════════════════════════════
+"""
+
+    def generate_sub_agent_profile(self, task: str) -> Dict[str, Any]:
+        """
+        Analyze the task and generate a specialized persona profile.
+
+        Heuristics for persona selection:
+        - Code/File tasks -> Coder
+        - Search/Info tasks -> Researcher
+        - Logic/Math tasks -> Analyst
+        - Default -> Generalist
+        """
+        task_lower = task.lower()
+
+        if any(
+            w in task_lower
+            for w in ["write", "code", "file", "create", "implement", "fix"]
+        ):
+            return {
+                "persona": "Implementation Engineer",
+                "tools": ["File System", "Python REPL", "Linter", "Git"],
+                "role": AgentRole.WORKER,
+            }
+
+        if any(
+            w in task_lower
+            for w in ["search", "find", "research", "investigate", "price", "latest"]
+        ):
+            return {
+                "persona": "Intelligence Researcher",
+                "tools": ["Web Search", "Browser", "Semantic Recall"],
+                "role": AgentRole.WORKER,
+            }
+
+        if any(
+            w in task_lower
+            for w in ["calculate", "analyze", "math", "logic", "check", "verify"]
+        ):
+            return {
+                "persona": "Systems Analyst",
+                "tools": ["Python REPL", "Axiom Validator", "Graph Search"],
+                "role": AgentRole.WORKER,
+            }
+
+        return {
+            "persona": "Autonomous Generalist",
+            "tools": ["All"],
+            "role": AgentRole.WORKER,
+        }
 
     def get_synthesizer_instructions(self, root_session_id: str) -> str:
         """Generate Synthesizer-specific system prompt for final integration."""
@@ -166,15 +248,31 @@ OUTPUT FORMAT:
         if not state or not state.fragments:
             return ""
 
-        fragment_summaries = "\n".join(
-            f"### Fragment [{f.session_id[:8]}] (confidence: {f.confidence:.2f})\n{f.summary[:300]}"
-            for f in state.fragments
-        )
+        # [OPTIMIZATION] Aggregate fragments into a Digest File instead of the prompt
+        try:
+            kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
+            reports_dir = kb_root / "reports"
+            reports_dir.mkdir(parents=True, exist_ok=True)
 
-        all_subtopics = []
-        for f in state.fragments:
-            all_subtopics.extend(f.subtopics)
-        subtopics_str = "\n".join(f"- {t}" for t in all_subtopics[:20])
+            digest_filename = f"synthesis_digest_{root_session_id[:8]}_{int(datetime.datetime.now().timestamp())}.md"
+            digest_path = reports_dir / digest_filename
+
+            fragment_content = []
+            for f in state.fragments:
+                fragment_content.append(f"### Fragment [{f.session_id[:8]}]")
+                fragment_content.append(f"Confidence: {f.confidence:.2f}")
+                fragment_content.append(f"Summary: {f.summary}")
+                if f.subtopics:
+                    fragment_content.append("Subtopics:")
+                    for t in f.subtopics:
+                        fragment_content.append(f"- {t}")
+                fragment_content.append("\n---\n")
+
+            digest_path.write_text("\n".join(fragment_content), encoding="utf-8")
+            digest_ref = f"Fragment data saved to: {digest_path}"
+        except OSError as e:
+            logger.warning("Failed to create synthesis digest file: %s", e)
+            digest_ref = "Error creating digest file. Proceed with available context."
 
         return f"""
 ═══════════════════════════════════════════════════════════════
@@ -185,17 +283,16 @@ Fragments Received: {len(state.fragments)}
 Iteration: {state.iteration}
 Coherence Score: {state.coherence_score:.2f}
 
-FRAGMENT SUMMARIES:
-{fragment_summaries}
-
-ALL SUBTOPICS IDENTIFIED:
-{subtopics_str}
+CONTEXT REFERENCE:
+{digest_ref}
 
 INSTRUCTIONS:
-1. Combine fragments into a COHERENT NARRATIVE
-2. Ensure logical flow between sections
-3. Identify any GAPS requiring additional investigation
-4. Produce a FINAL SYNTHESIZED ANSWER
+1. Combine fragments into a COHERENT NARRATIVE.
+2. You MUST read the digest file above to see the fragment details.
+3. Use 'await rlm.read_document(path)' or standard file tools to ingest the data.
+4. Ensure logical flow between sections.
+5. Identify any GAPS requiring additional investigation.
+6. Produce a FINAL SYNTHESIZED ANSWER.
 
 OUTPUT FORMAT:
 ## Synthesized Analysis
@@ -213,6 +310,7 @@ OUTPUT FORMAT:
         self,
         root_session_id: str,
         fragment: Fragment,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Register a completed Breaker fragment."""
         state = self.active_collaborations.get(root_session_id)
@@ -220,13 +318,17 @@ OUTPUT FORMAT:
             logger.warning("No collaboration found for session %s", root_session_id)
             return
 
+        # Merge metadata if provided separately (legacy support or explicit override)
+        if metadata:
+            fragment.metadata.update(metadata)
+
         state.fragments.append(fragment)
         state.iteration += 1
 
         trace_action(
             "META_AGENT",
             "FRAGMENT_REGISTERED",
-            result=f"Fragment {len(state.fragments)}: {fragment.summary[:100]}...",
+            result=f"Fragment {len(state.fragments)}: {fragment.summary}",
             tag="SYSTEM",
         )
 
@@ -291,7 +393,7 @@ OUTPUT FORMAT:
 Role: FEEDBACK (Evaluate & Refine)
 
 DRAFT TO EVALUATE:
-{draft[:2000]}
+{draft}
 
 ORIGINAL FRAGMENTS: {len(fragments)}
 

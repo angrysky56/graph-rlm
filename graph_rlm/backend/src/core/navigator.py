@@ -41,7 +41,7 @@ class Navigator:
         try:
             compressed = lzma.compress(data.encode("utf-8"), preset=LZMA_PRESET)
             return len(compressed)
-        except Exception as e:
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.warning("Compression failed: %s", e)
             return len(data)
 
@@ -125,7 +125,7 @@ class Navigator:
 
             return max(0.0, min(1.0, normalized_entropy))
 
-        except Exception as e:
+        except (RuntimeError, AttributeError, ValueError) as e:
             logger.warning("Semantic Entropy failed: %s", e)
             return 0.5
 

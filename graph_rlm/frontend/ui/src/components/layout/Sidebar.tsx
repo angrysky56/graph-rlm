@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Settings, Plus, History as HistoryIcon } from 'lucide-react';
-import { SessionList } from './SessionList';
+import { Settings, Plus } from 'lucide-react';
 
 interface SidebarProps {
     onNewChat?: () => void;
     currentModel: string;
     onOpenSettings: () => void;
-    onSelectSession?: (id: string) => void;
     onOpenExplorer?: () => void;
     usage?: {
         prompt_tokens: number;
@@ -21,13 +19,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onNewChat,
     currentModel,
     onOpenSettings,
-    onSelectSession,
     onOpenExplorer,
     usage,
     terminalEntries = [],
     codeEntries = []
 }) => {
-    const [historyOpen, setHistoryOpen] = useState(false);
     const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
     const wsRef = useRef<WebSocket | null>(null);
 
@@ -198,26 +194,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
             </div>
 
-            {/* Collapsible History */}
-            <div className="border-t border-slate-800 bg-slate-900/30 shrink-0">
-                 <button
-                    onClick={() => setHistoryOpen(!historyOpen)}
-                    className="w-full flex items-center justify-between p-3 text-[10px] uppercase font-bold text-slate-500 hover:text-slate-300 transition-colors"
-                 >
+            {/* Token Usage Display */}
+            <div className="border-t border-slate-800 bg-slate-900/30 shrink-0 p-3">
+                 <div className="w-full flex items-center justify-between text-[10px] uppercase font-bold text-slate-500">
                     <div className="flex items-center gap-2">
-                        <HistoryIcon size={12} />
-                        <span>Session History</span>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500/50 animate-pulse"></span>
+                        <span>Token Usage</span>
                     </div>
-                    <span className="text-xs">{historyOpen ? '−' : '+'}</span>
-                 </button>
-
-                 {historyOpen && (
-                     <div className="border-t border-slate-800 max-h-[200px] overflow-hidden bg-slate-950 flex flex-col">
-                        <SessionList
-                            onSelectSession={(id) => onSelectSession && onSelectSession(id)}
-                            className="bg-transparent"
+                    {usage ? (
+                        <div className="text-right" title={`Prompt: ${usage.prompt_tokens} | Completion: ${usage.completion_tokens}`}>
+                            <span className="text-emerald-400 font-mono text-xs block">{usage.total_tokens.toLocaleString()}</span>
+                            <span className="text-[8px] text-slate-600 lowercase">total</span>
+                        </div>
+                    ) : (
+                        <span className="text-slate-700 italic">--</span>
+                    )}
+                 </div>
+                 {usage && (
+                    <div className="flex gap-1 mt-1 h-1 w-full bg-slate-800 rounded-full overflow-hidden opacity-50">
+                        <div
+                            className="bg-blue-500/50 h-full transition-all duration-500"
+                            style={{ width: `${(usage.prompt_tokens / usage.total_tokens) * 100}%` }}
                         />
-                     </div>
+                        <div
+                            className="bg-emerald-500/50 h-full transition-all duration-500"
+                            style={{ width: `${(usage.completion_tokens / usage.total_tokens) * 100}%` }}
+                        />
+                    </div>
                  )}
             </div>
 

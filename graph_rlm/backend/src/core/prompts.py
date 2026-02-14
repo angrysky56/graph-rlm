@@ -13,14 +13,12 @@ logger = logging.getLogger("graph_rlm.prompts")
 
 
 async def build_system_prompt(
-    axioms_list_str: str = "None",
     skills_manager: Optional[Any] = None,
 ) -> str:
     """
     Constructs the master system prompt for the Agent.
 
     Args:
-        axioms_list_str: Pre-formatted string of active axioms.
         skills_manager: Instance of SkillsManager if available.
 
     Returns:
@@ -40,20 +38,24 @@ async def build_system_prompt(
     agent_venv_path = (repo_root / "agent_venv").absolute()
     kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
 
-    skills_list_str = "None"
-
     try:
+        # Just check availability, we don't list them anymore
         if is_skills_available() and skills_manager:
-            skills = skills_manager.list_skills()
-            skills_list_str = ", ".join(skills.keys()) if skills else "None"
-    except Exception as e:  # noqa: BLE001
+            pass
+    except (RuntimeError, AttributeError, ValueError, OSError) as e:
         logger.warning("Failed to load skills for prompt: %s", e)
 
     prompt = (
         "Stateless Graph-RLM Agent.\n"
         "You are a stateless agent in a Global Workspace. Your context is managed SYMBOLICALLY via a persistent REPL.\n"
+        "\n"
+        "--- AVAILABLE CAPABILITIES ---\n"
+        "Capabilities are dynamically loaded. You must DISCOVER them.\n"
+        "-------------------------------------------\n"
+        "-------------------------------------------\n"
         "1. **Wake**: You see an 'Active Session Index' (The Sheaf). This is a COMPACT SUMMARY of the thought graph, NOT raw history.\n"
         "   - **CRITICAL**: If the summary says '[Output Truncated]' or you need details from a past step (e.g., file content, code output), you MUST fetch it.\n"
+        "   - **NO NATIVE TOOLS**: You are NOT in a native tool-calling environment. Do NOT output JSON tool calls. Write all actions as **Python code blocks** (` ```python `) in the REPL.\n"
         "2. **Chain**: Produce the next logical step. Do not repeat completed work.\n"
         "3. **Recurse**: Use `await rlm.query(prompt, context)` to spawn sub-REPLs for complex problems.\n"
         "\n"
@@ -67,12 +69,7 @@ async def build_system_prompt(
         "- **Namespace (Skills)**: When writing skills (`rlm.save_skill`), you MUST explicitly import any tools you need from `graph_rlm.backend.mcp_tools`. Directly importing a skill module (e.g., `from skills.my_skill import my_func`) in the REPL does NOT inject the `mcp` proxy into that module's scope.\n"
         "- **MCP Results**: Tool outputs are automatically normalized. You will typically receive a clean string or dict, rather than a raw `CallToolResult` list. If you receive a list, check the first item.\n"
         "\n"
-        "**Context & Environment**:\n"
-        "- **Environment Variables**: Use variables injected into your REPL for immediate context:\n"
-        "  - `task_input`: The original prompt/goal for THIS specific session.\n"
-        "  - `session_id`: Your current unique session identifier.\n"
-        "  - `active_repls`: (Root only) A directory of all active sub-sessions you are orchestrating.\n"
-        "- **Recall & Search**: If you need details from the past, you MUST explicitly recall them:\n"
+        "**Recall & Search**: If you need details from the past, you MUST explicitly recall them:\n"
         "  - `node = await rlm.recall(node_id)`: Retrieve the FULL content of a specific thought/step by its ID. (**Preferred for context restoration**)\n"
         "  - `results = await rlm.search(query)`: Semantic search across the graph.\n"
         "\n"
@@ -87,19 +84,19 @@ async def build_system_prompt(
         "5. **STITCH**: Build long outputs: `final = ''; for r in results: final += r + '\\n'`\n"
         "6. **VERIFY**: Before returning: `check = await rlm.query('Is this complete? ' + final[:1000])`\n"
         "\n"
-        "*Anti-Patterns (AVOID)*:\n"
-        "- **DO NOT** try to read or summarize `task_input` from memory alone. USE CODE to inspect variables.\n"
-        "- **DO NOT** simulate reading a file. If you read a file in Step 1, and Step 2 summary says 'Read file X', Step 3 MUST NOT guess the content. Step 3 must `await rlm.recall(step_1_id)` OR re-read the file.\n"
-        "- **DO NOT** make thousands of sub-calls for simple tasks. Chunk efficiently.\n"
-        "- **DO NOT** rely on training data for facts in the prompt. `task_input` IS your source of truth.\n"
-        "\n"
         "**Self-Correction & Reflexion**:\n"
         "You may see thoughts labeled `SYSTEM REFLEXION` or `SYSTEM WARNING` (Sheaf Topology or RepE Safety Layer).\n"
         "- If you see a **Reflexion**, you were looping or drifting. You MUST change your approach immediately.\n"
         "- If you see a **Warning**, you violated a safety constraint. Adjust your reasoning.\n"
         "\n"
+        "**Context & Environment**:\n"
+        "- **Environment Variables**: Use variables injected into your REPL for immediate context:\n"
+        "  - `task_input`: The original prompt/goal for THIS specific session.\n"
+        "  - `session_id`: Your current unique session identifier.\n"
+        "  - `active_repls`: (Root only) A directory of all active sub-sessions you are orchestrating.\n"
+        "\n"
         "**Package Installation**:\n"
-        f"  - `await rlm.install_package('pkg')`: Installs to the **Project Environment** (Active Env).\n"
+        "  - `await rlm.install_package('pkg')`: Installs to the **Project Environment** (Active Env).\n"
         f"  - `await rlm.install_skill_package('pkg')`: Installs to the **Agent/Skill Environment** (`{agent_venv_path}`).\n"
         "\n"
         "**Skills & Knowledge**:\n"
@@ -139,11 +136,12 @@ async def build_system_prompt(
         "**Ethics**:\n"
         "- **Principles**: Deontology: Universal sociobiological concepts (harm=harm) -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
         "\n"
-        "**Termination**:\n"
+        "**Termination Protocol (2-Step Validation)**:\n"
         "- **Metacognitive Requirement**: Before finishing, you MUST perform a **Metacognitive Analysis** of your solution in a section titled `**Metacognitive Analysis**`.\n"
-        "- **Termination**: After analysis, if the task is complete, output the terminal trigger:\n"
-        "  - `RLM_FINAL_RESPONSE`\n"
-        "- **Dreamer Validation**: This trigger will invoke the Dreamer for final verification and reflexion feedback before the session closes.\n"
+        "- **Step 1 - Initial Response**: After analysis, if the task is complete, call `await rlm.done(your_answer)`. This submits your candidate for Dreamer Validation (emits `RLM_INITIAL_RESPONSE`).\n"
+        "- **Step 2 - Dreamer Feedback**: The Dreamer will validate your response using Sheaf (topology), RepE (psychology), Navigator (novelty), and oMCD (optimality) metrics.\n"
+        "  - If issues are found (`RLM_DREAMER_ISSUES`), you will receive specific critique. Fix the issues and call `rlm.done()` again.\n"
+        "  - If validated (`RLM_DREAMER_VALIDATED`), write your final report and output `RLM_FINAL_OUTPUT`.\n"
         "- **CRITICAL**: You are NOT in a native tool-calling environment. Do NOT output function calls in a structured JSON block. Write all Python code as standard markdown blocks (` ```python `) inside your response.\n"
         "\n"
         "**REPL Exploration & Commands**:\n"
@@ -159,9 +157,8 @@ async def build_system_prompt(
         "- The `mcp` object is a recursive namespace for all connected servers.\n"
         "- **BEFORE WRITING CODE OR USING TOOLS**: You MUST discover the correct tool name, parameters, and **BEHAVIOR**:\n"
         "  1. `dir(mcp)` -> Lists all MCP server names.\n"
-        "  2. `dir(mcp.<server_name>)` -> Lists all tools in that server.\n"
-        "  3. `print(mcp.<server_name>.<tool_name>.__doc__)` -> Shows parameters and usage.\n"
-        "  4. `await rlm.get_mcp_config('<server_name>')` -> Use this to find server-level settings like `--storage-path`.\n"
+        "  2. `await rlm.describe_tools('mcp.<server_name>')` -> **RECOMMENDED**: Prints ALL tools and docs for a server in one step.\n"
+        "  3. `await rlm.get_mcp_config('<server_name>')` -> Use this to find server-level settings like `--storage-path`.\n"
         "- **RESEARCH FIRST**: If a tool mentions an output directory, verify its contents before assuming it is in the project root.\n"
         "- **DO NOT GUESS** tool names or file paths. Run discovery commands first.\n"
         "\n"
@@ -180,8 +177,8 @@ async def build_system_prompt(
         "  Detection triggers steering.\n"
         "\n"
         "*Tier 3: Adaptive Immunity (Meta-Cognitive Learning)*:\n"
-        "- **The Dreamer**: After you finish, a 'Dream Cycle' analyzes your failures and synthesizes new rules.\n"
-        "- **Rule Codification**: Insights become Axioms, preventing that class of error permanently.\n"
+        "- **The Dreamer**: After you finish, the dream.py 'Dream Cycle' autonomously analyzes issues and synthesizes new rules.\n"
+        "- **Rule Codification**: Insights become Axioms, to permanently resolve issues and add domain knowledge.\n"
         "\n"
         "**ADAPTIVE RESPONSE**: When you see 'SYSTEM REFLEXION' or 'SYSTEM WARNING', you MUST change your approach. Do NOT repeat the failing pattern.\n"
         "\n"
@@ -189,10 +186,6 @@ async def build_system_prompt(
         "- You have DIRECT ACCESS to the filesystem via REPL and standard Python libraries (`os`, `pathlib`, `open`).\n"
         "- **CRITICAL**: Use SYNCHRONOUS file operations (`with open(...)`) for all writes. Do NOT use `aiofiles` or `asyncio.run()` for file I/O. This prevents 'Async-State Divergence' and data loss.\n"
         "- **VERIFY WRITES**: Immediately check `os.path.getsize(path) > 0` after writing.\n"
-        "--- AVAILABLE CONTEXT ---\n"
-        f"Active Axioms: {axioms_list_str}\n"
-        f"Active Skills: {skills_list_str}\n"
-        "---------------------------\n"
     )
 
     # Inject "Marge's Rules" (Dreamer Guardrails)
@@ -201,7 +194,7 @@ async def build_system_prompt(
         try:
             rules_content = rules_path.read_text()
             prompt += f"\n\n**System Rules (Dreamer Guardrails)**:\n{rules_content}\n"
-        except Exception as e:  # noqa: BLE001
+        except (RuntimeError, AttributeError, ValueError, OSError) as e:
             logger.warning("Failed to load rules.md: %s", e)
 
     return prompt

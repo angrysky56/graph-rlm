@@ -8,7 +8,9 @@ import json
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Event
 from typing import Any, Dict, Optional, Tuple
 
 from .client import call_mcp_tool
@@ -17,18 +19,23 @@ __all__ = ["AgentRuntime", "call_mcp_tool"]
 
 logger = logging.getLogger(__name__)
 
-_THREADING_STOP_EVENT = None
+
+@dataclass
+class _RuntimeState:
+    stop_event: Optional[Event] = None
 
 
-def get_stop_event():
+_state = _RuntimeState()
+
+
+def get_stop_event() -> Optional[Event]:
     """Returns the global stop event for the runtime."""
-    return _THREADING_STOP_EVENT
+    return _state.stop_event
 
 
-def set_stop_event(event):
+def set_stop_event(event: Event):
     """Sets the global stop event (threading.Event) from the Agent."""
-    global _THREADING_STOP_EVENT
-    _THREADING_STOP_EVENT = event
+    _state.stop_event = event
 
 
 class AgentRuntime:
@@ -120,8 +127,16 @@ class AgentRuntime:
                 # but we should drop the reference.
                 try:
                     proc.kill()
-                except Exception:
-                    pass
+                # We catch typical process-management errors:
+                # - ProcessLookupError: Process already gone
+                # - OSError: Permission or other system error
+                # - AttributeError: If proc is unexpectedly not a Process object
+                except (OSError, ProcessLookupError, AttributeError) as e:
+                    logger.debug(
+                        "Failed to kill stale kernel process %s: %s",
+                        getattr(proc, "pid", "unknown"),
+                        e,
+                    )
                 del self.sessions[session_id]
             elif proc.returncode is not None:
                 # Process died, restart
@@ -144,7 +159,7 @@ class AgentRuntime:
             "HOME": os.environ.get("HOME", ""),
             "LANG": os.environ.get("LANG", "en_US.UTF-8"),
             "PYTHONUNBUFFERED": "1",
-            "PYTHONPATH": f"{self.project_root}:{os.environ.get('PYTHONPATH', '')}",
+            "PYTHONPATH": f"{self.project_root}:{self.backend_root / 'skills'}:{os.environ.get('PYTHONPATH', '')}",
         }
 
         logger.info("Starting Kernel for Session %s: %s", session_id, cmd)
@@ -166,7 +181,7 @@ class AgentRuntime:
         code: str,
         context: Dict[str, Any],
         mcp_namespace: Optional[Any] = None,
-    ) -> Tuple[str, str, int]:
+    ) -> Tuple[str, str, Any, int]:
         """
         Runs code in a persistent kernel.
         Args:
@@ -179,11 +194,18 @@ class AgentRuntime:
         # 1. Get/Start Kernel
         try:
             process = await self._ensure_session(session_id)
-        except Exception as e:
-            return "", f"Failed to start kernel: {e}", 1
+        except (asyncio.TimeoutError, ConnectionError, RuntimeError, OSError) as e:
+            logger.error("Failed to start kernel for session %s: %s", session_id, e)
+            return "", f"Failed to start kernel: {e}", None, 1
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            # Fallback for unexpected errors during session creation
+            logger.error(
+                "Unexpected error starting kernel session %s: %s", session_id, e
+            )
+            return "", f"System Error (Session Start): {e}", None, 1
 
         if not process.stdin or not process.stdout or not process.stderr:
-            return "", "System Error: Kernel process streams are missing.", 1
+            return "", "System Error: Kernel process streams are missing.", None, 1
 
         # 2. Prepare MCP Discovery Data
         discovery_data = {}
@@ -229,7 +251,7 @@ class AgentRuntime:
         except Exception as e:
             logger.error("Failed to send to kernel: %s", str(e))
             self.sessions.pop(session_id, None)
-            return "", f"Kernel Communication Error: {e}", 1
+            return "", f"Kernel Communication Error: {e}", None, 1
 
         # 5. Read Output Loop
         async def read_stream(stream, is_stdout=False) -> str:
@@ -250,7 +272,14 @@ class AgentRuntime:
                 if clean_line == "<<EXECUTION_COMPLETE>>":
                     break
 
-                if is_stdout and line.startswith("<<IPC_REQUEST>>"):
+                if is_stdout and line.startswith("<<RESULT>>"):
+                    try:
+                        res_json = line.replace("<<RESULT>>", "").strip()
+                        # We store the latest result found in the stream
+                        context["_last_result"] = json.loads(res_json)
+                    except Exception as e:
+                        logger.warning("Failed to parse result JSON from kernel: %s", e)
+                elif is_stdout and line.startswith("<<IPC_REQUEST>>"):
                     try:
                         req_json = line.replace("<<IPC_REQUEST>>", "").strip()
                         req = json.loads(req_json)
@@ -282,14 +311,17 @@ class AgentRuntime:
                 return (
                     stdout_data,
                     stderr_data + "\nKernel Process Exited Unexpectedly.",
+                    None,
                     1,
                 )
 
-            return stdout_data, stderr_data, 0
+            # Extract result from context (it was updated in the read_stream closure)
+            exec_result = context.get("_last_result")
+            return stdout_data, stderr_data, exec_result, 0
 
         except Exception as e:
             logger.error("Runtime Exception: %s", str(e))
-            return "", f"Runtime Error: {e}", 1
+            return "", f"Runtime Error: {e}", None, 1
 
     async def _handle_ipc_request(
         self, process, req: Dict, mcp_namespace: Optional[Any] = None
@@ -319,10 +351,16 @@ class AgentRuntime:
 
                 try:
                     func = getattr(rlm, func_name)
-                except AttributeError as e:
-                    raise ValueError(
-                        f"Method '{func_name}' not found on RLM interface."
-                    ) from e
+                except AttributeError:
+                    # Fallback: treat as a skill invocation via run_skill
+                    logger.info(
+                        "IPC: '%s' not a native RLM method, routing to run_skill.",
+                        func_name,
+                    )
+                    func = rlm.run_skill
+                    # Rewrite args so run_skill receives (name, args)
+                    kwargs = {"name": func_name, "args": dict(kwargs) if kwargs else {}}
+                    args = []
 
                 if asyncio.iscoroutinefunction(func):
                     result = await func(*args, **kwargs)

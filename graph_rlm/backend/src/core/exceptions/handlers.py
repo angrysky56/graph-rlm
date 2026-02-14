@@ -6,24 +6,20 @@ and FastAPI exception handlers for HTTP response mapping.
 
 from __future__ import annotations
 
-from typing import Any, TypeVar, Callable
+from typing import Any, Callable, TypeVar
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from structlog import get_logger
-
+from ..logging import get_correlation_id
+from ..logging import get_logger as get_structlog_logger
 from .base import BaseGraphRLMError
 from .codes import ErrorCode
 from .types import (
     CoreError,
-    GraphError,
-    SkillExecutionError,
     ExternalServiceError,
     ValidationError,
 )
-from ..logging import get_logger as get_structlog_logger
-from ..logging import get_correlation_id
 
 T = TypeVar("T", bound=BaseGraphRLMError)
 
@@ -115,7 +111,7 @@ def safe_call(
         return func()
     except BaseGraphRLMError:
         raise
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
         handler.handle(
             e,
             error_code=error_code,
@@ -157,7 +153,7 @@ def wrap_operation(
                 return func(*args, **kwargs)
             except BaseGraphRLMError:
                 raise
-            except Exception as e:
+            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                 handler.handle(
                     e,
                     error_code=error_code,
@@ -177,7 +173,7 @@ def wrap_operation(
 
 
 async def graphrlm_exception_handler(
-    request: Request, exc: BaseGraphRLMError
+    _: Request, exc: BaseGraphRLMError
 ) -> JSONResponse:
     """Handle all GraphRLM exceptions with proper HTTP status codes.
 
@@ -192,7 +188,7 @@ async def graphrlm_exception_handler(
 
 
 async def validation_exception_handler(
-    request: Request, exc: ValidationError
+    _: Request, exc: ValidationError
 ) -> JSONResponse:
     """Handle validation errors with 422 status code."""
     # Build response content including validation details from context
@@ -202,7 +198,7 @@ async def validation_exception_handler(
 
 
 async def circuit_open_exception_handler(
-    request: Request, exc: BaseGraphRLMError
+    _: Request, exc: BaseGraphRLMError
 ) -> JSONResponse:
     """Handle circuit breaker open errors with 503 status code."""
     # Lazy import to avoid circular dependency
@@ -219,7 +215,7 @@ async def circuit_open_exception_handler(
 
 
 async def external_service_exception_handler(
-    request: Request, exc: ExternalServiceError
+    _: Request, exc: ExternalServiceError
 ) -> JSONResponse:
     """Handle external service errors with 503 status code."""
     # ExternalServiceError may have service/endpoint info in context

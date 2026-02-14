@@ -1,1 +1,0 @@
-def main(msg): return f'Skill says: {msg}'

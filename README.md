@@ -1,5 +1,7 @@
 # Self-Healing Recursive Language Model (Graph-RLM)
 
+## Current Status: Mostly Broken, very expensive, disjointed, repetitive, and very expensive.
+
 > **"Unshackled" Reasoning**: A system that replaces linear context windows with a persistent, recursive, and self-correcting Graph of Thoughts. Implements the **Ralph Protocol** (Wake -> Sleep -> Wake).
 
 ![Graph Visualization](image.png)

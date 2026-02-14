@@ -87,3 +87,15 @@ Extended exception classes with `http_status_code` property:
 ## Next Steps
 
 Ready for Plan 05-02: MCP server circuit breaker integration and testing.
+
+## Self-Check: PASSED
+
+- ✓ graph_rlm/backend/src/core/exceptions/handlers.py exists with 4 handler functions
+- ✓ graph_rlm/backend/main.py has 4 app.add_exception_handler() calls
+- ✓ http_status_code property exists on BaseGraphRLMError (returns 500)
+- ✓ http_status_code property exists on ValidationError (returns 422)
+- ✓ http_status_code property exists on ExternalServiceError (returns 503)
+- ✓ http_status_code property exists on CircuitOpenError (returns 503)
+- ✓ Commit 8e5fc64 created with handler implementation
+- ✓ Commit 5baefb0 created with summary documentation
+- ✓ Commit 903e786 updated STATE.md position

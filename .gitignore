@@ -58,9 +58,9 @@ graph_rlm/frontend/ui/dist/
 coverage/
 knowledge_base/
 graph_rlm/backend/axioms_dir/_disabled/
+graph_rlm/backend/axioms_dir/
 tests/
-graph_rlm/backend/tests
-# skills/
+skills/
 test_skills_env/
 graph_rlm/backend/mcp_tools/
 

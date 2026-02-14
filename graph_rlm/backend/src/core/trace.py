@@ -4,7 +4,22 @@ Provides high-fidelity logging of agent actions and system state transitions.
 """
 
 import logging
+import sys
 from typing import Any, Optional
+
+# ═══════════════════════════════════════════════════════════════
+# RLM Pipeline Triggers (Canonical Constants)
+# ═══════════════════════════════════════════════════════════════
+# Agent emits at start after profiling task complexity/persona.
+RLM_AGENT_TASK_PLAN = "RLM_AGENT_TASK_PLAN"
+# Agent proposes a candidate answer (NOT a stop signal).
+RLM_INITIAL_RESPONSE = "RLM_INITIAL_RESPONSE"
+# Dreamer found issues during validation — agent must fix them.
+RLM_DREAMER_ISSUES = "RLM_DREAMER_ISSUES"
+# Dreamer validated the candidate — agent may write final report.
+RLM_DREAMER_VALIDATED = "RLM_DREAMER_VALIDATED"
+# Agent writes final report/artifact — this is the ONLY agent-side stop signal.
+RLM_FINAL_OUTPUT = "RLM_FINAL_OUTPUT"
 
 # ANSI Colors
 CYAN = "\033[96m"
@@ -18,14 +33,20 @@ BOLD = "\033[1m"
 
 logger = logging.getLogger("graph_rlm.trace")
 
-# Global monitor callback (e.g. for streaming to UI)
-_MONITOR_CALLBACK = None
+
+class _TraceState:
+    """Internal container for tracing state to avoid global statements."""
+
+    def __init__(self):
+        self.monitor_callback = None
+
+
+_state = _TraceState()
 
 
 def register_monitor(callback):
     """Registers a callback(msg: str) to receive trace logs in real-time."""
-    global _MONITOR_CALLBACK
-    _MONITOR_CALLBACK = callback
+    _state.monitor_callback = callback
 
 
 def trace_action(
@@ -46,6 +67,7 @@ def trace_action(
         "LLM": (YELLOW, "🧠"),
         "REPL": (GREEN, "⚡"),
         "SHEAF": (MAGENTA, "🛡️ "),
+        "DREAMER": (CYAN, "💭"),
         "DB": (CYAN, "📊"),
         "RLM": (BLUE, "🔗"),
         "ERROR": (RED, "🚨"),
@@ -70,13 +92,11 @@ def trace_action(
         logger.info(msg)
 
     # Stream to UI if monitor is registered
-    if _MONITOR_CALLBACK:
+    if _state.monitor_callback:
         try:
-            _MONITOR_CALLBACK(msg)
-        except Exception as e:
+            _state.monitor_callback(msg)
+        except (AttributeError, ValueError, TypeError, RuntimeError) as e:
             # Write to stderr to avoid logger recursion, but don't crash
-            import sys
-
             sys.stderr.write(f"Trace monitor failed: {e}\n")
 
 

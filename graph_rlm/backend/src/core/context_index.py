@@ -35,7 +35,7 @@ class ContextIndex:
                  max(ts) as last_activity
             RETURN sid, thought_count, initial_prompt, last_activity
             ORDER BY last_activity DESC
-            LIMIT 10
+            LIMIT 1000
             """
             res = self.db.query(q, {"root_id": root_session_id})
 
@@ -77,7 +77,14 @@ class ContextIndex:
 
             return "\n".join(lines)
 
-        except Exception as e:
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+        ) as e:
             return f"Error building Session Index: {e}"
 
     def get_active_scratchpad_data(self, root_session_id: str) -> list:
@@ -96,7 +103,7 @@ class ContextIndex:
                  max(ts) as last_activity
             RETURN sid, thought_count, initial_prompt, last_activity
             ORDER BY last_activity DESC
-            LIMIT 20
+            LIMIT 1000
             """
             res = self.db.query(q, {"root_id": root_session_id})
 
@@ -122,7 +129,14 @@ class ContextIndex:
                             }
                         )
             return data
-        except Exception as e:
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+        ) as e:
             logger.error("Error in get_active_scratchpad_data: %s", e)
             return []
 
@@ -148,7 +162,14 @@ class ContextIndex:
                     "created_at": row[3],
                 }
             return None
-        except Exception as e:
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+        ) as e:
             logger.error("Error in get_current_running_thought: %s", e)
             return None
 
@@ -251,7 +272,14 @@ class ContextIndex:
                         }
                     )
             return data
-        except Exception as e:
+        except (
+            RuntimeError,
+            AttributeError,
+            ValueError,
+            KeyError,
+            IndexError,
+            TypeError,
+        ) as e:
             logger.error("Error in get_session_thoughts: %s", e)
             return []
 

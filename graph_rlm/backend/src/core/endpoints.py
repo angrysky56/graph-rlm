@@ -10,6 +10,8 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
+import httpx
+import redis
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -132,8 +134,27 @@ async def stop_generation():
     try:
         agent.stop_generation()
         return {"status": "success", "message": "Stop signal sent to agent."}
-    except Exception as e:
+    except (AttributeError, RuntimeError) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/system/shutdown")
+async def shutdown_system():
+    """
+    Trigger a graceful shutdown of the backend.
+    """
+    import os
+    import signal
+    import threading
+    import time
+
+    def kill_server():
+        time.sleep(1)  # Give time for the response to return
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    # Schedule kill in a separate thread to allow response to be sent
+    threading.Thread(target=kill_server).start()
+    return {"status": "success", "message": "Backend shutting down..."}
 
 
 @router.get("/system/status")
@@ -154,7 +175,7 @@ async def get_system_status(session_id: Optional[str] = None):
             "current_thought": state.current_thought_id,
             "scratchpad": scratchpad,
         }
-    except Exception as e:
+    except (AttributeError, KeyError, ValueError) as e:
         logger.error("System status check failed: %s", e)
         return {"scratchpad": [], "error": str(e)}
 
@@ -172,7 +193,11 @@ async def reembed_graph():
             "message": f"Successfully re-embedded {count} thoughts.",
             "count": count,
         }
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+    ) as e:
         logger.error("Re-embedding failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -226,7 +251,12 @@ async def list_sessions():
                 }
             )
         return sessions
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+        KeyError,
+    ) as e:
         logger.error("Session list error: %s", e)
         return []
 
@@ -336,7 +366,11 @@ async def delete_session(session_id: str):
     try:
         db.delete_session(session_id)
         return {"status": "success", "message": f"Session {session_id} deleted"}
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+    ) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -352,7 +386,11 @@ async def prune_orphans(hours: int = 1):
             "count": count,
             "message": f"Pruned {count} orphan nodes",
         }
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+    ) as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
@@ -365,7 +403,11 @@ async def reset_database():
         # Delete all nodes and relationships
         db.reset_graph()
         return {"status": "success", "message": "Database wiped."}
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+    ) as e:
         raise HTTPException(status_code=500, detail=f"Failed to reset DB: {e}") from e
 
 
@@ -489,7 +531,7 @@ async def get_graph(session_id: Optional[str] = None):
                     links.append({"source": s_id, "target": t_id})
 
         return {"nodes": list(nodes.values()), "links": links}
-    except Exception as e:
+    except (AttributeError, KeyError, ValueError, TypeError) as e:
         print(f"Graph fetch error: {e}")
         return {"nodes": [], "links": []}
 
@@ -529,18 +571,10 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
                     agent.stop_generation()
                     break
 
-                # Mirror to terminal for observability
-                e_type = event.get("type", "unknown")
-                if e_type not in ["token", "usage"]:
-                    trace_action(
-                        "EVENT",
-                        e_type.upper(),
-                        result=event.get("content", ""),
-                        tag="AGENT",
-                    )
-
+                # Mirroring to terminal handled internally by Agent.emit_event
+                # to avoid double-logging during streaming.
                 yield f"data: {json.dumps(event)}\n\n"
-        except Exception as e:
+        except (httpx.RequestError, RuntimeError, ValueError) as e:
             logger.error("Exception in response_stream: %s", e)
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
@@ -596,7 +630,7 @@ async def mcp_status():
             except ImportError:
                 # Module not generated yet or failed
                 error = "Tool wrapper not found (may need restart)"
-            except Exception as e:
+            except (AttributeError, ValueError) as e:
                 error = str(e)
 
             servers.append(
@@ -610,7 +644,13 @@ async def mcp_status():
             )
 
         return {"servers": servers}
-    except Exception as e:
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+        json.JSONDecodeError,
+        FileNotFoundError,
+    ) as e:
         return {"status": "error", "message": str(e)}
 
 
@@ -634,7 +674,7 @@ async def list_skills_endpoint():
                 }
             )
         return skills_list
-    except Exception as e:
+    except (AttributeError, ValueError, KeyError, FileNotFoundError) as e:
         logger.error("Error listing skills: %s", e)
         return []
 
@@ -679,7 +719,12 @@ async def websocket_log_stream(websocket: WebSocket):
                 # Send keepalive ping
                 try:
                     await websocket.send_text("")
-                except Exception:
+                except (
+                    WebSocketDisconnect,
+                    ConnectionError,
+                    RuntimeError,
+                    AttributeError,
+                ):
                     break
     except WebSocketDisconnect:
         pass

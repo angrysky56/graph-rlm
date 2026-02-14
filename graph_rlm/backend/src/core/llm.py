@@ -5,10 +5,15 @@ Provides a unified interface for multiple LLM providers and embedding models.
 
 import asyncio
 import json
-from contextlib import suppress
 from typing import Any, Dict, List, Optional
 
 import httpx
+
+# Pydantic AI Integration
+from pydantic_ai import Agent as PydanticAgent
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.providers.openrouter import OpenRouterProvider
 
 from .config import settings
 from .logger import get_logger
@@ -24,8 +29,8 @@ class LLMService:
     """
 
     DEFAULT_CONNECT_TIMEOUT = 5.0
-    DEFAULT_READ_TIMEOUT = 60.0
-    DEFAULT_WRITE_TIMEOUT = 60.0
+    DEFAULT_READ_TIMEOUT = 120.0
+    DEFAULT_WRITE_TIMEOUT = 1200.0
     DEFAULT_POOL_TIMEOUT = 5.0
 
     def __init__(self):
@@ -146,10 +151,6 @@ class LLMService:
         on_usage: Optional[Any] = None,
         model: Optional[str] = None,
     ) -> Any:
-        """
-        Unified generation interface. Supports both string prompts and message lists.
-        Handles both streaming and non-streaming modes.
-        """
         # Note: prompt can be str or List[Dict] (messages)
         # We need to handle both since agent passes messages directly sometimes
 
@@ -162,14 +163,17 @@ class LLMService:
             messages.append({"role": "user", "content": prompt})
 
         if stream:
-            return self._generate_stream(messages, stop=stop)
+            return self._generate_stream(messages, stop=stop, on_usage=on_usage)
         else:
             return await self._generate_async(
                 messages, on_usage=on_usage, model_override=model, stop=stop
             )
 
     async def _generate_stream(
-        self, messages: List[Dict[str, str]], stop: Optional[List[str]] = None
+        self,
+        messages: List[Dict[str, str]],
+        stop: Optional[List[str]] = None,
+        on_usage: Optional[Any] = None,
     ):
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
@@ -204,6 +208,21 @@ class LLMService:
                     if line.startswith("data: "):
                         try:
                             chunk = json.loads(line[6:])
+
+                            # [Usage Extraction] Check for usage in chunk (OpenRouter/OpenAI standard)
+                            if on_usage and "usage" in chunk:
+                                try:
+                                    on_usage(chunk["usage"])
+                                except (
+                                    AttributeError,
+                                    RuntimeError,
+                                    TypeError,
+                                    ValueError,
+                                ) as e:
+                                    logger.warning(
+                                        "Failed to process usage callback: %s", e
+                                    )
+
                             content = ""
                             if self.provider == "ollama":
                                 content = chunk.get("message", {}).get("content", "")
@@ -216,15 +235,18 @@ class LLMService:
                             if content:
                                 yield content
                         except (
-                            Exception
-                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                            json.JSONDecodeError,
+                            KeyError,
+                            IndexError,
+                            TypeError,
+                        ) as e:
                             logger.warning("Stream Parse Error: %s", e)
         except httpx.TimeoutException as e:
             logger.error("LLM Stream Timeout: %s", e)
             yield f"Error: Timeout occurred: {str(e)}"
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-            logger.error("LLM Stream Error: %s", e)
-            yield f"Error: {str(e)}"
+        except httpx.RequestError as e:
+            logger.error("LLM Stream Request Error: %s", e)
+            yield f"Error: Request failed: {str(e)}"
 
     async def _generate_async(
         self,
@@ -255,20 +277,38 @@ class LLMService:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
                 logger.error("LLM Async HTTP error: %s", e)
-                with suppress(Exception):
+                try:
                     # Log the full response body for debugging
                     err_body = e.response.text
                     logger.error("Provider Response Body: %s", err_body)
+                except (AttributeError, RuntimeError, ValueError) as exc:
+                    logger.warning("Failed to extract error body: %s", exc)
 
-                with suppress(Exception):
+                try:
                     # Log snippet of request body to check for bloat/format issues
-                    req_snippet = json.dumps(body)[:2000]
-                    logger.error(
-                        "Request Body Snippet (First 2000 chars): %s", req_snippet
+                    # Slice first to avoid massive string allocation in json.dumps
+                    messages_count = len(body.get("messages", []))
+                    model_name = body.get("model", "unknown")
+                    req_snippet = json.dumps(
+                        {
+                            "model": model_name,
+                            "messages_count": messages_count,
+                            "sample_prompt": last_msg[:500],
+                        }
                     )
+                    logger.error("Request Metadata: %s", req_snippet)
+                except (TypeError, ValueError, RuntimeError) as exc:
+                    logger.warning("Failed to log request metadata: %s", exc)
 
                 return f"Error: {str(e)}"
             data = response.json()
+
+            # [Usage Extraction]
+            if on_usage and "usage" in data:
+                try:
+                    on_usage(data["usage"])
+                except (AttributeError, RuntimeError, TypeError, ValueError) as e:
+                    logger.warning("Failed to process usage callback in async: %s", e)
 
             if self.provider == "ollama":
                 return data.get("message", {}).get("content", "")
@@ -287,10 +327,53 @@ class LLMService:
                         full_err += f"\nMetadata: {json.dumps(error_meta)}"
                     logger.error("LLM Error Object Detected: %s", full_err)
                     trace_action("LLM", "ERROR", result=full_err, tag="ERROR")
+
+                    # [Resilience] Handle Malformed Function Calls
+                    if (
+                        "MALFORMED_FUNCTION_CALL" in error_msg
+                        or "native_finish_reason" in str(error_obj)
+                    ):
+                        return "SYSTEM ERROR: The model attempted a native function call which is malformed. Please use Python code blocks only."
+
                     return f"Error: {full_err}"
-                message = data.get("choices", [{}])[0].get("message", {})
+                choices = data.get("choices", [])
+                if not choices:
+                    return (
+                        ""
+                        if self.provider == "ollama"
+                        else "Error: Empty choices returned by provider."
+                    )
+
+                choice = choices[0]
+                message = choice.get("message", {})
                 res = message.get("content", "")
                 tool_calls = message.get("tool_calls", [])
+
+                # [Resilience] Handle Choice-Level Errors (e.g., MALFORMED_FUNCTION_CALL)
+                # Gemini 2.0 Flash on OpenRouter can return finish_reason: error with no content
+                finish_reason = choice.get("finish_reason")
+                native_finish_reason = choice.get("native_finish_reason")
+
+                if (
+                    finish_reason == "error"
+                    or native_finish_reason == "MALFORMED_FUNCTION_CALL"
+                ):
+                    err_msg = (
+                        "SYSTEM ERROR: The model attempted a native function call which is malformed. "
+                        "Please use Python code blocks only instead of attempting native tools."
+                    )
+                    logger.error(
+                        "Choice-Level Error Detected: %s (Native: %s)",
+                        finish_reason,
+                        native_finish_reason,
+                    )
+                    trace_action(
+                        "LLM",
+                        "CHOICE_ERROR",
+                        result=f"{finish_reason}/{native_finish_reason}",
+                        tag="ERROR",
+                    )
+                    return err_msg
 
                 if tool_calls:
                     # Polyfill: Convert tool call to Python code for Agent
@@ -315,9 +398,15 @@ class LLMService:
                                 f"# Model triggered native tool: {name}\nval = {name}({kwargs_str})"
                             )
                         except (
-                            Exception
-                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
-                            logger.error("Failed to polyfill tool call: %s", e)
+                            json.JSONDecodeError,
+                            KeyError,
+                            AttributeError,
+                            TypeError,
+                        ) as e:
+                            logger.error(
+                                "Failed to polyfill tool call (data/format error): %s",
+                                e,
+                            )
 
                     if codes:
                         # Append to existing content if any (reasoning might be there)
@@ -346,18 +435,86 @@ class LLMService:
                 if on_usage and "usage" in data:
                     try:
                         on_usage(data["usage"])
-                    except (
-                        Exception
-                    ) as e:  # pylint: disable=broad-except # noqa: BLE001
-                        logger.warning("Failed to execute usage callback: %s", e)
+                    except (TypeError, ValueError, KeyError) as e:
+                        logger.warning(
+                            "Failed to execute usage callback (format/logic error): %s",
+                            e,
+                        )
+                    except RuntimeError as e:
+                        logger.warning(
+                            "Failed to execute usage callback (runtime error): %s", e
+                        )
 
                 return res
         except httpx.TimeoutException as e:
             logger.error("LLM Async Timeout: %s", e)
             return f"Error: Timeout occurred: {str(e)}"
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-            logger.error("LLM Async Error: %s", e)
-            return f"Error: {str(e)}"
+        except httpx.RequestError as e:
+            logger.error("LLM Async Request Error: %s", e)
+            return f"Error: Request failed: {str(e)}"
+
+    async def generate_structured(
+        self,
+        prompt: str,
+        output_type: Any,
+        system: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Any:
+        """
+        Generate a structured, type-safe response using Pydantic AI.
+        """
+        target_model = model or self.config.get("model")
+        if not target_model:
+            raise ValueError("No model specified for structured generation.")
+
+        # Ensure model_name is a string for Pydantic AI
+        model_name = str(target_model)
+
+        # Initialize the appropriate Pydantic AI model based on provider
+        pydantic_model = None
+        if self.provider == "openrouter":
+            provider = OpenRouterProvider(
+                api_key=self.config.get("api_key"),
+                app_url="https://github.com/angrysky56/graph-rlm",
+                app_title="Graph-RLM",
+            )
+            pydantic_model = OpenAIChatModel(model_name, provider=provider)
+        elif self.provider == "openai":
+            provider = OpenAIProvider(
+                base_url=self.config.get("base_url"),
+                api_key=self.config.get("api_key"),
+            )
+            pydantic_model = OpenAIChatModel(model_name, provider=provider)
+        else:
+            # Fallback to generic OpenAIProvider for Ollama/LMStudio if they are OpenAI-compatible
+            logger.warning(
+                "Structured generation requested for provider %s. Falling back to generic OpenAIProvider.",
+                self.provider,
+            )
+            provider = OpenAIProvider(
+                base_url=self.config.get("base_url"),
+                api_key=self.config.get("api_key"),
+            )
+            pydantic_model = OpenAIChatModel(model_name, provider=provider)
+
+        agent = PydanticAgent(
+            pydantic_model, output_type=output_type, system_prompt=system or ""
+        )
+
+        trace_action(
+            "LLM_STRUCTURED",
+            f"GENERATE ({self.provider}/{target_model})",
+            result=f"TYPE: {output_type.__name__}",
+            tag="LLM",
+        )
+
+        try:
+            result = await agent.run(prompt)
+            return result.output
+        except (AttributeError, RuntimeError, TypeError, ValueError) as e:
+            logger.error("Pydantic AI Structured Generation Error: %s", e)
+            trace_action("LLM_STRUCTURED", "ERROR", result=str(e), tag="ERROR")
+            raise
 
     async def get_embedding(self, text: str) -> List[float]:
         """
@@ -396,7 +553,16 @@ class LLMService:
         except httpx.TimeoutException as e:
             logger.error("Embedding Timeout: %s", e)
             return []
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (
+            httpx.HTTPError,
+            httpx.RequestError,
+            json.JSONDecodeError,
+            KeyError,
+            AttributeError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as e:
             logger.error("Embedding Error: %s", e)
             return []
 
@@ -415,7 +581,7 @@ class LLMService:
                 client.post(endpoint, json=body)
                 logger.info("Unloaded model %s", model_name)
                 return True
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (httpx.HTTPError, httpx.RequestError, AttributeError, RuntimeError) as e:
             logger.error("Failed to unload model: %s", e)
             return False
 
@@ -496,8 +662,11 @@ class LLMService:
                                         em["_is_embedding_endpoint"] = True
                                     raw_list.extend(emb_data)
                         except (
-                            Exception
-                        ) as e:  # pylint: disable=broad-except # noqa: BLE001
+                            httpx.HTTPError,
+                            httpx.RequestError,
+                            json.JSONDecodeError,
+                            KeyError,
+                        ) as e:
                             logger.warning(
                                 "Failed to fetch separate embedding models: %s", e
                             )
@@ -549,7 +718,16 @@ class LLMService:
 
                 return models
 
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (
+            httpx.HTTPError,
+            httpx.RequestError,
+            json.JSONDecodeError,
+            KeyError,
+            AttributeError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as e:
             logger.error("List Models Error: %s", e)
             return []
 

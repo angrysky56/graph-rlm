@@ -27,6 +27,7 @@ function App() {
   // Graph State
   const [graphData, setGraphData] = useState<{ nodes: any[], links: any[] }>({ nodes: [], links: [] });
   const [isProcessing, setIsProcessing] = useState(false);
+  const [tokenUsage, setTokenUsage] = useState<any>(undefined);
 
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -257,6 +258,9 @@ function App() {
           const last = prev[prev.length - 1];
           return last && last.isStreaming ? [...prev.slice(0, -1), { ...last, isStreaming: false }] : prev;
         });
+      } else if (event.type === 'token_usage') {
+        isSystemic = true;
+        setTokenUsage(event.data);
       }
 
       if (isSystemic && event.type !== 'done') return;
@@ -362,6 +366,7 @@ function App() {
       terminalEntries={terminalEntries}
       codeEntries={codeEntries}
       scratchpadText={scratchpadText} // Pass to Layout -> RightSidebar
+      usage={tokenUsage}
     >
 
       <div className="flex h-full relative flex-col">

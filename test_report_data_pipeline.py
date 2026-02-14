@@ -28,18 +28,13 @@ def test_kernel_results_retrieval():
     assert "spectral_energies" in results, "Results should have spectral_energies field"
     assert "h0_ranks" in results, "Results should have h0_ranks field"
     assert "avg_sheaf_score" in results, "Results should have avg_sheaf_score field"
-    assert "avg_spectral_energy" in results, (
-        "Results should have avg_spectral_energy field"
-    )
+    assert (
+        "avg_spectral_energy" in results
+    ), "Results should have avg_spectral_energy field"
     assert "avg_h0_rank" in results, "Results should have avg_h0_rank field"
     assert "kernel_basis" in results, "Results should have kernel_basis field"
 
-    print(f"✓ get_kernel_results() returns correct structure")
-    print(f"  Status: {results['status']}")
-    print(f"  Kernel basis: {results['kernel_basis']}")
-    print(f"  Average sheaf score: {results['avg_sheaf_score']}")
-
-    return True
+    print("✓ get_kernel_results() returns correct structure")
 
 
 def test_session_report_data():
@@ -59,12 +54,7 @@ def test_session_report_data():
     assert "paper_title" in report_data, "Report data should have paper_title"
     assert "timestamp" in report_data, "Report data should have timestamp"
 
-    print(f"✓ get_session_report_data() returns correct structure")
-    print(f"  Session ID: {report_data['session_id']}")
-    print(f"  Paper title: {report_data['paper_title']}")
-    print(f"  Thought count: {report_data['thought_count']}")
-
-    return True
+    print("✓ get_session_report_data() returns correct structure")
 
 
 def test_template_population():
@@ -87,11 +77,7 @@ def test_template_population():
         "timestamp": report_data["timestamp"],
     }
 
-    print(f"✓ Template variables generated successfully:")
-    for key, value in template_vars.items():
-        print(f"  {key}: {value}")
-
-    return True
+    print("✓ Template variables generated successfully:")
 
 
 if __name__ == "__main__":

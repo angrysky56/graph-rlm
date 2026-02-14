@@ -136,7 +136,7 @@ class TaskSchemaProcessor:
                         "essential_missing": fit.get("essential_missing", False),
                     }
                 )
-            except Exception as e:
+            except (KeyError, AttributeError, ValueError, TypeError) as e:
                 print(f"Error evaluating {task_type}: {e}", file=sys.stderr)
 
         # Sort by fit score

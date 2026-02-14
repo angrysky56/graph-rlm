@@ -11,6 +11,7 @@ Enforces execution in a dedicated 'skills_venv' for safety and dependency isolat
 
 import argparse
 import asyncio
+import importlib.util
 import inspect
 import json
 import logging
@@ -37,15 +38,55 @@ BACKEND_ROOT = Path(__file__).parent.parent.parent.resolve()
 SKILLS_VENV_PATH = BACKEND_ROOT / "agent_venv"
 
 
+def verify_skill_importable(skill_name: str, directory: str = "skills") -> bool:
+    """
+    Checks if a newly created RLM skill is importable.
+
+    Args:
+        skill_name: The name of the .py file or module.
+        directory: The relative path (or absolute path) to the skill directory.
+
+    Returns:
+        bool: True if importable, False otherwise.
+    """
+    repo_root = BACKEND_ROOT.parent.parent
+
+    # Handle both relative and absolute paths for directory
+    if Path(directory).is_absolute():
+        skill_dir = Path(directory)
+    else:
+        skill_dir = repo_root / directory
+
+    skill_path = skill_dir / f"{skill_name}.py"
+    if not skill_path.exists():
+        logger.error(f"Skill file {skill_path} missing.")
+        return False
+
+    # Ensure directory is in sys.path
+    abs_dir = str(skill_dir.resolve())
+    if abs_dir not in sys.path:
+        sys.path.append(abs_dir)
+
+    try:
+        spec = importlib.util.spec_from_file_location(skill_name, str(skill_path))
+        if spec and spec.loader:
+            return True
+    except Exception as e:
+        logger.error(f"Failed to verify import for {skill_name}: {e}")
+
+    return False
+
+
 def ensure_skills_venv() -> Path:
     """Ensure the skills virtual environment exists."""
     if not SKILLS_VENV_PATH.exists():
-        print(f"Creating isolated agent environment at {SKILLS_VENV_PATH}...")
+        logger.info("Creating agent_venv at %s...", SKILLS_VENV_PATH)
         try:
             uv_path = shutil.which("uv")
             if not uv_path:
                 raise RuntimeError("uv executable not found in PATH")
 
+            # 1. Create venv
             # trunk-ignore(bandit/B603)
             subprocess.run(
                 [uv_path, "venv", str(SKILLS_VENV_PATH)],
@@ -53,9 +94,44 @@ def ensure_skills_venv() -> Path:
                 capture_output=True,
             )
             print("Created agent_venv.")
+
+            # 2. Install dependencies
+            # We use the pyproject.toml from the repo root
+            repo_root = Path(__file__).parent.parent.parent.parent.parent
+            pyproject_path = repo_root / "pyproject.toml"
+
+            logger.info("Installing dependencies into agent_venv...")
+            if pyproject_path.exists():
+                # trunk-ignore(bandit/B603)
+                subprocess.run(
+                    [uv_path, "pip", "install", "-r", "pyproject.toml"],
+                    cwd=str(repo_root),
+                    env={**os.environ, "VIRTUAL_ENV": str(SKILLS_VENV_PATH)},
+                    check=True,
+                    capture_output=True,
+                )
+            else:
+                # Fallback: install essential deps if pyproject.toml missing
+                # trunk-ignore(bandit/B603)
+                subprocess.run(
+                    [
+                        uv_path,
+                        "pip",
+                        "install",
+                        "structlog",
+                        "mcp",
+                        "pydantic",
+                        "fastapi",
+                    ],
+                    env={**os.environ, "VIRTUAL_ENV": str(SKILLS_VENV_PATH)},
+                    check=True,
+                    capture_output=True,
+                )
+            print("Dependencies installed in agent_venv.")
+
         except subprocess.CalledProcessError as e:
-            logger.error("Failed to create venv: %s", e.stderr.decode())
-            raise RuntimeError("Could not create skills virtual environment.") from e
+            logger.error("Failed to setup venv: %s", e.stderr.decode())
+            raise RuntimeError("Could not setup skills virtual environment.") from e
 
     return SKILLS_VENV_PATH
 
@@ -242,6 +318,13 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
             module_name = f"skills.{skill_name}"
             # Let module scan find the function
             function_name = None
+
+    # Verify importability before attempting import
+    # This acts as a programmatic check to ensure RLM can actually see the module
+    if not verify_skill_importable(skill_name, "skills"):
+        logger.warning(
+            f"Skill '{skill_name}' verification failed. Attempting import anyway as fallback."
+        )
 
     # Import the module
     try:

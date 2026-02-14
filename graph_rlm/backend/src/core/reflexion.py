@@ -183,7 +183,13 @@ class IntelliSynth:
                 # RepE Scan
                 if repe:
                     profile = repe.scan_thought(vec)
-                    shakiness = float(profile.get("Shakiness", 0.0))
+                    # RepE Axis: Grounded (Positive) <---> Neurotic (Negative)
+                    # We want "Shakiness" (High = Bad, i.e., Neurotic)
+                    # So we invert the RepE score (or take negative)
+                    # Score > 0 (Grounded) -> Shakiness < 0 (Low)
+                    # Score < 0 (Neurotic) -> Shakiness > 0 (High)
+                    raw_grounding = float(profile.get("Shakiness", 0.0))
+                    shakiness = -raw_grounding
 
                 # Sheaf Diagnosis
                 if sheaf:
@@ -199,13 +205,16 @@ class IntelliSynth:
                     loop_risk = float(diagnosis.get("energy", 0.0))
 
                 metrics_report = (
-                    f"- Psychological Shakiness: {shakiness:.2f} (High > 0.5 is bad)\n"
+                    f"- Psychological Shakiness: {shakiness:.2f} (High > 0.5 is BAD/Neurotic)\n"
                     f"- Topological Status: {topo_status}\n"
-                    f"- Loop Energy: {loop_risk:.2f}\n"
+                    f"- Loop Energy: {loop_risk:.2f} (High > 0.7 is BAD/Looping)\n"
                 )
-        except Exception as e:
-            # Non-blocking error
-            metrics_report = f"Metrics Error: {e}"
+        except (ValueError, TypeError, AttributeError, ArithmeticError) as e:
+            logger.warning("Metrics calculation failed (logic/data error): %s", e)
+            metrics_report = f"Metrics Unavailable (Data Error): {e}"
+        except RuntimeError as e:
+            logger.warning("Metrics calculation failed (runtime error): %s", e)
+            metrics_report = f"Metrics Unavailable (Runtime Error): {e}"
 
         prompt = (
             "You are the IntelliSynth Scrutinizer (AP2 - AwL Engine).\n"
@@ -227,9 +236,18 @@ class IntelliSynth:
             if "contradiction" in analysis.lower() or "flagged" in analysis.lower()
             else 0.4
         )
-        final_score = base_score + (shakiness * 0.5) + (loop_risk * 0.5)
+        # Advance if Shakiness is LOW and Loop Risk is LOW
+        # We invert them for the score (Higher Score = Better/More Advanced?)
+        # Advancement Score target: High = Good State.
+        # Shakiness (High=Bad) -> Penalty. Loop Risk (High=Bad) -> Penalty.
+        # But here we are adding them?
+        # Original: base_score + (shakiness * 0.5) + (loop_risk * 0.5)
+        # If shakiness was RepE raw (Grounded), then adding it was correct.
+        # Now shakiness is inverted (Neurotic). So we should SUBTRACT it.
 
-        return min(1.0, final_score), analysis
+        final_score = base_score - (shakiness * 0.5) - (loop_risk * 0.5)
+
+        return max(0.0, min(1.0, final_score)), analysis
 
     async def _implement_improvement(
         self, facts: str, analysis: str, divergence_point: str
@@ -255,13 +273,44 @@ class IntelliSynth:
         return await self.llm.generate(prompt, system="Logical Analyst", stream=False)
 
     async def engage_intuition(self, premises: List[str]) -> Dict[str, float]:
-        """Pattern matching proxy (Intuition)."""
-        prompt = (
-            f"Identify patterns and confidence levels for these premises: {premises}"
-        )
-        await self.llm.generate(prompt, system="Intuition Engine", stream=False)
-        # Return mock confidence scores for demonstration
-        return {"PatternDensity": 0.85, "Confidence": 0.72}
+        """Pattern matching proxy (Intuition) backed by Sheaf/RepE."""
+        # 1. Join premises
+        text = " ".join(premises)
+
+        # 2. Lazy Import
+        # pylint: disable=import-outside-toplevel
+        try:
+            from .repe import repe
+            from .sheaf import sheaf
+        except ImportError:
+            repe = None
+            sheaf = None
+
+        confidence = 0.5
+        pattern_density = 0.5
+
+        try:
+            vec = await self.llm.get_embedding(text)
+            if vec:
+                # Sheaf Energy -> inversed for Density
+                if sheaf:
+                    diag = sheaf.diagnose_trace(
+                        root_id="intuition",
+                        hypothetical_node={"embedding": vec, "content": text},
+                    )
+                    energy = float(diag.get("energy", 0.5))
+                    pattern_density = max(0.0, min(1.0, 1.0 - energy))
+
+                # RepE Score -> Sigmoid for Confidence
+                if repe:
+                    profile = repe.scan_thought(vec)
+                    raw_score = float(profile.get("Shakiness", 0.0))
+                    # Raw score: +ve = Grounded, -ve = Shaky
+                    confidence = self.sigmoid(raw_score * 2.0)  # Scale?
+        except (RuntimeError, AttributeError, ValueError) as e:
+            logger.warning("Intuition metrics failed: %s", e)
+
+        return {"PatternDensity": pattern_density, "Confidence": confidence}
 
     async def employ_abductive_reasoning(
         self, premises: List[str]

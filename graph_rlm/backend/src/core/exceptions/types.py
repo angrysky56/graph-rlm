@@ -10,7 +10,7 @@ Provides targeted exception classes for different error categories:
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Optional, Self
 
 from .base import BaseGraphRLMError
 from .codes import ErrorCode, ErrorCodeCategory
@@ -39,7 +39,7 @@ class CoreError(BaseGraphRLMError):
             **context,
         )
 
-    def with_operation(self, operation: str) -> "CoreError":
+    def with_operation(self, operation: str) -> Self:
         """Add operation context."""
         return self.with_context(operation=operation)
 
@@ -67,15 +67,15 @@ class GraphError(BaseGraphRLMError):
             **context,
         )
 
-    def with_graph_operation(self, operation: str) -> "GraphError":
+    def with_graph_operation(self, operation: str) -> Self:
         """Add graph operation context."""
         return self.with_context(graph_operation=operation)
 
-    def with_node_id(self, node_id: str) -> "GraphError":
+    def with_node_id(self, node_id: str) -> Self:
         """Add node ID context."""
         return self.with_context(node_id=node_id)
 
-    def with_edge(self, source: str, target: str) -> "GraphError":
+    def with_edge(self, source: str, target: str) -> Self:
         """Add edge context."""
         return self.with_context(source=source, target=target)
 
@@ -103,15 +103,15 @@ class SkillExecutionError(BaseGraphRLMError):
             **context,
         )
 
-    def with_skill_name(self, skill_name: str) -> "SkillExecutionError":
+    def with_skill_name(self, skill_name: str) -> Self:
         """Add skill name context."""
         return self.with_context(skill_name=skill_name)
 
-    def with_skill_input(self, skill_input: Any) -> "SkillExecutionError":
+    def with_skill_input(self, skill_input: Any) -> Self:
         """Add skill input context (sanitized)."""
         return self.with_context(skill_input=str(skill_input)[:1000])
 
-    def with_skill_output(self, skill_output: Any) -> "SkillExecutionError":
+    def with_skill_output(self, skill_output: Any) -> Self:
         """Add skill output context (sanitized)."""
         return self.with_context(skill_output=str(skill_output)[:1000])
 
@@ -139,19 +139,19 @@ class ExternalServiceError(BaseGraphRLMError):
             **context,
         )
 
-    def with_service_name(self, service_name: str) -> "ExternalServiceError":
+    def with_service_name(self, service_name: str) -> Self:
         """Add service name context."""
         return self.with_context(service=service_name)
 
-    def with_endpoint(self, endpoint: str) -> "ExternalServiceError":
+    def with_endpoint(self, endpoint: str) -> Self:
         """Add endpoint context."""
         return self.with_context(endpoint=endpoint)
 
-    def with_request(self, method: str, url: str) -> "ExternalServiceError":
+    def with_request(self, method: str, url: str) -> Self:
         """Add request context."""
         return self.with_context(method=method, url=url)
 
-    def with_response_status(self, status_code: int) -> "ExternalServiceError":
+    def with_response_status(self, status_code: int) -> Self:
         """Add response status context."""
         return self.with_context(status_code=status_code)
 
@@ -184,19 +184,19 @@ class ValidationError(BaseGraphRLMError):
             **context,
         )
 
-    def with_field_errors(self, field_errors: dict[str, str]) -> "ValidationError":
+    def with_field_errors(self, field_errors: dict[str, str]) -> Self:
         """Add field-specific errors."""
         return self.with_context(field_errors=field_errors)
 
-    def with_field(self, field: str, value: Any) -> "ValidationError":
+    def with_field(self, field: str, value: Any) -> Self:
         """Add field and value context."""
         return self.with_context(field=field, field_value=str(value)[:500])
 
-    def with_schema(self, schema_name: str) -> "ValidationError":
+    def with_schema(self, schema_name: str) -> Self:
         """Add schema context."""
         return self.with_context(schema=schema_name)
 
-    def with_constraint(self, constraint: str) -> "ValidationError":
+    def with_constraint(self, constraint: str) -> Self:
         """Add constraint context."""
         return self.with_context(constraint=constraint)
 

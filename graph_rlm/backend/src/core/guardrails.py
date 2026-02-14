@@ -56,16 +56,33 @@ def validate_thought_node(
     if not session_id:
         raise GuardrailError("Missing Session ID (GR-04)")
 
-    # Log with extra context (uses parent_id and node_type)
-    logger.debug(
-        "Guardrails passed for %s node %s (parent: %s, repl: %s, turn: %s, step: %s)",
-        node_type,
-        thought_id,
-        parent_id,
-        repl_id,
-        turn_id,
-        step_id,
-    )
+    # 3. Empirical Integrity (Scan for error signatures)
+    failure_patterns = [
+        "traceback (most recent call last)",
+        "ModuleNotFoundError",
+        "MALFORMED_FUNCTION_CALL",
+        "[SYSTEM ERROR]",
+    ]
+
+    found_errors = [p for p in failure_patterns if p.lower() in prompt.lower()]
+
+    if found_errors:
+        logger.error(
+            "Guardrail Integrity Breach: Empirical Failure Patterns detected in node %s: %s",
+            thought_id,
+            ", ".join(found_errors),
+        )
+    else:
+        # Log with extra context (uses parent_id and node_type)
+        logger.debug(
+            "Guardrails passed for %s node %s (parent: %s, repl: %s, turn: %s, step: %s)",
+            node_type,
+            thought_id,
+            parent_id,
+            repl_id,
+            turn_id,
+            step_id,
+        )
 
 
 def validate_no_blind_transitions(

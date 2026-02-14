@@ -7,13 +7,13 @@ from __future__ import annotations
 
 import logging as stdlib_logging
 import os
+from contextvars import ContextVar
 from typing import Any
 
 import structlog
 from structlog import processors as structlog_processors
-from structlog.contextvars import merge_contextvars, clear_contextvars, bind_contextvars
-from structlog.stdlib import add_log_level, ProcessorFormatter
-from contextvars import ContextVar
+from structlog.contextvars import bind_contextvars, merge_contextvars
+from structlog.stdlib import add_log_level
 
 CORRELATION_ID_CTX: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
@@ -37,7 +37,6 @@ def clear_correlation_id() -> None:
 def setup_logging(
     *,
     env: str | None = None,
-    service_name: str = "graph-rlm",
 ) -> None:
     """Configure structlog for the application.
 
@@ -49,7 +48,7 @@ def setup_logging(
         env = os.getenv("GRAPH_RLM_ENV", "development")
 
     def enrich_with_exception(
-        logger: Any, method_name: str, event_dict: dict[str, Any]
+        _: Any, __: str, event_dict: dict[str, Any]
     ) -> dict[str, Any]:
         """Add exception context to log entries."""
         exc_info = event_dict.get("exc_info")
@@ -64,15 +63,10 @@ def setup_logging(
                 event_dict["exception_context"] = exc_info.context.to_dict()
         return event_dict
 
-    processors: list[structlog.types.Processor] = [
+    processors: list[Any] = [
         merge_contextvars,
         add_log_level,
         structlog_processors.TimeStamper(fmt="iso", utc=True),
-        structlog_processors.CallsiteParameterGetter(
-            structlog_processors.CallsiteParameter.FILENAME,
-            structlog_processors.CallsiteParameter.LINENO,
-            structlog_processors.CallsiteParameter.FUNC_NAME,
-        ),
         enrich_with_exception,
     ]
 
@@ -87,20 +81,27 @@ def setup_logging(
 
     structlog.configure(
         processors=processors + post_processors,
-        wrapper_class=structlog.stdlib.ProcessorWrapper,
+        wrapper_class=structlog.stdlib.BoundLogger,
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
 
+    # Root Logging Setup
+    from .logger import ColorFormatterFactory
+
     root_logger = stdlib_logging.getLogger()
-    handler = stdlib_logging.StreamHandler()
-    handler.setFormatter(
-        ProcessorFormatter(
-            processors=processors,
-            foreign_pre_chain=processors,
-        )
-    )
-    root_logger.addHandler(handler)
+
+    # Avoid duplicate handlers if setup_logging is called multiple times
+    if not any(
+        isinstance(h, stdlib_logging.StreamHandler)
+        and not h.__class__.__name__ == "StreamingHandler"
+        for h in root_logger.handlers
+    ):
+        handler = stdlib_logging.StreamHandler()
+        # Use our nice colored formatter for the terminal
+        handler.setFormatter(ColorFormatterFactory())
+        root_logger.addHandler(handler)
+
     root_logger.setLevel(
         stdlib_logging.DEBUG if env != "production" else stdlib_logging.INFO
     )

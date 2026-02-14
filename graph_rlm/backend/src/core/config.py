@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     REPL_TIMEOUT: int = 3000  # Seconds for REPL execution timeout
 
     GRAPH_NAME: str = "rlm_graph"
-    MAX_RECURSION_DEPTH: int = 3  # Maximum depth for rlm.query recursive calls
+    MAX_RECURSION_DEPTH: int = 25  # Maximum depth for rlm.query recursive calls
 
     # OpenRouter
     OPENROUTER_API_KEY: str = ""
@@ -164,7 +164,7 @@ class Settings(BaseSettings):
                     setattr(self, key, value)
 
             return True
-        except Exception as e:  # pylint: disable=broad-except
+        except (OSError, IOError, PermissionError, AttributeError) as e:
             print(f"Error saving to .env: {e}")
             return False
 

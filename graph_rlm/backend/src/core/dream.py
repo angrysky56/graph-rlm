@@ -13,12 +13,13 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
 import numpy as np
+import redis
 
 from ..mcp_integration.skill_storage import get_axioms_manager
 from .config import settings
 from .core import PythonREPL
-from .circuit import CircuitOpenError
 from .db import GraphClient, db
 from .llm import llm
 from .logger import get_logger
@@ -42,6 +43,96 @@ class Dreamer:
         self.db: GraphClient = db
         self.llm = llm
         self._is_codifying = False  # Recursion guard for axiom generation
+
+    def _get_session_trace(self, session_id: Optional[str], turn_id: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Query DB for actual session metrics so validation can cross-reference
+        the agent's claims against what actually happened.
+
+        Returns turn count, step count, REPL IDs, failure count, recent node IDs
+        (for edge construction), and status timeline with timestamps.
+        """
+        empty: Dict[str, Any] = {
+            "turn_count": 0,
+            "step_count": 0,
+            "repl_ids": [],
+            "failure_count": 0,
+            "recent_node_ids": [],
+            "status_timeline": [],
+        }
+        if not session_id:
+            return empty
+
+        try:
+            # Aggregate metrics
+            # Build turn filter
+            turn_clause = ""
+            qparams: Dict[str, Any] = {"sid": session_id}
+            if turn_id is not None:
+                turn_clause = "AND t.turn_id = $tid"
+                qparams["tid"] = turn_id
+
+            agg = self.db.query(
+                f"""
+                MATCH (t:Thought {{session_id: $sid}})
+                WHERE true {turn_clause}
+                RETURN count(t) as step_count,
+                       collect(DISTINCT t.turn_id) as turns,
+                       collect(DISTINCT t.repl_id) as repls,
+                       size([x IN collect(t.status) WHERE x IN ['failed', 'error', 'rejected']]) as failures
+                """,
+                qparams,
+            )
+
+            # Recent nodes with timestamps (for edge construction + timeline)
+            recent = self.db.query(
+                f"""
+                MATCH (t:Thought {{session_id: $sid}})
+                WHERE true {turn_clause}
+                RETURN t.id as id, t.status as status, t.created_at as ts,
+                       t.repl_id as repl_id
+                ORDER BY t.created_at DESC
+                LIMIT 10
+                """,
+                qparams,
+            )
+
+            result = dict(empty)  # copy defaults
+            if agg and len(agg) > 0:
+                row = (
+                    agg[0]
+                    if isinstance(agg[0], dict)
+                    else {
+                        "step_count": agg[0][0],
+                        "turns": agg[0][1],
+                        "repls": agg[0][2],
+                        "failures": agg[0][3],
+                    }
+                )
+                turns = [t for t in (row.get("turns") or []) if t is not None]
+                repls = [r for r in (row.get("repls") or []) if r is not None]
+                result["turn_count"] = len(turns)
+                result["step_count"] = row.get("step_count", 0)
+                result["repl_ids"] = repls
+                result["failure_count"] = row.get("failures", 0)
+
+            if recent:
+                result["recent_node_ids"] = [r["id"] for r in recent if r.get("id")]
+                result["status_timeline"] = [
+                    {
+                        "id": str(r.get("id", "?"))[:8],
+                        "status": r.get("status", "unknown"),
+                        "ts": str(r.get("ts", "")),
+                        "repl": r.get("repl_id", ""),
+                    }
+                    for r in recent
+                ]
+
+            return result
+        except (RuntimeError, KeyError, ValueError, AttributeError) as e:
+            logger.warning("Failed to query session trace: %s", e)
+
+        return empty
 
     async def analyze_holonomy(
         self, loop_nodes: List[Dict[str, Any]], current_thought: str
@@ -85,7 +176,7 @@ class Dreamer:
                 divergence_point=str(divergence_node_id),
             )
             return improvement_directive
-        except Exception:
+        except (AttributeError, ValueError, TypeError, RuntimeError):
             logger.exception("IntelliSynth cycle failed")
             # Fallthrough to robust default directive below
             return (
@@ -99,7 +190,7 @@ class Dreamer:
         session_id: Optional[str] = None,
         final_response_candidate: Optional[str] = None,
         context: Optional[str] = None,
-        goal_embedding: Optional[List[float]] = None,
+        turn_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Main Sleep Cycle:
@@ -115,7 +206,6 @@ class Dreamer:
                                       Dreamer checks if this resolves the failures.
             context: The full Agent Scratchpad (history, REPL IDs, recent topology)
                      for cross-verification.
-            goal_embedding: Optional embedding of the overall task goal for contextual analysis.
         """
 
         def emit(event_type, content, is_internal=False):
@@ -127,7 +217,7 @@ class Dreamer:
 
         # 1. Gather Surprise (High Energy Edges) - scoped to current session if provided
         surprise_events = sheaf.compute_sheaf_surprise_score(
-            limit=10, session_id=session_id
+            limit=10, session_id=session_id, turn_id=turn_id
         )
 
         trace_action(
@@ -147,7 +237,7 @@ class Dreamer:
                 MATCH (n:Thought)
                 WHERE n.session_id = $sid
                 RETURN n.id as id, n.prompt as prompt, n.status as status, n.result as result
-                ORDER BY n.created_at DESC LIMIT 5
+                ORDER BY n.created_at DESC
                 """,
                 {"sid": session_id},
             )
@@ -310,7 +400,11 @@ class Dreamer:
                     )
                     for p in patterns:
                         system_signal_section += f"- {p.get('description', 'Pattern')}: \u0394C={p.get('compression_gain', 0):.2f}\n"
-            except Exception as e:
+            except (
+                redis.exceptions.RedisError,
+                redis.exceptions.ResponseError,
+                AttributeError,
+            ) as e:
                 logger.warning("Navigator pattern extraction failed: %s", e)
 
         dream_prompt = (
@@ -386,7 +480,8 @@ class Dreamer:
             )
             if was_fallback:
                 logger.warning(
-                    "dream_llm_fallback_used", prompt_length=len(dream_prompt)
+                    "dream_llm_fallback_used",
+                    extra={"prompt_length": len(dream_prompt)},
                 )
 
             # Check for explicitly peaceful resolution
@@ -402,7 +497,11 @@ class Dreamer:
                 )
                 return {"status": "peaceful", "insights": [], "message": insight_text}
 
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            httpx.RequestError,
+            ValueError,
+            TypeError,
+        ) as e:  # pylint: disable=broad-except
             logger.error("Dream failed during generation: %s", e)
             emit("error", f"[Dreamer] Dream cycle failed: {e}")
             return {"status": "error", "message": str(e)}
@@ -489,7 +588,12 @@ class Dreamer:
                         result=f"Stored new protective axiom: {axiom_res}",
                         tag="DREAMER",
                     )
-            except Exception as e:  # pylint: disable=broad-except
+            except (
+                AttributeError,
+                ValueError,
+                TypeError,
+                RuntimeError,
+            ) as e:  # pylint: disable=broad-except
                 logger.error("Auto-Axiom generation failed: %s", e)
 
         # 9. Axiom Quality Control (Automated Pruning)
@@ -505,7 +609,11 @@ class Dreamer:
             # Improvement rate = ratio of successful axioms to attempts
             improvement_rate = 1.0 if len(processed_node_ids) > 0 else 0.5
             omcd.calibrate_from_session(surprise_avg, improvement_rate)
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            ValueError,
+            ZeroDivisionError,
+            TypeError,
+        ) as e:  # pylint: disable=broad-except
             logger.warning("oMCD calibration skipped: %s", e)
 
         return {
@@ -523,30 +631,37 @@ class Dreamer:
         session_id: Optional[str] = None,
         current_step: int = 1,
         goal_embedding: Optional[List[float]] = None,
+        turn_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        Orchestrated Validation Phase (v2 Protocol).
+        Orchestrated Validation Phase (v3 Protocol).
 
-        Handshake:
-        1. RepE: Check Psychological State (Shakiness).
-        2. Sheaf: Check Topological State (Loops/Drift).
-        3. oMCD: Check Economic State (Cost vs Benefit).
-        4. Physical: Check for HALLUCINATED ARTIFACTS (via Sheaf/Graph).
-        5. Semantic: Check for PLACEHOLDERS (Unfilled brackets/TODOs).
+        Collects all subsystem metrics, assembles them into a structured
+        context block, and lets the Dreamer LLM reason over the organized
+        data to produce a validation judgment. No hardcoded thresholds.
         """
         from .repe import repe
 
         logger.info("🛡️ [Dreamer] Validating Agent Response Candidate...")
 
-        # 0. Pre-computation: Get Embedding
+        # ── 0. Session trace (timestamps, REPL IDs, recent node IDs) ──
+        trace = self._get_session_trace(session_id, turn_id=turn_id)
+
+        # ── 1. Embedding ──
         candidate_vec = await self.llm.get_embedding(candidate)
 
-        # 1. RepE: Psychological Profile
+        # ── 2. RepE: Full Psychological Profile (all 4 axes) ──
         psych_profile = repe.scan_thought(candidate_vec)
-        groundedness = psych_profile.get("Shakiness", 0.0)
+        # psych_profile keys: Shakiness, Confluence, Evasion, Freedom
+        # Positive = grounded / healthy on that axis
 
-        # 2. Sheaf: Topological Diagnosis
-        # The Sheaf now handles both Holonomy (loops) and Empirical Consistency (lies).
+        # ── 3. Sheaf: Topological Diagnosis (with real edges!) ──
+        # Build hypothetical_edges from recent session nodes so diagnose_trace
+        # actually runs the lie detector, loop check, and drift check.
+        frontier_ids = trace.get("recent_node_ids", [])
+        hypothetical_edges = [
+            (fid, f"validation_{session_id or 'unknown'}") for fid in frontier_ids[:5]
+        ]
         diagnosis = sheaf.diagnose_trace(
             root_id=str(session_id) if session_id else "unknown",
             hypothetical_node={
@@ -554,96 +669,156 @@ class Dreamer:
                 "role": "assistant",
                 "embedding": candidate_vec,
             },
+            hypothetical_edges=hypothetical_edges,
             goal_embedding=goal_embedding,
         )
         topo_status = diagnosis.get("status", "HEALTHY")
+        topo_energy = diagnosis.get("energy", 0.0)
+        topo_critique = diagnosis.get("critique", "")
 
-        # 3. oMCD: Economic Feasibility
-        confidence = max(0.0, min(1.0, groundedness))
+        # ── 4. oMCD: Economic Feasibility ──
+        # Use sheaf confidence if available, or composite RepE as fallback
+        sheaf_confidence = diagnosis.get("confidence")
+        if sheaf_confidence is not None:
+            confidence = float(sheaf_confidence)
+        elif psych_profile:
+            confidence = max(
+                0.0, min(1.0, sum(psych_profile.values()) / max(len(psych_profile), 1))
+            )
+        else:
+            confidence = 0.5
         omcd_decision = omcd.evaluate_step(step=current_step, confidence=confidence)
-        should_escalate_or_stop = omcd_decision.get("should_stop", False)
 
-        # 4. Semantic Integrity Check (Template Detection)
-        # Search for unfilled brackets {placeholder} or TODO markers
+        # ── 5. Deterministic checks (fast, no LLM needed) ──
         placeholders = re.findall(r"\{[a-zA-Z0-9_]+\}", candidate)
-        has_placeholders = len(placeholders) > 0
         has_todo = any(m in candidate for m in ["[TODO]", "TODO:", "FIXME", "..."])
-
-        # 5. Physical Grounding Check (Topological Verification)
-        # [CAG Pivot]: We no longer regex the log here. We trust the Sheaf's
-        # diagnostic on the trajectory's consistency energy (Topological Obstructions).
-        is_lying_about_writing = topo_status == "EMPIRICAL_CONTRADICTION"
-
-        # 6. RLM Pattern Compliance
-        rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
-        rlm_compliance = any(pattern in context for pattern in rlm_patterns)
         has_truncation = "[Output Truncated]" in context or "[...]" in context
-        is_rlm_critical = has_truncation and not rlm_compliance
+        rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
+        rlm_compliance = any(p in context for p in rlm_patterns)
 
-        # --- EVALUATE ---
-        is_psych_safe = groundedness > 0.15
-        is_topo_safe = topo_status == "HEALTHY"
-        is_semantic_safe = not has_placeholders and not has_todo
-        is_physical_safe = not is_lying_about_writing
+        # ── 6. Assemble metrics block for LLM classification ──
+        metrics_block = (
+            f"## Validation Metrics\n"
+            f"\n### Session Trace\n"
+            f"- Steps: {trace['step_count']} | Turns: {trace['turn_count']}\n"
+            f"- Failures: {trace['failure_count']} | REPLs: {trace['repl_ids'][:5]}\n"
+            f"- Recent timeline (newest first):\n"
+        )
+        for entry in trace.get("status_timeline", [])[:5]:
+            metrics_block += f"  - [{entry['id']}] {entry['status']} @ {entry['ts']} (REPL: {entry['repl']})\n"
 
-        failure_reasons = []
-        if not is_psych_safe:
-            failure_reasons.append(
-                f"Psychological: Groundedness ({groundedness:.2f}) low."
-            )
-        if not is_topo_safe:
-            failure_reasons.append(f"Topological: {topo_status} detected.")
-        if is_rlm_critical:
-            failure_reasons.append("RLM: Truncation without retrieval.")
-        if not is_semantic_safe:
-            failure_reasons.append(
-                f"Semantic: Placeholder/Template detected ({', '.join(placeholders) if placeholders else 'TODO'})."
-            )
-        if not is_physical_safe:
-            failure_reasons.append(
-                "Physical: Claimed file artifacts do not exist on disk/logs."
-            )
+        def _fmt_axis(val: Any) -> str:
+            """Format RepE axis value: numeric → 3dp, otherwise str."""
+            return f"{val:.3f}" if isinstance(val, (int, float)) else str(val)
 
-        if (
-            is_psych_safe
-            and is_topo_safe
-            and not is_rlm_critical
-            and is_semantic_safe
-            and is_physical_safe
-        ):
-            # ALL GREEN
-            return {
-                "status": "valid",
-                "event": "RLM_VALIDATED_RESPONSE",
-                "message": f"Response verified. Psych state: {groundedness:.2f}, Topo: {topo_status}",
+        if psych_profile:
+            metrics_block += (
+                f"\n### RepE Psychological Profile\n"
+                f"- Shakiness (As-If / Hallucination): {_fmt_axis(psych_profile.get('Shakiness', 'N/A'))}\n"
+                f"- Confluence (Sycophancy): {_fmt_axis(psych_profile.get('Confluence', 'N/A'))}\n"
+                f"- Evasion (Task Dodging): {_fmt_axis(psych_profile.get('Evasion', 'N/A'))}\n"
+                f"- Freedom (Exploration vs Restriction): {_fmt_axis(psych_profile.get('Freedom', 'N/A'))}\n"
+            )
+        else:
+            metrics_block += "\n### RepE: Not calibrated\n"
+
+        metrics_block += (
+            f"\n### Sheaf Topological Diagnosis\n"
+            f"- Status: {topo_status} | Energy: {topo_energy:.3f}\n"
+            f"- Critique: {topo_critique or 'None'}\n"
+            f"\n### oMCD Economic Decision\n"
+            f"- Should Stop: {omcd_decision.get('should_stop', False)}\n"
+            f"- Q_stop: {omcd_decision.get('q_stop', 0):.3f} | Threshold: {omcd_decision.get('threshold', 0):.3f}\n"
+            f"\n### Deterministic Flags\n"
+            f"- Placeholders: {placeholders if placeholders else 'None'}\n"
+            f"- TODO markers: {has_todo}\n"
+            f"- Output truncation: {has_truncation} | RLM compliant: {rlm_compliance}\n"
+            f"- Empirical contradiction: {topo_status == 'EMPIRICAL_CONTRADICTION'}\n"
+        )
+
+        # ── 7. LLM-driven classification ──
+        validation_prompt = (
+            f"You are the Dreamer — the validation layer of a cognitive agent.\n"
+            f"Your task: decide if the agent's candidate response is ready to deliver.\n\n"
+            f"## Candidate Response (first 2000 chars)\n"
+            f"{candidate[:2000]}\n\n"
+            f"{metrics_block}\n"
+            f"## Instructions\n"
+            f"Analyze the metrics holistically. Consider:\n"
+            f"- Does the psychological profile show genuine grounding or performance?\n"
+            f"- Does the topology show consistency with the execution path?\n"
+            f"- Are there unresolved failures in the recent timeline?\n"
+            f"- Does the response contain placeholders, tracebacks, or hallucinated claims?\n\n"
+            f"Respond with ONLY a JSON object (no markdown, no explanation):\n"
+            f'{{"verdict": "valid" or "invalid", "confidence": 0.0-1.0, '
+            f'"reasons": ["short reason 1", ...], '
+            f'"instruction": "specific guidance for the agent if invalid, else empty string"}}'
+        )
+
+        try:
+            raw_judgment = await self.llm.generate(
+                prompt=validation_prompt,
+                system="You are the Dreamer validation oracle. Return ONLY valid JSON.",
+            )
+            # Parse JSON from LLM response
+            json_match = re.search(r"\{.*\}", raw_judgment, re.DOTALL)
+            if json_match:
+                judgment = json.loads(json_match.group())
+            else:
+                logger.warning("Dreamer LLM returned non-JSON: %s", raw_judgment[:200])
+                judgment = {
+                    "verdict": "valid",
+                    "confidence": 0.5,
+                    "reasons": [],
+                    "instruction": "",
+                }
+        except (json.JSONDecodeError, RuntimeError, ValueError, AttributeError) as e:
+            logger.warning("Dreamer LLM classification failed: %s", e)
+            # Fallback: deterministic checks only
+            has_hard_fail = (
+                topo_status in ("EMPIRICAL_CONTRADICTION", "LOGICAL_KNOT")
+                or bool(placeholders)
+                or has_todo
+            )
+            judgment = {
+                "verdict": "invalid" if has_hard_fail else "valid",
+                "confidence": 0.3 if has_hard_fail else 0.7,
+                "reasons": [topo_critique] if topo_critique else [],
+                "instruction": topo_critique or "",
             }
 
-        # REJECTED BRANCH
-        instruction_parts = [
-            "RE-EVALUATE: I identified the following GROUNDING ISSUES with your candidate response:"
-        ]
-        for r in failure_reasons:
-            instruction_parts.append(f"- {r}")
-        instruction_parts.append(
-            "\nYou MUST perform a grounded verification using `rlm.recall()` or `rlm.query()` to fix these before trying again."
-        )
-        instruction = "\n".join(instruction_parts)
+        # ── 8. Return structured result ──
+        verdict = judgment.get("verdict", "valid")
+        if verdict == "valid":
+            return {
+                "status": "valid",
+                "event": "RLM_DREAMER_VALIDATED",
+                "message": (
+                    f"Response verified (confidence: {judgment.get('confidence', 0.5):.2f}). "
+                    f"Topo: {topo_status}, RepE: {psych_profile}"
+                ),
+            }
 
-        if should_escalate_or_stop:
+        # Build instruction from LLM judgment + trace context
+        instruction = str(judgment.get("instruction", ""))
+        _raw_reasons = judgment.get("reasons")
+        reasons: list[str] = _raw_reasons if isinstance(_raw_reasons, list) else []
+        if reasons and not instruction:
+            instruction = "RE-EVALUATE:\n" + "\n".join(f"- {r}" for r in reasons)
+
+        if omcd_decision.get("should_stop", False):
             logger.warning(
                 "🔸 [Dreamer] Validation failed. Budget exhausted. ESCALATING."
             )
             return {
-                "status": "invalid",
-                "event": "RLM_WAKE",
-                "instruction": f"SYSTEM CRITICAL: Result is hallucinated or incomplete.\n{instruction}",
+                "status": "exhausted",
+                "event": "RLM_DREAMER_EXHAUSTED",
+                "instruction": f"SYSTEM CRITICAL: Budget exhausted.\n{instruction}",
             }
 
-        # [RLM CRITICAL FAILURE] - Fallthrough for specific handling if needed,
-        # but the common RLM_WAKE handles it now.
         return {
             "status": "invalid",
-            "event": "RLM_WAKE",
+            "event": "RLM_DREAMER_ISSUES",
             "instruction": instruction,
         }
 
@@ -653,7 +828,9 @@ class Dreamer:
         Generates "bizarre" or adversarial inputs to stress-test the new Axiom
         before it is committed to long-term memory.
         """
-        logger.info("👁️ REM SLEEP: Hallucinating adversarial scenarios for new Axiom...")
+        logger.info(
+            "👁️ REM SLEEP: Hallucinating adversarial scenarios for new Axiom..."
+        )
 
         # 1. Hallucinate a "Nightmare" (Edge Case)
         nightmare_prompt = (
@@ -671,7 +848,8 @@ class Dreamer:
         )
         if was_fallback:
             logger.warning(
-                "dream_nightmare_fallback_used", prompt_length=len(nightmare_prompt)
+                "dream_nightmare_fallback_used",
+                extra={"prompt_length": len(nightmare_prompt)},
             )
 
         # [STABILITY] Sanitize input: Extract JSON/Dict object if embedded in text
@@ -724,7 +902,7 @@ try:
     # Attempt validation
     result = {func_name}(input_data)
     print(f"Survived: {{result}}")
-except Exception as e:
+except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-except # noqa: BLE001
     print(f"Nightmare Induced Crash: {{e}}")
 """
         # Inject standard libs context just in case
@@ -773,7 +951,12 @@ except Exception as e:
                         healing_code=healing_code,
                     )
                     codified.append(axiom_name)
-            except Exception as e:  # pylint: disable=broad-except
+            except (
+                AttributeError,
+                ValueError,
+                TypeError,
+                RuntimeError,
+            ) as e:  # pylint: disable=broad-except
                 logger.error(
                     "Failed to codify knowledge item '%s': %s", item.get("name"), e
                 )
@@ -795,14 +978,21 @@ except Exception as e:
             stream=False,
         )
         if was_fallback:
-            logger.warning("dream_knowledge_mining_fallback_used", domain=domain)
+            logger.warning(
+                "dream_knowledge_mining_fallback_used", extra={"domain": domain}
+            )
         # Basic JSON extraction
         try:
             match = re.search(r"(\[.*\])", res, re.DOTALL)
             if match:
                 return json.loads(match.group(1))
             return []
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            httpx.RequestError,
+            ValueError,
+            TypeError,
+            json.JSONDecodeError,
+        ) as e:  # pylint: disable=broad-except
             logger.warning("Failed to parse mined knowledge JSON: %s", e)
             return []
 
@@ -839,7 +1029,7 @@ except Exception as e:
             stream=False,
         )
         if was_fallback:
-            logger.warning("dream_codify_fallback_used", domain=domain)
+            logger.warning("dream_codify_fallback_used", extra={"domain": domain})
 
         blocks = re.findall(r"```python(.*?)```", res, re.DOTALL)
         axiom_code = blocks[0].strip() if blocks else ""
@@ -1049,7 +1239,7 @@ except Exception as e:
                     )
                     await axioms_mgr.disable_axiom(axiom_name)
 
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError) as e:
             logger.error("Axiom Quality Control failed: %s", e)
 
     async def _classify_domain(self, insight: str) -> str:
@@ -1087,7 +1277,12 @@ except Exception as e:
                         healing_code=healing_code,
                     )
                     codified.append(axiom_name)
-            except Exception as e:  # pylint: disable=broad-except
+            except (
+                ValueError,
+                TypeError,
+                AttributeError,
+                KeyError,
+            ) as e:  # pylint: disable=broad-except
                 logger.warning(
                     "Failed to codify knowledge item '%s...': %s",
                     item.get("name", "unknown"),
@@ -1101,7 +1296,12 @@ except Exception as e:
             # db.query is usually sync, but we can loop it in the caller if needed
             # Here we just wrap the existing call
             return self._get_node_scan(node_id)
-        except Exception:  # pylint: disable=broad-except
+        except (
+            RuntimeError,
+            ValueError,
+            TypeError,
+            AttributeError,
+        ):  # pylint: disable=broad-except
             return {}
 
     def _get_node_scan(self, node_id: str) -> Dict[str, Any]:
@@ -1131,7 +1331,11 @@ except Exception as e:
                         return first
             logger.warning("[Dreamer] _get_node_scan: No data found for %s", node_id)
             return {}
-        except Exception as e:  # pylint: disable=broad-except
+        except (
+            redis.exceptions.RedisError,
+            redis.exceptions.ResponseError,
+            AttributeError,
+        ) as e:  # pylint: disable=broad-except
             logger.error("[Dreamer] _get_node_scan failed for %s: %s", node_id, e)
             return {}
 

@@ -95,6 +95,10 @@ if [[ ! -d ${AGENT_VENV} ]]; then
 	echo "    -> Environment created."
 fi
 
+# Sync dependencies to Agent Venv (Essential for importing project modules)
+echo "[+] Syncing Agent Venv dependencies..."
+uv pip install --python "${AGENT_VENV}" -e .
+
 # 2. Start Backend API
 # Note: Assuming using uvicorn directly or via module
 echo "[+] Launching Backend API on port ${API_PORT}..."
@@ -116,4 +120,8 @@ echo "=== System Operational ==="
 echo "Press Ctrl+C to stop all services."
 
 # Wait indefinitely so trap can catch signals
-wait
+# Wait for any process to exit (coupled shutdown)
+wait -n
+
+# If we get here, one of the processes has exited. Trigger cleanup to stop the others.
+cleanup

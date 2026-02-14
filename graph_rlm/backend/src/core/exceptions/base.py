@@ -12,7 +12,7 @@ Provides a foundation for all Graph-RLM exceptions with:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import Any, Optional, Self
 
 from .codes import ErrorCode
 
@@ -51,9 +51,9 @@ class GraphRLMExceptionContext:
 
     def merge(self, other: "GraphRLMExceptionContext") -> "GraphRLMExceptionContext":
         """Merge another context into this one."""
-        merged = GraphRLMExceptionContext(**self._data)
-        merged._data.update(other._data)
-        return merged
+        data = self.to_dict()
+        data.update(other.to_dict())
+        return GraphRLMExceptionContext(**data)
 
 
 class BaseGraphRLMError(Exception):
@@ -137,34 +137,34 @@ class BaseGraphRLMError(Exception):
         """
         return 500
 
-    def with_correlation_id(self, correlation_id: str) -> "BaseGraphRLMError":
+    def with_correlation_id(self, correlation_id: str) -> Self:
         """Create a new exception with a correlation ID.
 
         Useful for adding tracing to re-raised exceptions.
         """
-        new_exc = self.__class__(
+        return self.__class__(
             message=self._message,
             error_code=self._error_code,
             correlation_id=correlation_id,
             cause=self.__cause__,
+            **self._context.to_dict(),
         )
-        new_exc._context = self._context.merge(new_exc._context)
-        return new_exc
 
-    def with_context(self, **context: Any) -> "BaseGraphRLMError":
+    def with_context(self, **context: Any) -> Self:
         """Create a new exception with additional context.
 
         Useful for enriching exceptions with operation-specific data.
         """
-        new_exc = self.__class__(
+        merged_context = self._context.to_dict()
+        merged_context.update(context)
+
+        return self.__class__(
             message=self._message,
             error_code=self._error_code,
             correlation_id=self._correlation_id,
             cause=self.__cause__,
-            **self._context.to_dict(),
+            **merged_context,
         )
-        new_exc._context = self._context.merge(GraphRLMExceptionContext(**context))
-        return new_exc
 
     def add_context(self, key: str, value: Any) -> None:
         """Add context to this exception instance."""
@@ -182,12 +182,14 @@ class BaseGraphRLMError(Exception):
             "correlation_id": self._correlation_id,
             "timestamp": self._timestamp.isoformat(),
             "context": self._context.to_dict(),
-            "cause": {
-                "type": type(self.__cause__).__name__ if self.__cause__ else None,
-                "message": str(self.__cause__) if self.__cause__ else None,
-            }
-            if self.__cause__
-            else None,
+            "cause": (
+                {
+                    "type": type(self.__cause__).__name__ if self.__cause__ else None,
+                    "message": str(self.__cause__) if self.__cause__ else None,
+                }
+                if self.__cause__
+                else None
+            ),
         }
 
     def to_json(self, **kwargs) -> str:

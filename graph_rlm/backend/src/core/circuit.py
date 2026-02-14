@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from typing import Any, Callable, Optional
@@ -303,7 +303,7 @@ class CircuitBreaker:
             )
             return result
 
-        except Exception as exc:
+        except Exception as exc:  # pylint: disable=broad-except # noqa: BLE001
             self._failed_calls += 1
             await self._on_failure(exc)
             self._logger.error(

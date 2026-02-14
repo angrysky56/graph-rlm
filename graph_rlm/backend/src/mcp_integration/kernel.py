@@ -12,9 +12,22 @@ import logging
 import os
 import sys
 import traceback
+from typing import Optional
 
-# Prevent the kernel's directory from shadowing the top-level 'skills' package.
-# When running a script, Python prepends the script's directory to sys.path.
+# Optional scientific computing modules
+try:
+    import numpy as np
+    import scipy.sparse as sp
+    import scipy.sparse.linalg as spla
+
+    _SCIENTIFIC_MODULES = {
+        "np": np,
+        "sp": sp,
+        "spla": spla,
+    }
+except ImportError:
+    _SCIENTIFIC_MODULES = {}
+    # We delay logging this until the logger is configured
 # If that directory contains a 'skills.py' (like ours does), it shadows 'skills/' dir.
 script_dir = os.path.dirname(os.path.abspath(__file__))
 if script_dir in sys.path:
@@ -96,9 +109,8 @@ class IPCToolProxy:
 class KBProxy:
     """Proxy for knowledge base paths and directories."""
 
-    def __init__(self, base_path: str = None):
+    def __init__(self, base_path: Optional[str] = None):
         """Initialize knowledge base proxy with project paths."""
-        import os
 
         # Default to project root if no base path provided
         self._base_path = base_path or os.environ.get(
@@ -109,29 +121,24 @@ class KBProxy:
     @property
     def reports_dir(self):
         """Path to reports directory."""
-        import os
 
         return os.path.join(self._kb_root, "reports")
 
     @property
     def plans_dir(self):
         """Path to plans directory."""
-        import os
 
         return os.path.join(self._kb_root, "plans")
 
     @property
     def outputs_dir(self):
         """Path to outputs directory."""
-        import os
 
         return os.path.join(self._kb_root, "outputs")
 
     @property
     def axioms_dir(self):
         """Path to axioms directory."""
-        import os
-
         return os.path.join(self._kb_root, "axioms")
 
     @property
@@ -188,18 +195,71 @@ rlm = RLMClient()
 
 
 async def execute_code(code: str, globals_dict: dict):
-    """Compiles and executes code allowing top-level await."""
+    """Compiles and executes code allowing top-level await and returning the last expression."""
     try:
-        # Enable top-level await via AST flag
+        # Parse the code to check for a final expression
         flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
-        code_obj = compile(code, "<input>", "exec", flags=flags)
+        tree = ast.parse(code, mode="exec")
 
-        # Execute in the persistent globals context
-        result = eval(code_obj, globals_dict)  # nosec: B307
+        last_node = tree.body[-1] if tree.body else None
+        result = None
 
-        # If the code contained top-level await, eval returns a coroutine
-        if inspect.iscoroutine(result):
-            await result
+        # If the last node is an expression, separating it allows us to return its value
+        if last_node and isinstance(last_node, ast.Expr):
+            # Remove the last expression from the main body
+            last_expr = tree.body.pop()
+
+            # Execute the preceding statements (if any)
+            if tree.body:
+                # We must re-compile the modified tree
+                module_obj = compile(tree, "<input>", "exec", flags=flags)
+                res = eval(
+                    module_obj, globals_dict
+                )  # nosec # pylint: disable=eval-used
+                if inspect.iscoroutine(res):
+                    await res
+
+            # Compile the last expression as an 'eval' mode object
+            # We must wrap the value node in an Expression object for 'eval' mode
+            if hasattr(last_expr, "value"):
+                expr_val = ast.Expression(last_expr.value)
+                # Fix locations for the new node
+                ast.fix_missing_locations(expr_val)
+
+                expr_obj = compile(expr_val, "<input>", "eval", flags=flags)
+                result = eval(
+                    expr_obj, globals_dict
+                )  # nosec # pylint: disable=eval-used
+                # Await if it's a coroutine (from top-level await expression)
+                if inspect.iscoroutine(result):
+                    result = await result
+            else:
+                result = None
+
+        else:
+            # No final expression (e.g., assignment, def, import), just exec whole block
+            code_obj = compile(tree, "<input>", "exec", flags=flags)
+            result = eval(code_obj, globals_dict)  # nosec # pylint: disable=eval-used
+            if inspect.iscoroutine(result):
+                await result
+            result = None
+
+        # Output the logical result specifically for validation checks
+        if result is not None:
+            # We use JSON for clean serialization of primitives
+            try:
+                # We skip complex objects that aren't JSON serializable
+                if isinstance(result, (bool, int, float, str, list, dict)):
+                    print(f"<<RESULT>>{json.dumps(result)}", flush=True)
+                else:
+                    # Fallback to string representation for complex objects
+                    print(f'<<RESULT>>"{str(result)}"', flush=True)
+            except (TypeError, ValueError) as e:
+                # Specific catch for JSON serialization issues
+                logger.warning("Result serialization failed (JSON error): %s", e)
+            except Exception as e:  # pylint: disable=broad-exception-caught
+                # Fallback catch for other unexpected errors during result processing
+                logger.warning("Result serialization failed (Unexpected): %s", e)
 
     except (SyntaxError, NameError, TypeError, ValueError) as e:
         logger.error("Execution Error: %s", str(e))
@@ -207,35 +267,22 @@ async def execute_code(code: str, globals_dict: dict):
     except Exception as e:  # noqa: BLE001
         logger.error("Unexpected Execution Error: %s", str(e))
         # We don't exit here; we just report the error and keep the kernel alive.
-        # The parent runtime detects errors by parsing stderr or exit codes,
-        # but here we rely on the textual traceback output.
 
 
 async def kernel_loop():
     """Main loop for the persistent kernel."""
     logger.info("Ready. Waiting for commands on stdin...")
 
-    # Persistent Globals
-    # We populate it with the modules we've imported and our helper clients
-    user_globals = globals().copy()
-
-    # Add scientific computing modules for kernel execution
-    try:
-        import numpy as np
-        import scipy.sparse as sp
-        import scipy.sparse.linalg as spla
-
-        user_globals.update(
-            {
-                "np": np,
-                "sp": sp,
-                "spla": spla,
-            }
-        )
-    except ImportError:
+    # Log specific warning if scientific modules are missing
+    if not _SCIENTIFIC_MODULES:
         logger.warning(
             "Scientific computing modules (numpy, scipy) not available in kernel"
         )
+
+    # Persistent Globals
+    # We populate it with the modules we've imported and our helper clients
+    user_globals = globals().copy()
+    user_globals.update(_SCIENTIFIC_MODULES)
 
     user_globals.update(
         {

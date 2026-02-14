@@ -45,7 +45,6 @@ export const Layout: React.FC<LayoutProps> = ({
                     onNewChat={onNewChat}
                     currentModel={currentModel}
                     onOpenSettings={() => setIsSettingsOpen(true)}
-                    onSelectSession={onSelectSession}
                     onOpenExplorer={onOpenExplorer}
                     usage={usage}
                     terminalEntries={terminalEntries}

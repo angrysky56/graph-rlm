@@ -17,28 +17,32 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
+import httpx
+
 from ..mcp_integration.runtime import AgentRuntime, set_stop_event
 from ..mcp_integration.skill_storage import get_axioms_manager, get_skills_manager
+from .circuit import (
+    CircuitOpenError,
+    generate_correlation_id,
+    get_correlation_id,
+)
 from .config import settings
 from .context_index import context_index
 from .db import GraphClient, db
-from .circuit import (
-    CircuitOpenError,
-    get_correlation_id,
-    generate_correlation_id,
-    set_correlation_id,
-)
 from .dream import dreamer
+from .exceptions import ValidationError
+from .exceptions.codes import ErrorCode
 from .llm import llm
 from .logger import get_logger
-from .services.circuit import protected_llm_generate
 from .mcp_runtime import is_mcp_available
+from .morphogenesis import MorphologicalMemory
 from .navigator import Navigator
 from .omcd import omcd
 from .prompts import build_system_prompt
 from .repe import repe
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
+from .services.circuit import protected_llm_generate
 from .sheaf import sheaf
 from .state import (
     ExecutionState,
@@ -47,8 +51,6 @@ from .state import (
     execution_events,
 )
 from .trace import register_monitor, trace_action
-from .exceptions import ValidationError
-from .exceptions.codes import ErrorCode
 
 if TYPE_CHECKING:
     from graph_rlm.backend.src.mcp_integration.skill_storage import SkillsManager
@@ -113,8 +115,6 @@ def validate_session_id(session_id: str) -> None:
         )
 
     # UUID format check (session IDs should be UUIDs)
-    import re
-
     uuid_pattern = re.compile(
         r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
     )
@@ -163,6 +163,10 @@ class Agent:
 
         # Navigator for Intelligent Curiosity
         self.navigator = Navigator(sheaf_monitor=sheaf)
+
+        # Morphological Memory (Neural Cellular Automata)
+        self.morph_memory = MorphologicalMemory()
+
         self.execution_logs: Dict[str, list] = {}  # session_id -> [tool_ident, ...]
         self.session_cache: Dict[str, Any] = {}  # For Sheaf Monitor & shared state
         self.current_task_input: Optional[str] = (
@@ -178,6 +182,7 @@ class Agent:
         self.stop_requested: bool = False
         self.final_result: Optional[str] = None
         self.synthesis_triggered: bool = False
+        self.awaiting_validation: bool = False  # Set by rlm.done() for Dreamer pipeline
         self.step_id: int = 0
         self.current_turn: int = 1
         self.current_thought_id: Optional[str] = None
@@ -249,9 +254,11 @@ class Agent:
         # Log with full context for debugging
         logger.error(
             "llm_service_degraded",
-            correlation_id=correlation_id,
-            circuit=error.circuit_name or "llm",
-            message=error.message,
+            extra={
+                "correlation_id": correlation_id,
+                "circuit": error.circuit_name or "llm",
+                "message": error.message,
+            },
         )
 
         # Emit event for user feedback if emit_event exists
@@ -373,9 +380,9 @@ class Agent:
                 logger.error("Failed to install %s: %s", package_name, stderr_text)
                 self.emit_event("error", content=f"Installation failed: {stderr_text}")
                 return f"Failed to install {package_name}\nError: {stderr_text}"
-        except Exception as e:  # noqa: BLE001
-            logger.error("Installation error: %s", e)
-            return f"Installation error: {e}"
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.error("Installation error (system/subprocess): %s", e)
+            return f"Installation error (system): {e}"
 
     def _install_to_agent_venv(self, package_name: str) -> str:
         """Internal helper to install a package into the DEDICATED AGENT VENV."""
@@ -437,9 +444,9 @@ class Agent:
                     "error", content=f"Installation failed: {result.stderr}"
                 )
                 return f"Failed to install {package_name}\nError: {result.stderr}"
-        except Exception as e:  # noqa: BLE001
-            logger.error("Installation error: %s", e)
-            return f"Installation error: {e}"
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.error("Installation error (venv/subprocess): %s", e)
+            return f"Installation error (venv): {e}"
 
     async def install_package(self, package_name: str) -> str:
         """Installs a package into the active environment (REPL compatibility)."""
@@ -464,9 +471,43 @@ class Agent:
                 self.emit_event("error", content=f"Skill '{name}' not found.")
                 return f"Error: Skill '{name}' not found."
             return skill["code"]
-        except Exception as e:  # noqa: BLE001
-            self.emit_event("error", content=f"Error reading skill: {e}")
+        except (AttributeError, KeyError, OSError, RuntimeError) as e:
+            self.emit_event(
+                "error", content=f"Error reading skill (state/io error): {e}"
+            )
             return f"Error reading skill: {e}"
+
+    def _refresh_scratchpad(
+        self,
+        session_id: str,
+        root_session_id: str,
+        task: str,
+        current_step: int,
+        max_steps: int,
+        current_round_id: str,
+        morph_gestalt: Optional[str] = None,
+    ) -> str:
+        """
+        Rebuild the scratchpad — the stateless agent's only memory.
+
+        Called after every state-changing event so both agent and Dreamer
+        always see the latest session context (turns, steps, REPL IDs).
+        """
+        try:
+            pad = scratchpad_builder.build_scratchpad(
+                session_id=session_id,
+                root_session_id=root_session_id,
+                task=task,
+                current_step=current_step,
+                max_steps=max_steps,
+                current_round_id=current_round_id,
+                morph_gestalt=morph_gestalt,
+            )
+            self.emit_event("scratchpad_text", content=pad, is_internal=True)
+            return pad
+        except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+            logger.error("Scratchpad refresh failed: %s", e)
+            return f"Error: Scratchpad unavailable ({e})"
 
     def emit_event(
         self,
@@ -495,6 +536,11 @@ class Agent:
             "answer",
             "final_answer",
             "RLM_FINAL_RESPONSE",
+            "RLM_INITIAL_RESPONSE",
+            "RLM_DREAMER_ISSUES",
+            "RLM_DREAMER_VALIDATED",
+            "RLM_FINAL_OUTPUT",
+            "RLM_AGENT_TASK_PLAN",
             "warning",
             "error",
             "thought",
@@ -602,10 +648,21 @@ class Agent:
                         metadata=metadata,
                     )
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.error("Error in execution thread: %s", e)
+            except (
+                AttributeError,
+                RuntimeError,
+                KeyError,
+                ValueError,
+                httpx.RequestError,
+            ) as e:
+                logger.error("Error in execution thread (Logic/Network error): %s", e)
                 # Ensure the main loop doesn't hang if this thread dies
                 q.put({"type": "error", "content": str(e)})
+            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+                logger.error(
+                    "Unexpected crash in execution thread (System error): %s", e
+                )
+                q.put({"type": "error", "content": f"Unexpected error: {e}"})
             finally:
                 q.put(None)  # Signal done
                 execution_events.reset(q_token)
@@ -670,6 +727,7 @@ class Agent:
 
         self.final_result = None
         self.stop_requested = False
+        self.awaiting_validation = False  # Reset validation state
         self.global_stop_event.clear()  # Ensure we don't start in a stopped state
 
         # Ensure REPL is initialized for this session
@@ -685,6 +743,24 @@ class Agent:
         # 0. Initial "Task" Node (Root of this query)
         # Wrap everything in try/except to prevent DB crashes from killing the agent
         # Generate Round ID for this execution cycle (compress context)
+        # --- MORPHOLOGICAL MEMORY SEEDING ---
+        try:
+            # Generate embedding for the core task prompt
+            task_embedding = await self.llm.get_embedding(prompt)
+            if task_embedding:
+                self.morph_memory.seed(task_embedding)
+                logger.info("Morphological Memory seeded with task embedding.")
+        except (
+            ValueError,
+            TypeError,
+            AttributeError,
+            RuntimeError,
+            httpx.RequestError,
+        ) as e:
+            logger.warning(
+                "Failed to seed morphological memory (ML/Network error): %s", e
+            )
+
         current_round_id = str(uuid.uuid4())
         current_round_started = datetime.datetime.now().timestamp() * 1000  # ms
 
@@ -713,6 +789,31 @@ class Agent:
             # Update current pointer
             self.current_thought_id = task_id
 
+            # --- RLM_AGENT_TASK_PLAN ---
+            # Profile the task using meta_agents and emit a task plan
+            try:
+                from .meta_agents import meta_agents
+
+                task_profile = meta_agents.generate_sub_agent_profile(prompt)
+                plan_summary = (
+                    f"Persona: {task_profile.get('persona', 'Generalist')} | "
+                    f"Role: {task_profile.get('role', 'WORKER').value if hasattr(task_profile.get('role'), 'value') else task_profile.get('role', 'WORKER')} | "
+                    f"Tools: {', '.join(task_profile.get('tools', ['All']))}"
+                )
+                self.emit_event(
+                    "RLM_AGENT_TASK_PLAN",
+                    content=plan_summary,
+                    tag="AGENT",
+                )
+                trace_action(
+                    "AGENT",
+                    "TASK_PLAN",
+                    result=plan_summary,
+                    tag="AGENT",
+                )
+            except (ImportError, AttributeError, RuntimeError) as e:
+                logger.warning("Task plan generation failed: %s", e)
+
             # Loop variables
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
@@ -729,8 +830,8 @@ class Agent:
                     },
                 },
             )
-        except Exception as e:  # noqa: BLE001
-            logger.error("Failed to initialize Task node: %s", e)
+        except (AttributeError, RuntimeError, ValueError) as e:
+            logger.error("Failed to initialize Task node (DB/State error): %s", e)
             task_id = str(uuid.uuid4())
             self.current_thought_id = task_id
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
@@ -751,8 +852,6 @@ class Agent:
         step = 0
 
         # Track previous status for topological resolution
-        # Track previous status for topological resolution
-        previous_thought_status = None
         previous_thought_status = None
         context_scratchpad = ""
 
@@ -771,27 +870,33 @@ class Agent:
             vec = None
             repl_id = self.active_repls.get(session_id)
 
-            # --- DYNAMIC SCRATCHPAD REFRESH ---
+            # --- MORPHOLOGICAL MEMORY UPDATE ---
             try:
-                context_scratchpad = scratchpad_builder.build_scratchpad(
-                    session_id=session_id,
-                    root_session_id=final_root_id,
-                    task=prompt,
-                    # current_step=step matches the loop counter (1-based now)
-                    current_step=step,
-                    max_steps=max_steps,
-                    current_round_id=current_round_id,
-                )
-                self.emit_event("scratchpad_text", content=context_scratchpad)
-            except Exception as e:  # noqa: BLE001
-                logger.error("Failed to build scratchpad: %s", e)
-                context_scratchpad = f"Error: Scratchpad unavailable ({e})"
+                # Allow the memory to 'grow' and consolidate
+                self.morph_memory.update(steps=5)
+                # Read the current gestalt state
+                morph_gestalt = self.morph_memory.get_gestalt_string()
+            except (ValueError, TypeError, AttributeError, RuntimeError) as e:
+                logger.warning("Morphological update failed (logic error): %s", e)
+                morph_gestalt = None
+
+            # --- DYNAMIC SCRATCHPAD REFRESH ---
+            context_scratchpad = self._refresh_scratchpad(
+                session_id=session_id,
+                root_session_id=final_root_id,
+                task=prompt,
+                current_step=step,
+                max_steps=max_steps,
+                current_round_id=current_round_id,
+                morph_gestalt=morph_gestalt,
+            )
 
             system_prompt = f"{base_system_prompt}\n\n{context_scratchpad}"
 
             # Construct Dynamic Context (Minimal)
             # No longer pre-loading raw Frontier content into the prompt.
-            # History is accessible via context_scratchpad (Index) and graph_search.
+            # History is accessible via context_scratchpad in the SYSTEM prompt.
+            # current_context in the USER message is now minimal.
             current_context = f"Active Session: {session_id}\n\nTask: {prompt}\n"
 
             # 2. Context Loading (Wait/Wake-Up)
@@ -811,15 +916,14 @@ class Agent:
                     if isinstance(props, dict) and "id" in props:
                         # We do NOT filter current round; Sheaf needs full local topology
                         frontier_ids.append(props["id"])
-            except Exception as e:  # noqa: BLE001
-                logger.error("Context loading failed (Sheaf IDs): %s", e)
+            except (AttributeError, RuntimeError, KeyError) as e:
+                logger.error("Context loading failed (DB/Sheaf state error): %s", e)
 
             # 3. Construct LLM Context using XML isolation for Gemini safety
             # [STABILITY] Explicitly prefix all paths and wrap in XML to avoid command hallucination
             current_context = (
                 f"Active Session: {session_id}\n\n"
-                f"<objective>\n{prompt}\n</objective>\n\n"
-                f"<history>\n{context_scratchpad}\n</history>\n"
+                f"<objective>\n{prompt}\n</objective>\n"
             )
 
             # 2b. Language Guard: Check if frontier is primarily non-English
@@ -860,25 +964,24 @@ class Agent:
                         axioms = axioms_mgr.list_axioms()
                         sorted_keys = sorted(axioms.keys())
                         axioms_list_str = ", ".join(sorted_keys)
-                except Exception as ex:  # noqa: BLE001
-                    logger.warning("Failed to load axioms async: %s", ex)
+                except (AttributeError, RuntimeError, KeyError, OSError) as e:
+                    logger.warning(
+                        "Failed to load axioms async (state/io error): %s", e
+                    )
 
             # --- HOT SEAT INJECTION ---
             hot_seat_warning = ""
             if getattr(self, "last_dream_insight", None):
                 hot_seat_warning = (
                     "\n\n--- ⚠️ HOT SEAT: EPISTEMIC RECOVERY ACTIVE ---\n"
-                    "Your previous response was REJECTED by the Dreamer Gatekeeper "
-                    "for Hallucination/Trace Contradiction.\n"
+                    "Your previous response was REJECTED by the Dreamer Gatekeeper for Hallucination/Trace Contradiction.\n"
                     f"CRITIQUE: {self.last_dream_insight}\n"
-                    "You MUST explicitly address the contradiction, explain why you failed, "
-                    "and provide a GROUNDED response based strictly on the "
-                    "execution trace.\n"
+                    "You MUST explicitly address the contradiction, explain why you failed, and provide a GROUNDED response based strictly on the execution trace.\n"
                     "Failure to align will result in a recursive block.\n---"
                 )
 
             system_prompt = (
-                f"{await build_system_prompt(axioms_list_str=axioms_list_str, skills_manager=self.skills_manager)}\n\n"
+                f"{await build_system_prompt(skills_manager=self.skills_manager)}\n\n"
                 f"{context_scratchpad}{hot_seat_warning}"
             )
 
@@ -905,53 +1008,93 @@ class Agent:
             # 3. LLM Gen (Think)
             response_text = ""
             try:
-                # Define usage callback
-                def on_token_usage(usage_data):
-                    self.emit_event("usage", data=usage_data)
 
                 # [DIAGNOSTIC] Log start of network request
                 self.emit_event(
                     "debug_thought",
                     content=f"... Sending request to LLM (Size: {len(current_context)} chars) ...",
                 )
-
-                # Pre-gen stop check
-                if self.stop_requested or self.global_stop_event.is_set():
-                    self.stop_requested = True
-                    break
-
-                # [STABILITY] Add stop sequences to prevent infinite XML loops
                 # Generate correlation ID for circuit breaker tracking
                 correlation_id = generate_correlation_id()
 
-                response_text = await protected_llm_generate(
-                    current_context,
-                    system=system_prompt,
-                    stream=False,
-                    stop=["</invoke>", "<|endoftext|>"],
-                    on_usage=on_token_usage,
-                    correlation_id=correlation_id,
-                )
+                try:
+                    # Define Usage Callback
+                    def on_usage_update(usage_data: dict):
+                        # Broadcast detailed usage to UI
+                        self.emit_event(
+                            "token_usage", data=usage_data, is_internal=True
+                        )
+
+                    # Execute LLM Call
+                    # [OpenRouter Caching Strategy]
+                    llm_config = self.llm.config
+                    if llm_config.get("provider") == "openrouter":
+                        # Construct structured system message with cache control
+                        system_message_content = [
+                            {"type": "text", "text": system_prompt},
+                            {
+                                "type": "text",
+                                "text": "\n\n[CACHE MARKER] System Instructions End.",
+                                "cache_control": {"type": "ephemeral"},
+                            },
+                        ]
+
+                        # Manually construct messages list to bypass llm.generate's simple formatting
+                        messages = [
+                            {"role": "system", "content": system_message_content},
+                            {"role": "user", "content": current_context},
+                        ]
+
+                        response_text = await self.llm.generate(
+                            prompt=messages,
+                            system=None,
+                            stream=False,
+                            stop=["</invoke>", "<|endoftext|>"],
+                            on_usage=on_usage_update,
+                        )
+                    else:
+                        # Standard execution
+                        response_text = await self.llm.generate(
+                            prompt=current_context,
+                            system=system_prompt,
+                            stream=False,
+                            stop=["</invoke>", "<|endoftext|>"],
+                            on_usage=on_usage_update,
+                        )
+                except CircuitOpenError as e:
+                    # Circuit breaker is open, graceful degradation
+                    logger.warning(
+                        "llm_circuit_open",
+                        extra={
+                            "correlation_id": correlation_id,
+                            "circuit": e.circuit_name,
+                            "error": e.message,
+                        },
+                    )
+                    # Use graceful degradation handler
+                    response_text = await self._handle_llm_circuit_open(e)
+                except httpx.RequestError as e:
+                    # Log network exception specifically
+                    response_text = f"LLM Network Error: {str(e)}"
+                    logger.error("LLM Request Error (%s): %s", type(e).__name__, e)
+                except (ValueError, TypeError, KeyError) as e:
+                    # Log parsing/logic exception
+                    response_text = f"LLM Logic Error: {str(e)}"
+                    logger.error("LLM Logic/Data Error (%s): %s", type(e).__name__, e)
+                    self.emit_event("error", content=response_text)
 
                 # Post-gen stop check
                 if self.stop_requested or self.global_stop_event.is_set():
                     self.stop_requested = True
                     break
-            except Exception as e:  # noqa: BLE001
-                # Log exception to standard logger
-                response_text = f"LLM Error: {str(e)}"
-                logger.error("LLM Generative Error (%s): %s", type(e).__name__, e)
-                self.emit_event("error", content=response_text)
-            except CircuitOpenError as e:
-                # Circuit breaker is open, graceful degradation
-                logger.warning(
-                    "llm_circuit_open",
-                    correlation_id=e.correlation_id or correlation_id,
-                    circuit=e.circuit_name,
-                    error=e.message,
+            except (AttributeError, RuntimeError, KeyError, ValueError) as outer_e:
+                # Diagnostic block to catch non-critical errors in the thought reporting loop
+                logger.error(
+                    "Error in diagnostic thought block (Logic/State error): %s", outer_e
                 )
-                # Use graceful degradation handler
-                response_text = await self._handle_llm_circuit_open(e)
+                # Ensure loop can continue or response_text is set
+                if not response_text:
+                    response_text = f"System Error in diagnostic loop: {outer_e}"
 
             # Raw response logging restored for visibility
             trace_action(
@@ -1002,8 +1145,8 @@ class Agent:
                         step_id=step,
                         repl_id=repl_id,
                     )
-                except Exception as db_err:
-                    logger.error("Failed to commit error node: %s", db_err)
+                except (AttributeError, RuntimeError, KeyError) as db_err:
+                    logger.error("Failed to commit error node (DB error): %s", db_err)
                 break
 
             # 3c. Final check for stop request before committing
@@ -1072,8 +1215,8 @@ class Agent:
                         "parent_id": self.current_thought_id,
                     },
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.error("Failed to pre-commit thought: %s", e)
+            except (AttributeError, RuntimeError, KeyError) as e:
+                logger.error("Failed to pre-commit thought (DB error): %s", e)
 
             # --- 6. EPISTEMIC HEALTH CHECK (Dual-Process Monitoring) ---
             # We run this BEFORE executing code to prevent "hallucinated actions."
@@ -1087,8 +1230,11 @@ class Agent:
                     self.session_cache["task_embedding"] = await self.llm.get_embedding(
                         self.current_task_input or prompt
                     )
-                except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                    logger.warning("Failed to embed task for Health Check: %s", e)
+                except (httpx.RequestError, ValueError, TypeError) as e:
+                    logger.warning(
+                        "Failed to embed task for Health Check (ML/Network error): %s",
+                        e,
+                    )
 
             if current_vec:
                 # B. Run Monitors in Parallel
@@ -1271,6 +1417,17 @@ class Agent:
                     step_id=step,
                 )
 
+                # Post-execution scratchpad refresh — agent must see latest state
+                context_scratchpad = self._refresh_scratchpad(
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    task=prompt,
+                    current_step=step,
+                    max_steps=max_steps,
+                    current_round_id=current_round_id,
+                    morph_gestalt=morph_gestalt,
+                )
+
                 # Post-execution stop check
                 if self.stop_requested or self.global_stop_event.is_set():
                     self.stop_requested = True
@@ -1294,8 +1451,10 @@ class Agent:
             if output and len(output) > 100:
                 try:
                     final_vec = await self.llm.get_embedding(full_content)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Failed to generate final embedding: %s", e)
+                except (httpx.RequestError, ValueError, TypeError) as e:
+                    logger.warning(
+                        "Failed to generate final embedding (ML/Network error): %s", e
+                    )
 
             # Generate execution summary for scratchpad display using SUMMARY_MODEL
             # LLM-generated summary provides semantic understanding vs. simple truncation
@@ -1323,8 +1482,10 @@ Summary (describe WHAT was done and KEY outcome):"""
                     # Mark failure in summary
                     if thought_status == "failed":
                         exec_summary = f"[FAILED] {exec_summary}"
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Failed to generate step summary: %s", e)
+                except (httpx.RequestError, ValueError, TypeError, RuntimeError) as e:
+                    logger.warning(
+                        "Failed to generate step summary (LLM/Data error): %s", e
+                    )
                     # Fallback to first line of output
                     exec_summary = output.strip().split("\n")[0][:100]
                     if thought_status == "failed":
@@ -1396,9 +1557,11 @@ Summary (describe WHAT was done and KEY outcome):"""
                 if node_to_prune:
                     try:
                         self.db.delete_thought_node(node_to_prune)
-                    except Exception as prune_err:  # pylint: disable=broad-except # noqa: BLE001
+                    except (AttributeError, RuntimeError, KeyError) as e:
                         logger.error(
-                            "Failed to prune node %s: %s", node_to_prune, prune_err
+                            "Failed to prune node %s (DB state error): %s",
+                            node_to_prune,
+                            e,
                         )
 
                 # Emit immediate scratchpad update for UI responsiveness
@@ -1407,10 +1570,14 @@ Summary (describe WHAT was done and KEY outcome):"""
                     self.emit_event(
                         "scratchpad_update", data=sp_data, is_sub_event=False
                     )
-                except Exception as ex:  # noqa: BLE001
-                    logger.warning("Failed to emit scratchpad update: %s", ex)
-            except Exception as e:  # noqa: BLE001
-                logger.error("Failed to commit thought to graph: %s", e)
+                except (AttributeError, RuntimeError, KeyError, ValueError) as ex:
+                    logger.warning(
+                        "Failed to emit scratchpad update (UI/State error): %s", ex
+                    )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as e:
+                logger.error(
+                    "Failed to commit thought to graph (DB/Serialization error): %s", e
+                )
 
             # Update Frontier Pointer
             # Update previous status for next iteration
@@ -1455,8 +1622,6 @@ Summary (describe WHAT was done and KEY outcome):"""
                 t in response_text
                 for t in [
                     "RLM_FINAL_OUTPUT",
-                    "RLM_FINAL_REPORT",
-                    "RLM_FINAL_RESPONSE",
                 ]
             )
 
@@ -1555,8 +1720,11 @@ Summary (describe WHAT was done and KEY outcome):"""
                                 final_root_id, prompt
                             )
                         )
-                    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                        logger.warning("Failed to generate candidate response: %s", e)
+                    except (httpx.RequestError, ValueError, TypeError) as e:
+                        logger.warning(
+                            "Failed to generate candidate response (LLM/Data error): %s",
+                            e,
+                        )
 
                 # 2. Dreamer Trigger (Auto-Consolidate before exit)
                 try:
@@ -1579,12 +1747,12 @@ Summary (describe WHAT was done and KEY outcome):"""
                         # Re-generate scratchpad for Dreamer context if needed
                         # Or use the last known context. The prompt variable might contain it,
                         # but scratchpad_content is cleaner
-                        scratchpad_content = scratchpad_builder.build_scratchpad(
+                        scratchpad_content = self._refresh_scratchpad(
                             session_id=session_id,
                             root_session_id=final_root_id,
                             task=prompt,
-                            current_step=getattr(self, "step_count", 0),
-                            max_steps=getattr(self, "max_steps", 10),
+                            current_step=step,
+                            max_steps=max_steps,
                             current_round_id=current_round_id,
                         )
 
@@ -1593,14 +1761,21 @@ Summary (describe WHAT was done and KEY outcome):"""
                             session_id=final_root_id,  # Scope to current session only
                             final_response_candidate=final_response_candidate,
                             context=scratchpad_content,  # Pass the full context
-                            goal_embedding=self.session_cache.get("task_embedding"),
                         )
                         logger.info(
                             "💤 Dream Cycle Completed. Status: %s",
                             dream_res.get("status"),
                         )
-                    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                        logger.warning("Dream cycle failed during execution: %s", e)
+                    except (
+                        httpx.RequestError,
+                        ValueError,
+                        TypeError,
+                        RuntimeError,
+                    ) as e:
+                        logger.warning(
+                            "Dream cycle failed during execution (LLM/State error): %s",
+                            e,
+                        )
                         dream_res = {}
 
                     dream_status = dream_res.get("status", "")
@@ -1649,9 +1824,14 @@ Summary (describe WHAT was done and KEY outcome):"""
                                             "msg": f"\n\n---\n{dreamer_msg}",
                                         },
                                     )
-                                except Exception as db_err:
+                                except (
+                                    AttributeError,
+                                    RuntimeError,
+                                    KeyError,
+                                ) as db_err:
                                     logger.error(
-                                        "Failed to persist Dreamer msg: %s", db_err
+                                        "Failed to persist Dreamer msg (DB error): %s",
+                                        db_err,
                                     )
 
                         # 2. Check if we've already tried to fix this exact issue
@@ -1753,8 +1933,16 @@ Summary (describe WHAT was done and KEY outcome):"""
                                 self.final_result = None
                                 self.stop_requested = False
                                 continue  # Loop back for retry
-                except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                    logger.warning("Dream cycle failed on exit: %s", e)
+                except (
+                    AttributeError,
+                    RuntimeError,
+                    KeyError,
+                    ValueError,
+                    httpx.RequestError,
+                ) as e:
+                    logger.warning(
+                        "Dream cycle failed on exit (state/network error): %s", e
+                    )
 
                 # 3. Store the final response (If we passed the Gatekeeper)
                 if final_response_candidate:
@@ -1763,7 +1951,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                         # This candidate was generated by the Agent's _generate_validated_response method.
                         # The Dreamer (if run) only inspected it for self-healing; it did not produce it.
                         self.emit_event(
-                            "RLM_FINAL_RESPONSE",
+                            "RLM_FINAL_OUTPUT",
                             content=final_response_candidate,
                             tag="AGENT_SUMMARY",
                         )
@@ -1780,8 +1968,10 @@ Summary (describe WHAT was done and KEY outcome):"""
                             step_id=step,
                             repl_id=repl_id,
                         )
-                    except Exception as e:  # noqa: BLE001
-                        logger.warning("Failed to store final response: %s", e)
+                    except (AttributeError, RuntimeError, KeyError) as e:
+                        logger.warning(
+                            "Failed to store final response (DB/State error): %s", e
+                        )
 
                 break
 
@@ -1865,16 +2055,34 @@ Summary (describe WHAT was done and KEY outcome):"""
                         recursion_stack=recursion_stack,
                         metadata=metadata,
                     )
-            except Exception as e:  # noqa: BLE001
+            except (
+                AttributeError,
+                RuntimeError,
+                KeyError,
+                ValueError,
+                httpx.RequestError,
+            ) as e:
                 self.emit_event(
-                    "error", content=f"Axiomatic check on final response failed: {e}"
+                    "error",
+                    content=f"Axiomatic check on final response failed (state/network error): {e}",
                 )
 
             # --- NEW VALIDATION PROTOCOL (v2) ---
-            # 1. Emit Initial Attempt
-            self.emit_event("RLM_INITIAL_RESPONSE", content=self.final_result)
+            # 1. Emit Initial Attempt (may already have been emitted by rlm.done())
+            if not getattr(self, "awaiting_validation", False):
+                self.emit_event("RLM_INITIAL_RESPONSE", content=self.final_result)
 
-            # 2. Dreamer Validation Handshake
+            # 2. Fresh scratchpad rebuild for validation — Dreamer needs current state
+            context_scratchpad = self._refresh_scratchpad(
+                session_id=session_id,
+                root_session_id=final_root_id,
+                task=prompt,
+                current_step=step,
+                max_steps=max_steps,
+                current_round_id=current_round_id,
+            )
+
+            # 3. Dreamer Validation Handshake
             try:
                 validation = await dreamer.validate_response(
                     candidate=self.final_result,
@@ -1882,62 +2090,103 @@ Summary (describe WHAT was done and KEY outcome):"""
                     session_id=session_id,
                     current_step=step,
                     goal_embedding=self.session_cache.get("task_embedding"),
+                    turn_id=self.current_turn,
                 )
 
                 status = validation.get("status")
 
                 if status in ["valid", "forced_valid"]:
-                    # SUCCESS: Emit final events and return result
+                    # SUCCESS: Dreamer validated — emit validated signal
                     self.emit_event(
-                        "RLM_VALIDATED_RESPONSE", content=validation.get("message")
+                        "RLM_DREAMER_VALIDATED",
+                        content=validation.get("message"),
+                        tag="DREAMER",
                     )
-                    self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
+                    self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
                     self.eval_success_count += 1
                     # Fall through to return (since we are outside the loop)
+                elif status == "exhausted":
+                    # FAILURE: Budget exhausted — Hard Stop
+                    instruction = validation.get("instruction", "Budget exhausted.")
+                    self.emit_event(
+                        "error",
+                        content=f"Terminating due to exhaustion: {instruction}",
+                        tag="DREAMER",
+                    )
+                    self.eval_failure_count += 1
+                    return f"Terminated: {instruction}"
                 else:
-                    # FAILURE: Recursive Retry
+                    # FAILURE: Dreamer found issues — bounded retry (max 2)
+                    validation_retries = getattr(self, "_validation_retries", 0)
                     instruction = validation.get(
                         "instruction", "Review validation failure."
                     )
-                    self.emit_event("RLM_WAKE", content=instruction)
 
-                    # Log Wake Node
-                    wake_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
-                        wake_id,
-                        f"SYSTEM WAKE: {instruction}",
-                        parent_id=self.current_thought_id,
-                        session_id=session_id,
-                        root_session_id=final_root_id,
-                        round_id=current_round_id,
-                        status="wake",
-                        step_id=step,
-                    )
+                    if validation_retries >= 2:
+                        # Max retries reached — force-emit best result
+                        logger.warning(
+                            "Validation retry limit reached (%s). Force-emitting best result.",
+                            validation_retries,
+                        )
+                        self.emit_event(
+                            "warning",
+                            content=f"Validation failed after {validation_retries} retries. Emitting best result.",
+                            tag="DREAMER",
+                        )
+                        self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
+                        self._validation_retries = 0  # Reset for next turn
+                    else:
+                        # Retry within this turn (no recursive restart)
+                        self._validation_retries = validation_retries + 1
+                        self.emit_event(
+                            "RLM_DREAMER_ISSUES",
+                            content=f"[Retry {self._validation_retries}/2] {instruction}",
+                            tag="DREAMER",
+                        )
 
-                    # RECURSIVE RESTART
-                    self.current_thought_id = wake_id
-                    self.final_result = None  # Clear result
+                        # Log Wake Node (scoped to this turn)
+                        wake_id = str(uuid.uuid4())
+                        self.db.create_thought_node(
+                            wake_id,
+                            f"SYSTEM WAKE (retry {self._validation_retries}): {instruction}",
+                            parent_id=self.current_thought_id,
+                            session_id=session_id,
+                            root_session_id=final_root_id,
+                            round_id=current_round_id,
+                            status="wake",
+                            step_id=step,
+                            turn_id=self.current_turn,
+                        )
 
-                    return await self.query_sync(
-                        prompt,
-                        parent_id=wake_id,
-                        session_id=session_id,
-                        depth=self.current_depth,
-                        root_session_id=final_root_id,
-                        turn_id=self.current_turn,
-                        recursion_stack=recursion_stack,
-                        metadata=metadata,
-                    )
+                        self.current_thought_id = wake_id
+                        self.final_result = None  # Clear for re-attempt
 
-            except Exception as e:  # noqa: BLE001
-                logger.error("Validation Handshake failed: %s", e)
+                        return await self.query_sync(
+                            prompt,
+                            parent_id=wake_id,
+                            session_id=session_id,
+                            depth=self.current_depth,
+                            root_session_id=final_root_id,
+                            turn_id=self.current_turn,
+                            recursion_stack=recursion_stack,
+                            metadata=metadata,
+                        )
+
+            except (
+                AttributeError,
+                RuntimeError,
+                KeyError,
+                ValueError,
+                httpx.RequestError,
+            ) as e:
+                logger.error("Validation Handshake failed (state/network error): %s", e)
                 # Fallback to Safe Exit on system error
                 self.emit_event("error", content=f"Validation System Error: {e}")
-                self.emit_event("RLM_FINAL_RESPONSE", content=self.final_result)
+                self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
         elif self.stop_requested:
             # Stop requested by user or tool
             self.emit_event(
-                "RLM_FINAL_RESPONSE",
+                "RLM_FINAL_OUTPUT",
                 content="Task processing stopped (Done/Stop signal received).",
             )
             self.eval_success_count += 1  # User-initiated stop is still a success
@@ -1957,7 +2206,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 "Agent loop exited without a final result. Emitting fallback."
             )
             self.emit_event(
-                "RLM_FINAL_RESPONSE",
+                "RLM_FINAL_OUTPUT",
                 content="[System] The agent stopped without generating a final answer. Please check the logs for errors.",
             )
 
@@ -1965,7 +2214,7 @@ Summary (describe WHAT was done and KEY outcome):"""
         if self.final_result:
             try:
                 # Reconstruct full scratchpad for archive
-                final_scratchpad = scratchpad_builder.build_scratchpad(
+                final_scratchpad = self._refresh_scratchpad(
                     session_id=session_id,
                     root_session_id=final_root_id,
                     task=prompt,
@@ -1988,9 +2237,9 @@ Summary (describe WHAT was done and KEY outcome):"""
                         if r_res
                         else []
                     )
-                except Exception as e:  # noqa: BLE001
+                except (AttributeError, RuntimeError, KeyError) as e:
                     logger.warning(
-                        "Failed to fetch REPL IDs for round %s: %s",
+                        "Failed to fetch REPL IDs for round %s (DB error): %s",
                         current_round_id,
                         e,
                     )
@@ -2005,8 +2254,8 @@ Summary (describe WHAT was done and KEY outcome):"""
                     started_at=int(current_round_started),
                     ended_at=int(datetime.datetime.now().timestamp() * 1000),
                 )
-            except Exception as e:  # noqa: BLE001
-                logger.error("Failed to archive round: %s", e)
+            except (AttributeError, RuntimeError, KeyError, OSError) as e:
+                logger.error("Failed to archive round (DB/IO error): %s", e)
 
         # Return the final result or a default message if not set
         return self.final_result or "Task processing stopped."
@@ -2044,7 +2293,7 @@ Summary (describe WHAT was done and KEY outcome):"""
         root_session_id: Optional[str] = None,
         task_input: str = "",
         turn_id: Optional[int] = None,
-        step_id: Optional[int] = None,
+        step_id: int = 0,
     ) -> Tuple[str, bool]:
         """
         Executes code using the isolated AgentRuntime (uv run).
@@ -2080,15 +2329,60 @@ Summary (describe WHAT was done and KEY outcome):"""
                     root_session_id=root_session_id or session_id,
                 )
                 mcp_namespace = rlm_ctx.mcp
-            except Exception as e:  # noqa: BLE001
+            except (AttributeError, RuntimeError, KeyError, OSError) as e:
                 logger.warning(
-                    "Failed to initialize MCP Discovery for execution: %s", e
+                    "Failed to initialize MCP Discovery for execution (state/io error): %s",
+                    e,
                 )
 
-            # 3. Execute in Subprocess
-            stdout, stderr, exec_result, exit_code = await self.runtime.execute(
-                code, context=context_data, mcp_namespace=mcp_namespace
-            )
+            # 3. Execute in Subprocess (with Self-Healing Retry)
+            # We allow 1 retry for dependency healing
+            max_retries = 1
+            execution_attempt = 0
+
+            while execution_attempt <= max_retries:
+                execution_attempt += 1
+
+                stdout, stderr, exec_result, exit_code = await self.runtime.execute(
+                    code, context=context_data, mcp_namespace=mcp_namespace
+                )
+
+                # [SELF-HEALING] Dependency Injection
+                # If execution failed due to missing module, try to install it and retry.
+                if exit_code != 0 and stderr and "ModuleNotFoundError" in stderr:
+                    # Parse module name: "No module named 'xyz'"
+                    match = re.search(r"No module named '([\w\-]+)'", stderr)
+                    if match:
+                        missing_pkg = match.group(1)
+                        if execution_attempt <= max_retries:
+                            logger.warning(
+                                "Dependency Fault Detected: Missing '%s'. Initiating self-healing.",
+                                missing_pkg,
+                            )
+                            self.emit_event(
+                                "thinking",
+                                content=f"🚑 [Self-Healing]: 'ModuleNotFoundError: {missing_pkg}' detected. Installing package...",
+                            )
+
+                            # Attempt installation
+                            install_result = await self.install_package(missing_pkg)
+
+                            if "Successfully installed" in install_result:
+                                # Retry execution loop
+                                self.emit_event(
+                                    "thinking",
+                                    content=f"✅ Installed '{missing_pkg}'. Retrying execution...",
+                                )
+                                continue
+                            else:
+                                self.emit_event(
+                                    "error",
+                                    content=f"Self-healing failed: Could not install '{missing_pkg}'.\n{install_result}",
+                                )
+                                # Don't retry if install failed, just fall through to error reporting
+
+                # If we get here, either success, non-dependency error, or max retries reached
+                break
 
             output = stdout or ""
             execution_failed = exit_code != 0
@@ -2105,9 +2399,34 @@ Summary (describe WHAT was done and KEY outcome):"""
                 if "SyntaxError" in stderr:
                     output += "\n\n[System Hint]: Check indentation and syntax."
 
-            # 5. Output Normalization
+            # 5. Output Normalization & Smart Truncation
             if not output.strip() and not stderr:
                 output = "Code executed successfully (No output captured)."
+            elif len(output) > 2000:
+                # [OPTIMIZATION] Avoid token bloat from large REPL outputs
+                try:
+                    kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
+                    debug_logs_dir = kb_root / "workspace" / "debug_logs"
+                    debug_logs_dir.mkdir(parents=True, exist_ok=True)
+
+                    log_filename = f"step_{step_id}_{session_id[:8]}_{int(datetime.datetime.now().timestamp())}.log"
+                    log_path = debug_logs_dir / log_filename
+                    log_path.write_text(output, encoding="utf-8")
+
+                    # Provide a snippet and point the LLM to the full file
+                    snippet_head = output[:800]
+                    snippet_tail = output[-400:]
+                    output = (
+                        f"[Output truncated due to size ({len(output)} chars)].\n"
+                        f"Full log: {log_path}\n"
+                        f"--- Snippet Start ---\n{snippet_head}\n... [TRUNCATED] ...\n{snippet_tail}\n--- Snippet End ---\n"
+                        f"Use 'await rlm.recall_node(some_id)' or read the log file if you need details."
+                    )
+                except (OSError, RuntimeError) as log_err:
+                    logger.warning(
+                        "Failed to save full debug log (IO error): %s", log_err
+                    )
+                    output = output[:1500] + "\n... [EMERGENCY TRUNCATION] ..."
 
             # [SAFEGUARD] Detect Critical Failures even if exit_code is 0
             # Sometimes a caught exception prints a traceback but exits 0.
@@ -2143,7 +2462,7 @@ Summary (describe WHAT was done and KEY outcome):"""
         self, root_session_id: str, original_task: str
     ) -> str:
         """
-        Generates a comprehensive RLM_VALIDATED_RESPONSE by summarizing the session trace.
+        Generates a comprehensive RLM_DREAMER_VALIDATED report by summarizing the session trace.
         """
         logger.info(
             "Generating Validated Response for Root Session: %s", root_session_id
@@ -2199,7 +2518,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     "No trace lines found for validated response. Using final_result."
                 )
                 return (
-                    f"# RLM_VALIDATED_RESPONSE\n\n"
+                    f"# RLM_DREAMER_VALIDATED\n\n"
                     f"**Task**: {original_task}\n\n"
                     f"**Result**:\n{self.final_result or 'No result available.'}"
                 )
@@ -2211,7 +2530,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 "You are the RLM Validation Engine. Your goal is to "
                 "synthesize a FINAL, HUMAN-READABLE REPORT.\n"
                 "Input: A trace of the Agent's reasoning and execution steps.\n"
-                "Output: A structured `RLM_VALIDATED_RESPONSE`.\n"
+                "Output: A structured `RLM_DREAMER_VALIDATED` report.\n"
                 "\n"
                 "CRITICAL GROUNDING RULE: Base your response ONLY on the "
                 "trace content provided below. "
@@ -2225,7 +2544,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 "2. **Methodology**: Briefly explain how the result was achieved.\n"
                 "3. **Turn Log**: List key turns/steps with their REPL IDs. "
                 "This is CRITICAL for searchability.\n"
-                "4. **Format**: Markdown. Start exactly with `# RLM_VALIDATED_RESPONSE`.\n"
+                "4. **Format**: Markdown. Start exactly with `# RLM_DREAMER_VALIDATED`.\n"
             )
 
             user_prompt = (
@@ -2239,9 +2558,9 @@ Summary (describe WHAT was done and KEY outcome):"""
                 correlation_id=get_correlation_id() or generate_correlation_id(),
             )
             return response
-        except Exception as e:  # noqa: BLE001
+        except (httpx.RequestError, ValueError, TypeError) as e:
             logger.error("Failed to generate validated response: %s", e)
-            return f"# RLM_VALIDATED_RESPONSE\n\n[Error generating validation: {e}]"
+            return f"# RLM_DREAMER_VALIDATED\n\n[Error generating validation: {e}]"
 
     def stop(self):
         """Alias for UI compatibility."""
@@ -2405,7 +2724,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 [s.get("name") for s in sim_skills if s.get("score", 0) > 0.7],
             )
             return final
-        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        except (httpx.RequestError, ValueError, TypeError) as e:
             logger.warning("Agentic discovery failed: %s. Fallback to 'general'.", e)
             return ["general"]
 

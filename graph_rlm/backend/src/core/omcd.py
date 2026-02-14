@@ -102,9 +102,13 @@ class OmcdController:
                 "confidence": float
             }
         """
-        q_stop = self.calculate_q_stop(step, confidence)
-        cost = self.calculate_cost(step)
+        # Calculate components first to ensure consistency
+        # Cost is a function of TOTAL effort (steps * intensity)
+        cost = self.calculate_cost(step * self.params.kappa)
         benefit = self.calculate_benefit(confidence)
+
+        # Q_stop = Benefit - Cost
+        q_stop = benefit - cost
 
         decision = {
             "should_stop": q_stop >= self.params.omega,
@@ -120,18 +124,19 @@ class OmcdController:
         self._history.append(decision)
 
         # Emit trace for visibility
+        status_msg = f"Q_stop={q_stop:.3f} (Conf={confidence:.2f}, Cost={cost:.3f})"
         if decision["should_stop"]:
             trace_action(
                 "oMCD",
                 "OPTIMAL_STOP",
-                result=f"Q_stop={q_stop:.3f} >= ω={self.params.omega:.2f}. Committing.",
+                result=f"{status_msg} >= ω={self.params.omega:.2f}. Committing.",
                 tag="SYSTEM",
             )
         else:
-            logger.debug(
-                "[oMCD] Step %d: Q_stop=%.3f < ω=%.2f. Continue.",
-                step,
-                q_stop,
+            # Mirror to terminal for user visibility of deliberation progress
+            logger.info(
+                "[oMCD] Deliberating... %s < ω=%.2f",
+                status_msg,
                 self.params.omega,
             )
 
