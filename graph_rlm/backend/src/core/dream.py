@@ -44,7 +44,9 @@ class Dreamer:
         self.llm = llm
         self._is_codifying = False  # Recursion guard for axiom generation
 
-    def _get_session_trace(self, session_id: Optional[str], turn_id: Optional[int] = None) -> Dict[str, Any]:
+    def _get_session_trace(
+        self, session_id: Optional[str], turn_id: Optional[int] = None
+    ) -> Dict[str, Any]:
         """
         Query DB for actual session metrics so validation can cross-reference
         the agent's claims against what actually happened.
@@ -642,7 +644,55 @@ class Dreamer:
         """
         from .repe import repe
 
+        if not candidate:
+            return {"status": "invalid", "instruction": "Empty candidate response."}
+
         logger.info("🛡️ [Dreamer] Validating Agent Response Candidate...")
+
+        # ── -1. Active Verification / Reality Grounding ──
+        # Instead of a passive snapshot, we ask the Dreamer what to verify.
+        verification_result = "No verification performed."
+        try:
+            # A) Ask for verification code
+            verify_prompt = (
+                f"You are the Dreamer, a verifiable guardian of truth.\n"
+                f"The Agent has produced this candidate response:\n"
+                f"---\n{candidate}\n---\n"
+                f"Based on the scratchpad context below, identify ONE critical empirical claim (like file creation, data existence).\n"
+                f"Write Python code to verify it. If checking a file path, use `os.walk` or recursive glob to FIND it if the direct path fails.\n"
+                f"If found in a different location, print 'FOUND: <actual_path>'.\n"
+                f"If no physical claim is made, write 'pass'.\n"
+                f"Output ONLY the python code block."
+            )
+            # We use a smaller model/call for this quick check if possible, or main LLM
+            verify_code_raw = await self.llm.generate(
+                system="You are a Python verification engine. Output only valid Python code.",
+                prompt=f"{verify_prompt}\n\nContext Snippet:\n{context[-2000:]}",  # Give tail of context
+            )
+
+            verify_code = (
+                verify_code_raw.replace("```python", "").replace("```", "").strip()
+            )
+
+            if verify_code and "pass" not in verify_code.lower():
+                # B) Execute in REPL
+                # Inject minimal context for verification
+                preamble = (
+                    "import os\n"
+                    "import sys\n"
+                    "from pathlib import Path\n"
+                    "from graph_rlm.backend.src.core.knowledge_base import kb\n"
+                )
+                repl = PythonREPL()  # Ephemeral REPL for verification
+                stdout, stderr, _, _ = await repl.execute(preamble + "\n" + verify_code)
+                verification_result = (
+                    f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
+                )
+            else:
+                verification_result = "No verifiable claims detected."
+
+        except (httpx.RequestError, ValueError, RuntimeError, AttributeError) as e:
+            verification_result = f"Verification failed to execute: {e}"
 
         # ── 0. Session trace (timestamps, REPL IDs, recent node IDs) ──
         trace = self._get_session_trace(session_id, turn_id=turn_id)
@@ -734,21 +784,27 @@ class Dreamer:
             f"- TODO markers: {has_todo}\n"
             f"- Output truncation: {has_truncation} | RLM compliant: {rlm_compliance}\n"
             f"- Empirical contradiction: {topo_status == 'EMPIRICAL_CONTRADICTION'}\n"
+            f"\n### Active Verification Results (REPL)\n"
+            f"{verification_result}\n"
         )
 
         # ── 7. LLM-driven classification ──
         validation_prompt = (
             f"You are the Dreamer — the validation layer of a cognitive agent.\n"
             f"Your task: decide if the agent's candidate response is ready to deliver.\n\n"
-            f"## Candidate Response (first 2000 chars)\n"
-            f"{candidate[:2000]}\n\n"
+            f"## Candidate Response (first 15000 chars)\n"
+            f"{candidate[:15000]}\n\n"
             f"{metrics_block}\n"
             f"## Instructions\n"
             f"Analyze the metrics holistically. Consider:\n"
+            f"- [QUALITY] Is the response too brief or over-summarized given the task?\n"
+            f"- [DEPTH] If a report/analysis was requested, does it provide comprehensive detail?\n"
             f"- Does the psychological profile show genuine grounding or performance?\n"
             f"- Does the topology show consistency with the execution path?\n"
             f"- Are there unresolved failures in the recent timeline?\n"
-            f"- Does the response contain placeholders, tracebacks, or hallucinated claims?\n\n"
+            f"- Does the response contain placeholders, tracebacks, or hallucinated claims?\n"
+            f"- [CRITICAL] Review the 'Active Verification Results'. "
+            f"If the verification code FAILED to confirm the claim (e.g., FileNotFound), you MUST mark INVALID.\n\n"
             f"Respond with ONLY a JSON object (no markdown, no explanation):\n"
             f'{{"verdict": "valid" or "invalid", "confidence": 0.0-1.0, '
             f'"reasons": ["short reason 1", ...], '

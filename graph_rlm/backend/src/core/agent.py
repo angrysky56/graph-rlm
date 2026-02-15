@@ -35,7 +35,6 @@ from .exceptions.codes import ErrorCode
 from .llm import llm
 from .logger import get_logger
 from .mcp_runtime import is_mcp_available
-from .morphogenesis import MorphologicalMemory
 from .navigator import Navigator
 from .omcd import omcd
 from .prompts import build_system_prompt
@@ -51,6 +50,7 @@ from .state import (
     broadcast_trace,
     execution_events,
 )
+from .thimac_memory import ThimacMemory
 from .trace import register_monitor, trace_action
 
 if TYPE_CHECKING:
@@ -166,7 +166,7 @@ class Agent:
         self.navigator = Navigator(sheaf_monitor=sheaf)
 
         # Morphological Memory (Neural Cellular Automata)
-        self.morph_memory = MorphologicalMemory()
+        self.morph_memory = ThimacMemory()
 
         self.execution_logs: Dict[str, list] = {}  # session_id -> [tool_ident, ...]
         self.session_cache: Dict[str, Any] = {}  # For Sheaf Monitor & shared state
@@ -479,7 +479,7 @@ class Agent:
             )
             return f"Error reading skill: {e}"
 
-    def _refresh_scratchpad(
+    async def _refresh_scratchpad(
         self,
         session_id: str,
         root_session_id: str,
@@ -496,7 +496,7 @@ class Agent:
         always see the latest session context (turns, steps, REPL IDs).
         """
         try:
-            pad = scratchpad_builder.build_scratchpad(
+            pad = await scratchpad_builder.build_scratchpad(
                 session_id=session_id,
                 root_session_id=root_session_id,
                 task=task,
@@ -745,29 +745,14 @@ class Agent:
         # 0. Initial "Task" Node (Root of this query)
         # Wrap everything in try/except to prevent DB crashes from killing the agent
         # Generate Round ID for this execution cycle (compress context)
-        # --- MORPHOLOGICAL MEMORY SEEDING ---
-        try:
-            # Generate embedding for the core task prompt
-            task_embedding = await self.llm.get_embedding(prompt)
-            if task_embedding:
-                self.morph_memory.seed(task_embedding)
-                logger.info("Morphological Memory seeded with task embedding.")
-        except (
-            ValueError,
-            TypeError,
-            AttributeError,
-            RuntimeError,
-            httpx.RequestError,
-        ) as e:
-            logger.warning(
-                "Failed to seed morphological memory (ML/Network error): %s", e
-            )
+        # --- THIMAC MEMORY SEEDING (Optional/No-op for now) ---
+        # Thimac is event-driven, seeded by actual actions.
 
-        current_round_id = str(uuid.uuid4())
+        current_round_id = f"{session_id}:Round:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
         current_round_started = datetime.datetime.now().timestamp() * 1000  # ms
 
         try:
-            task_id = str(uuid.uuid4())
+            task_id = f"{session_id}:Task:0"
             logger.info(
                 "Session %s: Starting Task %s (Round %s)",
                 session_id,
@@ -853,7 +838,7 @@ class Agent:
             )
         except (AttributeError, RuntimeError, ValueError) as e:
             logger.error("Failed to initialize Task node (DB/State error): %s", e)
-            task_id = str(uuid.uuid4())
+            task_id = f"{session_id}:Task:Fallback:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
             self.current_thought_id = task_id
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
@@ -886,23 +871,25 @@ class Agent:
                 self.stop_requested = True
                 break
             step += 1
-            thought_id = str(uuid.uuid4())
+            # Deterministic Thought ID for In-Place Updates (Deduplication)
+            # Format: SESSION_ID_PREFIX:T{turn}:S{step}
+            thought_id = f"{session_id[:8]}:T{self.current_turn}:S{step}"
+
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
             repl_id = self.active_repls.get(session_id)
 
-            # --- MORPHOLOGICAL MEMORY UPDATE ---
+            # --- THIMAC MEMORY UPDATE ---
             try:
-                # Allow the memory to 'grow' and consolidate
-                self.morph_memory.update(steps=5)
-                # Read the current gestalt state
+                # We don't ingest strictly here, we just read the gestalt.
+                # Real ingestion happens after commit.
                 morph_gestalt = self.morph_memory.get_gestalt_string()
-            except (ValueError, TypeError, AttributeError, RuntimeError) as e:
-                logger.warning("Morphological update failed (logic error): %s", e)
+            except Exception as e:
+                logger.warning("Thimac update failed: %s", e)
                 morph_gestalt = None
 
             # --- DYNAMIC SCRATCHPAD REFRESH ---
-            context_scratchpad = self._refresh_scratchpad(
+            context_scratchpad = await self._refresh_scratchpad(
                 session_id=session_id,
                 root_session_id=final_root_id,
                 task=prompt,
@@ -1003,7 +990,7 @@ class Agent:
 
             system_prompt = (
                 f"{await build_system_prompt(skills_manager=self.skills_manager)}\n\n"
-                f"{context_scratchpad}{hot_seat_warning}"
+                f"{await self._refresh_scratchpad(session_id=session_id, root_session_id=final_root_id, task=prompt, current_step=step, max_steps=max_steps, current_round_id=current_round_id, morph_gestalt=morph_gestalt)}{hot_seat_warning}"
             )
 
             # --- NAVIGATOR CURIOSITY INJECTION (PRE-GEN) ---
@@ -1362,7 +1349,7 @@ class Agent:
                     )
 
                     # Inject the intervention as a new 'Thought' node (The "Superego" voice)
-                    intervention_id = str(uuid.uuid4())
+                    intervention_id = f"{session_id}:T{self.current_turn}:S{step}:Intervention:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
                     self.db.create_thought_node(
                         intervention_id,
                         intervention_prompt,
@@ -1439,7 +1426,7 @@ class Agent:
                 )
 
                 # Post-execution scratchpad refresh — agent must see latest state
-                context_scratchpad = self._refresh_scratchpad(
+                context_scratchpad = await self._refresh_scratchpad(
                     session_id=session_id,
                     root_session_id=final_root_id,
                     task=prompt,
@@ -1477,40 +1464,7 @@ class Agent:
                         "Failed to generate final embedding (ML/Network error): %s", e
                     )
 
-            # Generate execution summary for scratchpad display using SUMMARY_MODEL
-            # LLM-generated summary provides semantic understanding vs. simple truncation
-            exec_summary = None
-            if output:
-                try:
-                    # Use SUMMARY_MODEL if configured, otherwise fallback to main model
-                    summary_model = (
-                        settings.SUMMARY_MODEL or settings.get_llm_config().get("model")
-                    )
-                    summary_prompt = f"""Summarize this agent step in ONE sentence (max 100 chars):
-ACTION: {code if code else response_text}
-RESULT: {output}
-STATUS: {thought_status}
-
-Summary (describe WHAT was done and KEY outcome):"""
-                    exec_summary = await protected_llm_generate(
-                        summary_prompt,
-                        model=summary_model,
-                        correlation_id=get_correlation_id()
-                        or generate_correlation_id(),
-                    )
-                    exec_summary = exec_summary.strip()[:150]
-
-                    # Mark failure in summary
-                    if thought_status == "failed":
-                        exec_summary = f"[FAILED] {exec_summary}"
-                except (httpx.RequestError, ValueError, TypeError, RuntimeError) as e:
-                    logger.warning(
-                        "Failed to generate step summary (LLM/Data error): %s", e
-                    )
-                    # Fallback to first line of output
-                    exec_summary = output.strip().split("\n")[0][:100]
-                    if thought_status == "failed":
-                        exec_summary = f"[FAILED] {exec_summary}"
+            # Node stores FULL data. Summaries generated at display time in scratchpad_builder.
 
             try:
                 # Active Pruning Logic
@@ -1546,7 +1500,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     repl_id=repl_id,
                     status=thought_status,
                     parent_id=final_parent_id,
-                    execution_summary=exec_summary,
+                    execution_summary=None,
                     result=output if output else None,
                     round_id=current_round_id,
                     turn_id=self.current_turn,
@@ -1605,14 +1559,25 @@ Summary (describe WHAT was done and KEY outcome):"""
             previous_thought_status = thought_status
             self.current_thought_id = thought_id
 
-            # --- CONTINUOUS MORPHOLOGICAL MEMORY ---
-            # Feed every committed thought's embedding back into the grid
-            # so the gestalt evolves with the agent's actual trajectory.
-            if final_vec is not None:
-                try:
-                    self.morph_memory.seed(final_vec)
-                except (ValueError, TypeError, AttributeError) as morph_err:
-                    logger.debug("Morph memory continuous seed skipped: %s", morph_err)
+            # --- THIMAC MEMORY INGESTION ---
+            # Feed the committed thought into Thimac for Existence/Subsistence tracking
+            try:
+                thimac_thought_data = {
+                    "id": thought_id,
+                    "prompt": full_content,
+                    "status": thought_status,
+                    "result": output if output else None,
+                    "created_at": int(
+                        datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
+                    ),
+                    "turn_id": self.current_turn,
+                    "step_id": step,
+                    "repl_id": repl_id,
+                    "execution_summary": None,  # Thimac extracts summary from prompt/result
+                }
+                self.morph_memory.ingest_thought(thimac_thought_data)
+            except Exception as e:
+                logger.error("Thimac ingestion failed: %s", e)
 
             # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
             # If the Sheaf detected fragmented reasoning (h0_rank > 1),
@@ -1661,7 +1626,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                 )
 
                 self.db.create_thought_node(
-                    str(uuid.uuid4()),
+                    f"{session_id}:T{self.current_turn}:S{step}:Synthesis",
                     synthesis_prompt,
                     session_id=session_id,
                     root_session_id=final_root_id,
@@ -1699,7 +1664,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     "and provide a final synthesis that accounts for the output below."
                 )
                 self.db.create_thought_node(
-                    str(uuid.uuid4()),
+                    f"{session_id}:T{self.current_turn}:S{step}:ForcedSynthesis",
                     synthesis_prompt,
                     session_id=session_id,
                     root_session_id=final_root_id,
@@ -1749,7 +1714,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     # EMIT to UI so the user sees this correction
                     self.emit_event("warning", content=critique)
                     self.db.create_thought_node(
-                        str(uuid.uuid4()),
+                        f"{session_id}:T{self.current_turn}:S{step}:Reflexion",
                         critique,
                         session_id=session_id,
                         root_session_id=final_root_id,
@@ -1803,7 +1768,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                         # Re-generate scratchpad for Dreamer context if needed
                         # Or use the last known context. The prompt variable might contain it,
                         # but scratchpad_content is cleaner
-                        scratchpad_content = self._refresh_scratchpad(
+                        scratchpad_content = await self._refresh_scratchpad(
                             session_id=session_id,
                             root_session_id=final_root_id,
                             task=prompt,
@@ -1972,7 +1937,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                                     "2. Breaking the task into smaller steps.\n"
                                     "3. Asking clarifying questions if requirements are unclear."
                                 )
-                                escalation_id = str(uuid.uuid4())
+                                escalation_id = f"{session_id}:T{self.current_turn}:S{step}:Escalation:{dreamer_retry_count}"
                                 self.db.create_thought_node(
                                     escalation_id,
                                     escalation_msg,
@@ -2013,7 +1978,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                         )
 
                         self.db.create_thought_node(
-                            str(uuid.uuid4()),
+                            f"{session_id}:T{self.current_turn}:S{step}:Final",
                             final_response_candidate,  # Store the RICH response as content
                             session_id=session_id,
                             root_session_id=final_root_id,
@@ -2070,7 +2035,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                     )
 
                 # Create a specific 'Reflexion' node
-                reflexion_id = str(uuid.uuid4())
+                reflexion_id = f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
                 self.db.create_thought_node(
                     reflexion_id,
                     reflexion_content,
@@ -2106,7 +2071,9 @@ Summary (describe WHAT was done and KEY outcome):"""
                     )
 
                     # Instead of breaking, we retry one more time with a reflexion
-                    reflexion_id = str(uuid.uuid4())
+                    reflexion_id = (
+                        f"{session_id}:T{self.current_turn}:S{step}:IntelliSynth"
+                    )
                     self.db.create_thought_node(
                         reflexion_id,
                         f"SYSTEM CRITIQUE: My final response was rejected by axiom validation.\nCritique: {axiom_critique}\nI MUST rewrite the final answer to address this.",
@@ -2148,7 +2115,8 @@ Summary (describe WHAT was done and KEY outcome):"""
                 self.emit_event("RLM_INITIAL_RESPONSE", content=self.final_result)
 
             # 2. Fresh scratchpad rebuild for validation — Dreamer needs current state
-            context_scratchpad = self._refresh_scratchpad(
+            # 2. Fresh scratchpad rebuild for validation — Dreamer needs current state
+            context_scratchpad = await self._refresh_scratchpad(
                 session_id=session_id,
                 root_session_id=final_root_id,
                 task=prompt,
@@ -2220,7 +2188,7 @@ Summary (describe WHAT was done and KEY outcome):"""
                         )
 
                         # Log Wake Node (scoped to this turn)
-                        wake_id = str(uuid.uuid4())
+                        wake_id = f"{session_id}:T{self.current_turn}:S{step}:Wake:{self._validation_retries}"
                         self.db.create_thought_node(
                             wake_id,
                             f"SYSTEM WAKE (retry {self._validation_retries}): {instruction}",
@@ -2289,7 +2257,8 @@ Summary (describe WHAT was done and KEY outcome):"""
         if self.final_result:
             try:
                 # Reconstruct full scratchpad for archive
-                final_scratchpad = self._refresh_scratchpad(
+                # Reconstruct full scratchpad for archive
+                final_scratchpad = await self._refresh_scratchpad(
                     session_id=session_id,
                     root_session_id=final_root_id,
                     task=prompt,
