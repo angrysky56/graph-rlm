@@ -10,6 +10,8 @@ from .db import db
 from .logger import get_logger
 from .navigator_config import (
     COMPRESSION_WINDOW,
+    EDGE_OF_CHAOS_LAMBDA_MAX,
+    EDGE_OF_CHAOS_LAMBDA_MIN,
     LZMA_PRESET,
 )
 
@@ -151,12 +153,22 @@ class Navigator:
             s_tau = await self.estimate_future_entropy(cand)
 
             # 3. Langton's Lambda Filter (Edge of Chaos)
-            # We favor actions that are neither too ordered (r_t ~ 0) nor too random
-            # This is implicitly handled by R(t) peaking at learnable complexity
+            # Class 4 behavior: where the system is most learnable and interesting.
+            # We use the compression ratio as a proxy for lambda complexity.
+            is_class_4 = (
+                EDGE_OF_CHAOS_LAMBDA_MIN
+                <= self._last_compression_ratio
+                <= EDGE_OF_CHAOS_LAMBDA_MAX
+            )
+            lambda_multiplier = 1.2 if is_class_4 else 0.8
+
+            # 4. Causal Entropic Force (F = T * grad(S_tau))
+            # Normalized implementation: Force is the potential for future freedom.
+            force = s_tau * lambda_multiplier
 
             # Total Curiosity Score
             # Weight compression progress higher as it indicates "understanding"
-            score = (r_t * 0.7) + (s_tau * 0.3)
+            score = (r_t * 0.6) + (force * 0.4)
 
             details = {
                 "content": cand,

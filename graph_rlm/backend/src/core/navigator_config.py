@@ -4,7 +4,7 @@ Hyperparameters for curiosity-driven exploration and topological analysis.
 """
 
 # Compression Progress (R(t))
-COMPRESSION_WINDOW = 50  # Number of steps to measure C(D, t)
+COMPRESSION_WINDOW = 100  # Number of steps to measure C(D, t)
 LZMA_PRESET = 6  # Compression level (0-9)
 
 # Causal Entropic Forces (S_tau)
@@ -17,8 +17,8 @@ BOREDOM_THRESHOLD = 0.1  # Score below which the agent should switch strategies
 
 # Langton's Lambda (Edge of Chaos)
 # Class 4 behavior typically found around lambda ~ 0.4 - 0.6
-EDGE_OF_CHAOS_LAMBDA_MIN = 0.35
-EDGE_OF_CHAOS_LAMBDA_MAX = 0.65
+EDGE_OF_CHAOS_LAMBDA_MIN = 0.38
+EDGE_OF_CHAOS_LAMBDA_MAX = 0.62
 
 # Recursion Safety
-MAX_CURIOSITY_DEPTH = 50  # Prevent infinite curiosity loops
+MAX_CURIOSITY_DEPTH = 10  # Prevent infinite curiosity loops

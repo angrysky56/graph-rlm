@@ -41,6 +41,7 @@ class ScratchpadBuilder:
         max_steps: int = 1000,
         current_round_id: str = "",
         morph_gestalt: Optional[str] = None,
+        current_repl_id: Optional[str] = None,
     ) -> str:
         """
         Build a complete scratchpad for the agent.
@@ -65,6 +66,7 @@ class ScratchpadBuilder:
         lines.append(
             f"- **Round**: {current_round_num} | **Step**: {current_step}/{max_steps}"
         )
+        lines.append(f"- **Active REPL**: `{current_repl_id or 'None'}`")
         lines.append("")
 
         # === Thimac Memory Gestalt (Primary Anchor) ===
@@ -510,16 +512,23 @@ Summary:"""
 
             lines = []
             if active_res:
-                lines.append("### 🔴 Active Failure Knots")
+                lines.append("### 🏛️ Structural Skeleton (Knot Audit)")
                 for row in active_res:
                     if isinstance(row, dict):
                         rid = row.get("n.id") or row.get("id")
                         prompt = row.get("n.prompt") or row.get("prompt")
+                        status = row.get("status") or "failed"
                     else:
                         rid = row[0]
                         prompt = row[1]
+                        status = "failed"
 
-                    lines.append(f"- `recall('{rid}')`: {(prompt or '')[:60]}...")
+                    # Heuristic for triplet extraction representation
+                    rid_display = rid[:8] if rid else "unknown"
+                    prompt_display = prompt[:100] if prompt else "(empty)"
+                    lines.append(
+                        f"- **{status.upper()}** [{rid_display}]: {prompt_display}..."
+                    )
 
             return "\n".join(lines)
         except (AttributeError, RuntimeError, ValueError):

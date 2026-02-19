@@ -61,6 +61,30 @@ class OmcdController:
     def __init__(self, params: Optional[OmcdParams] = None):
         self.params = params or OmcdParams()
         self._history: list[dict] = []
+        self._last_bernshteyn_score: float = 0.0
+
+    def calculate_bernshteyn_penalty(self, depth: int, precision: float) -> float:
+        """
+        Calculates the Bernshteyn Penalty (Rulial Singularity detector).
+        Based on the bound: p(d+1)^8 <= 2^-15.
+
+        If the bound is violated, the cost of deliberation increases exponentially.
+        """
+        # p = precision (0..1), d = depth
+        # We check if p * (d + 1)^8 > 2^-15
+        threshold = 2**-15
+        val = precision * ((depth + 1) ** 8)
+
+        self._last_bernshteyn_score = val
+
+        if val > threshold:
+            # Singularity detected: increase cost multiplier
+            # We use a log scale penalty to avoid immediate explosion but enforce limit
+            import math
+
+            penalty = 1.0 + math.log(val / threshold)
+            return max(1.0, penalty)
+        return 1.0
 
     def calculate_cost(self, z: float) -> float:
         """
@@ -99,12 +123,17 @@ class OmcdController:
                 "threshold": float,
                 "cost": float,
                 "benefit": float,
-                "confidence": float
+                "confidence": float,
+                "bernshteyn_penalty": float
             }
         """
-        # Calculate components first to ensure consistency
-        # Cost is a function of TOTAL effort (steps * intensity)
-        cost = self.calculate_cost(step * self.params.kappa)
+        # 1. Calculate Bernshteyn Penalty (Cost of Rulial Noise)
+        # We use 'step' as depth and '1-confidence' as a noise proxy (p)
+        penalty = self.calculate_bernshteyn_penalty(step, 1.0 - confidence)
+
+        # 2. Calculate components
+        # Cost is scaled by the Bernshteyn penalty
+        cost = self.calculate_cost(step * self.params.kappa) * penalty
         benefit = self.calculate_benefit(confidence)
 
         # Q_stop = Benefit - Cost
@@ -118,6 +147,7 @@ class OmcdController:
             "benefit": benefit,
             "confidence": confidence,
             "step": step,
+            "bernshteyn_penalty": penalty,
         }
 
         # Record for calibration

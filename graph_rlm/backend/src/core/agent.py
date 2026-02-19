@@ -183,6 +183,8 @@ class Agent:
         self._validation_retries: int = 0  # Counter for validation attempt loops
         self.stop_requested: bool = False
         self.final_result: Optional[str] = None
+        self.last_rejected_result: Optional[str] = None
+        self._final_output_emitted: bool = False
         self.synthesis_triggered: bool = False
         self.awaiting_validation: bool = False  # Set by rlm.done() for Dreamer pipeline
         self.step_id: int = 0
@@ -530,6 +532,7 @@ class Agent:
         always see the latest session context (turns, steps, REPL IDs).
         """
         try:
+            current_repl_id = self.active_repls.get(session_id)
             pad = await scratchpad_builder.build_scratchpad(
                 session_id=session_id,
                 root_session_id=root_session_id,
@@ -538,6 +541,7 @@ class Agent:
                 max_steps=max_steps,
                 current_round_id=current_round_id,
                 morph_gestalt=morph_gestalt,
+                current_repl_id=current_repl_id,
             )
             self.emit_event("scratchpad_text", content=pad, is_internal=True)
             return pad
@@ -694,6 +698,7 @@ class Agent:
         self.stop_requested = False
         self.global_stop_event.clear()  # Reset global flag
         self.final_result = None
+        self.last_rejected_result = None
 
         def run_logic():
             # Set the context vars for this thread
@@ -742,6 +747,22 @@ class Agent:
                 )
                 q.put({"type": "error", "content": f"Unexpected error: {e}"})
             finally:
+                # [SAFETY NET] Ensure RLM_FINAL_OUTPUT is always emitted if we have a result
+                # preventing pipeline hangs if the loop breaks early or Dreamer logic gets stuck.
+                if not getattr(self, "_final_output_emitted", False):
+                    if self.final_result:
+                        q.put(
+                            {"type": "RLM_FINAL_OUTPUT", "content": self.final_result}
+                        )
+                    elif getattr(self, "last_rejected_result", None):
+                        # Fallback to rejected result with a warning
+                        q.put(
+                            {
+                                "type": "RLM_FINAL_OUTPUT",
+                                "content": f"[WARNING: DREAMER REJECTED]\n{self.last_rejected_result}\n\n(System Note: This result was rejected by the Dreamer but is provided as the best available draft.)",
+                            }
+                        )
+
                 q.put(None)  # Signal done
                 execution_events.reset(q_token)
                 agent_state.reset(state_token)
@@ -1343,6 +1364,13 @@ class Agent:
             # before execution. We will update it later if execution adds significant output.
             # 7. PRE-COMMIT (Atomic Traceability)
             # Create the node as "running" before any monitors/execution
+            thimac_state = (
+                self.morph_memory.get_gestalt_string() if self.morph_memory else None
+            )
+            reflexion_analysis = (
+                None  # Placeholder for active reflexion state if needed
+            )
+
             try:
                 self.db.create_thought_node(
                     thought_id,
@@ -1356,6 +1384,8 @@ class Agent:
                     round_id=current_round_id,
                     turn_id=self.current_turn,
                     step_id=step,
+                    thimac_state=thimac_state,
+                    reflexion_analysis=reflexion_analysis,
                 )
                 # Emit early graph update
                 self.emit_event(
@@ -1991,6 +2021,7 @@ class Agent:
                             tag="DREAMER",
                         )
                         self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
+                        self._final_output_emitted = True
 
                         val_id = f"{session_id}:T{self.current_turn}:S{step}:VALIDATED"
                         self.db.create_thought_node(
@@ -2009,6 +2040,7 @@ class Agent:
                         self.eval_success_count += 1
                         break  # THE ONLY SUCCESSFUL EXIT
                     else:
+                        self.last_rejected_result = self.final_result
                         self.final_result = None
                         instruction = validation.get(
                             "instruction", "Review validation failure."
@@ -2055,6 +2087,7 @@ class Agent:
                 ) as e:
                     logger.error("Dreamer check failed: %s", e, exc_info=True)
                     self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
+                    self._final_output_emitted = True
                     break
 
             # 2. Sheaf-based Stall/Loop Detection (Self-Healing)

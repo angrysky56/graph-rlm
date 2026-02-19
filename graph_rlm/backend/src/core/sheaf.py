@@ -138,7 +138,12 @@ class SheafMonitor:
 
             # 3. Spectral Analysis
             # Fiedler value (2nd smallest eigenvalue) implies connectivity
-            vals = np.linalg.eigvalsh(laplacian)
+            # We cast to float64 to satisfy the linter's numeric overload requirements
+            if laplacian.size == 0:
+                vals = np.array([0.0])
+            else:
+                vals = np.linalg.eigvalsh(laplacian.astype(np.float64))  # type: ignore
+
             vals.sort()
 
             spectral_gap = vals[1] if len(vals) > 1 else 0.0
@@ -351,10 +356,81 @@ class SheafMonitor:
             structured_res.status = status
 
             return structured_res.model_dump()
-
         except (RuntimeError, ValueError, AttributeError, httpx.RequestError) as e:
             logger.warning("Spectral diagnosis/synthesis failed: %s", e)
             return {"status": "error", "error": str(e)}
+
+    def calculate_h1_obstruction(self, thought_path: List[Dict[str, Any]]) -> float:
+        """
+        Calculates the H1 Cohomology Obstruction (Logical Knot Strength).
+        Measures Cycle Inconsistency in (Prompt -> Code -> Result) chain.
+
+        Returns:
+            A score 0.0 - 1.0 (Higher = more obstructed/contradictory).
+        """
+        if len(thought_path) < 2:
+            return 0.0
+
+        inconsistency_sum = 0.0
+        checks = 0
+
+        # Cycle Inconsistency (Sequential H1 Obstruction)
+        for i in range(1, len(thought_path)):
+            current = thought_path[i]
+            prev = thought_path[i - 1]
+
+            curr_prompt = (current.get("prompt") or "").lower()
+            curr_result = (current.get("result") or "").lower()
+            prev_result = (prev.get("result") or "").lower()
+            prev_status = prev.get("status")
+
+            # A. Error Ignorance (The "Insanity" Loop)
+            # Previous step failed, but current step doesn't mention "fix", "debug", "try", "retry"
+            if prev_status in ["failed", "error"] or "error" in prev_result:
+                is_fixing = any(
+                    w in curr_prompt
+                    for w in ["fix", "debug", "retry", "try", "approach", "correct"]
+                )
+                if not is_fixing:
+                    # Repeating same mistake or ignoring error
+                    inconsistency_sum += 0.5
+                    checks += 1
+
+            # B. Semantic Non-Sequitur (Embedding Discontinuity)
+            if current.get("embedding") and prev.get("embedding"):
+                sim = self._calculate_cosine_similarity(
+                    current["embedding"], prev["embedding"]
+                )
+                # Extremely low similarity implies a disjoint jump in reasoning.
+                # We add a small obstruction penalty if the jump is too abrupt.
+                if sim < 0.2:
+                    inconsistency_sum += 0.3
+                    checks += 1
+
+            # C. Verification Obstruction (Node-Local)
+            success_triggers = ["fix", "solve", "implement", "create", "generate"]
+            error_triggers = ["traceback", "not found", "importerror", "syntaxerror"]
+
+            claims_action = any(t in curr_prompt for t in success_triggers)
+            bears_error = any(t in curr_result for t in error_triggers)
+
+            if claims_action and bears_error and current.get("status") != "failed":
+                inconsistency_sum += 0.8
+                checks += 1
+
+        return min(1.0, inconsistency_sum / max(checks, 1)) if checks > 0 else 0.0
+
+    def _calculate_cosine_similarity(
+        self, vec1: List[float], vec2: List[float]
+    ) -> float:
+        """Helper for cosine similarity."""
+        v1 = np.array(vec1)
+        v2 = np.array(vec2)
+        norm1 = np.linalg.norm(v1)
+        norm2 = np.linalg.norm(v2)
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+        return float(np.dot(v1, v2) / (norm1 * norm2))
 
     def diagnose_trace(
         self,
@@ -569,6 +645,28 @@ class SheafMonitor:
                     f"(Gradient {gradient:.2f}). Re-read the task."
                 ),
                 "should_halt": False,  # Changed to False to allow Self-Healing
+            }
+
+        # Trigger H1 Obstruction Check
+        h1_obstruction = self.calculate_h1_obstruction(history_nodes)
+        if h1_obstruction > 0.5:
+            trace_action(
+                "SHEAF",
+                "COHOMOLOGY_OBSTRUCTION",
+                result=f"H1 Rank: {h1_obstruction:.2f}. Logical contradiction detected.",
+                tag="SHEAF",
+            )
+            return {
+                "status": "COHOMOLOGY_OBSTRUCTION",
+                "energy": h1_obstruction,
+                "consistency_energy": h1_obstruction,
+                "confidence": 1.0 - h1_obstruction,
+                "critique": (
+                    f"Structural Paradox (H1={h1_obstruction:.2f}): Your current line of "
+                    "reasoning contains a self-contradiction. You are bearinig an error "
+                    "while claiming success. Resolve the contradiction."
+                ),
+                "should_halt": False,
             }
 
         return {

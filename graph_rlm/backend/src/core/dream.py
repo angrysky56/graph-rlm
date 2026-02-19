@@ -42,7 +42,9 @@ class Dreamer:
     def __init__(self):
         self.db: GraphClient = db
         self.llm = llm
+        self.llm = llm
         self._is_codifying = False  # Recursion guard for axiom generation
+        self._is_dreaming = False  # Main dream cycle lock
 
     def _get_session_trace(
         self,
@@ -192,6 +194,51 @@ class Dreamer:
             )
 
     async def dream_cycle(
+        self,
+        emit_callback=None,
+        session_id: Optional[str] = None,
+        final_response_candidate: Optional[str] = None,
+        context: Optional[str] = None,
+        turn_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """
+        Public wrapper for Dream Cycle with strict locking to prevent overlapping execution.
+        """
+
+        def emit(event_type, content, is_internal=False):
+            if emit_callback:
+                emit_callback(event_type, content=content, is_internal=is_internal)
+
+        if self._is_dreaming:
+            logger.warning("🛑 [Dreamer] Dream cycle already in progress. Skipping.")
+            emit(
+                "debug",
+                "[Dreamer] Dream cycle skipped (already running).",
+                is_internal=True,
+            )
+            return {
+                "status": "skipped",
+                "message": "Dream cycle in progress",
+                "insights": [],
+                "events_processed": 0,
+                "insight": "",
+                "id": None,
+            }
+
+        self._is_dreaming = True
+        try:
+            return await self._dream_cycle_impl(
+                emit_callback, session_id, final_response_candidate, context, turn_id
+            )
+        except Exception as e:
+            logger.error(
+                "Unexpected error in Dream Cycle Wrapper: %s", e, exc_info=True
+            )
+            return {"status": "error", "message": f"Wrapper Error: {str(e)}"}
+        finally:
+            self._is_dreaming = False
+
+    async def _dream_cycle_impl(
         self,
         emit_callback=None,
         session_id: Optional[str] = None,
@@ -642,6 +689,12 @@ class Dreamer:
             TypeError,
         ) as e:  # pylint: disable=broad-except
             logger.warning("oMCD calibration skipped: %s", e)
+
+        except Exception as e:
+            logger.error("Unexpected error in Dream Cycle: %s", e, exc_info=True)
+            return {"status": "error", "message": str(e)}
+        finally:
+            self._is_dreaming = False
 
         return {
             "status": locals().get("status_override", "lucid"),

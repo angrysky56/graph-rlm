@@ -64,30 +64,19 @@ class SkillsManager:
 
             # Case A: Python File (Standard Skill)
             if item.is_file() and item.suffix == ".py":
-                name = item.stem
-                if name in seen_names:
-                    logger.warning(
-                        "Naming collision: Python skill '%s' already seen as folder. Prioritizing file.",
-                        name,
-                    )
-                if await self._sync_python_skill(item):
+                synced_name = await self._sync_python_skill(item)
+                if synced_name:
                     count += 1
-                seen_names.add(name)
+                    seen_names.add(synced_name)
 
             # Case B: Folder-Based Skill (Instructional/Complex)
             elif item.is_dir():
                 skill_md = item / "SKILL.md"
                 if skill_md.exists():
-                    name = item.name
-                    if name in seen_names:
-                        logger.warning(
-                            "Naming collision: Folder skill '%s' already seen as file. Skipping folder.",
-                            name,
-                        )
-                        continue
-                    if await self._sync_instructional_skill(item, skill_md):
+                    synced_name = await self._sync_instructional_skill(item, skill_md)
+                    if synced_name:
                         count += 1
-                    seen_names.add(name)
+                        seen_names.add(synced_name)
 
         # 2. Cleanup Stale Skills
         all_skills = self.list_skills()
@@ -103,7 +92,7 @@ class SkillsManager:
             total,
         )
 
-    async def _sync_python_skill(self, file_path: Path) -> bool:
+    async def _sync_python_skill(self, file_path: Path) -> str | None:
         try:
             code = file_path.read_text(encoding="utf-8")
             name = file_path.stem
@@ -117,7 +106,7 @@ class SkillsManager:
                     {"name": name},
                 )
                 if res and res[0].get("has_vec"):
-                    return False  # Skip redundant work
+                    return name  # Skip redundant work but return name
 
             # Parse with stricter warning checks
             with warnings.catch_warnings(record=True):
@@ -136,7 +125,7 @@ class SkillsManager:
                 logger.warning(
                     "Skipping %s: No function definition found.", file_path.name
                 )
-                return False
+                return None
 
             name = file_path.stem
             function_name = func_def.name
@@ -200,12 +189,14 @@ class SkillsManager:
                     "vec": vec,
                 },
             )
-            return True
+            return name
         except Exception as e:  # pylint: disable=broad-except
             logger.error("Failed to sync python skill %s: %s", file_path.name, e)
-            return False
+            return None
 
-    async def _sync_instructional_skill(self, dir_path: Path, md_path: Path) -> bool:
+    async def _sync_instructional_skill(
+        self, dir_path: Path, md_path: Path
+    ) -> str | None:
         try:
             content = md_path.read_text(encoding="utf-8")
             name = dir_path.name
@@ -217,7 +208,7 @@ class SkillsManager:
                 and existing.get("code") == content
                 and existing.get("type") == "instructional"
             ):
-                return False
+                return name
 
             # Simple Frontmatter Parser
             # We look for leading --- ... ---
@@ -263,10 +254,10 @@ class SkillsManager:
                     "tags": tags,
                 },
             )
-            return True
+            return name
         except Exception as e:  # pylint: disable=broad-except
             logger.error("Failed to sync instructional skill %s: %s", dir_path.name, e)
-            return False
+            return None
 
     async def install_skill(self, source: str) -> str:
         """

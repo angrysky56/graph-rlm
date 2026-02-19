@@ -7,6 +7,7 @@ import threading
 import time
 
 from .logger import get_logger
+from .omcd import omcd
 from .sheaf import SheafMonitor
 
 logger = get_logger("graph_rlm.monitor")
@@ -55,10 +56,25 @@ class BackgroundMonitor:
             try:
                 energies = self.monitor.scan_and_log()
                 if energies:
-                    logger.info(
-                        "Monitor Scan Complete using Sheaf Theory. Energy Profile: %s",
-                        energies,
-                    )
+                    # energies is a list of dicts with surprise_score
+                    if isinstance(energies, list) and len(energies) > 0:
+                        # Calculate average surprise for calibration
+                        avg_surprise = sum(
+                            e.get("surprise_score", 0.5) for e in energies
+                        ) / len(energies)
+
+                        # Calibrate oMCD parameters based on topological energy
+                        # We use a placeholder 0.2 improvement rate until we have
+                        # turn-over-turn delta logic.
+                        omcd.calibrate_from_session(
+                            session_surprise_avg=avg_surprise,
+                            session_improvement_rate=0.2,
+                        )
+
+                        logger.info(
+                            "Monitor: Topological Calibration Complete. Avg Surprise: %.2f",
+                            avg_surprise,
+                        )
             except (RuntimeError, AttributeError, ValueError) as e:
                 logger.error("Monitor Loop Error: %s", e)
 

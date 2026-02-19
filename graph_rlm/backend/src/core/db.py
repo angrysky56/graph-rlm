@@ -80,6 +80,8 @@ class GraphClient:
         result: Optional[str] = None,
         next_action: Optional[str] = None,
         dreamer_analysis: Optional[str] = None,
+        thimac_state: Optional[str] = None,
+        reflexion_analysis: Optional[str] = None,
         final_response: Optional[str] = None,
         round_id: Optional[str] = None,
         turn_id: Optional[int] = None,
@@ -212,6 +214,14 @@ class GraphClient:
         if dreamer_analysis:
             params["dreamer_analysis"] = dreamer_analysis
             cypher += ", t.dreamer_analysis = $dreamer_analysis"
+
+        if thimac_state:
+            params["thimac_state"] = thimac_state
+            cypher += ", t.thimac_state = $thimac_state"
+
+        if reflexion_analysis:
+            params["reflexion_analysis"] = reflexion_analysis
+            cypher += ", t.reflexion_analysis = $reflexion_analysis"
 
         if final_response:
             params["final_response"] = final_response
