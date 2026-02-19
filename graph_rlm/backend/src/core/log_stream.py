@@ -3,7 +3,6 @@ Log streaming infrastructure for real-time terminal output to frontend.
 Captures all backend logs and streams them via WebSocket.
 """
 
-import asyncio
 import logging
 from collections import deque
 from typing import Callable
@@ -19,7 +18,6 @@ class LogBuffer:
     def __init__(self, max_history: int = 500):
         self.buffer: deque = deque(maxlen=max_history)
         self.subscribers: WeakSet = WeakSet()
-        self._lock = asyncio.Lock()
 
     def add_log(self, message: str):
         """Add a log message to the buffer and notify subscribers."""
@@ -30,7 +28,9 @@ class LogBuffer:
                 callback(message)
             except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
                 # Subscriber failed - log but don't crash the buffer
-                logging.getLogger(__name__).debug("Subscriber callback failed: %s", e)
+                logging.getLogger(__name__).error(
+                    "Subscriber callback failed (Receiver error): %s", e, exc_info=True
+                )
 
     def get_history(self) -> list:
         """Get buffered log history."""

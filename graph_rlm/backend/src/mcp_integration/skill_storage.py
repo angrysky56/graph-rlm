@@ -17,6 +17,7 @@ import ast
 import re
 import shutil
 import subprocess
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -51,35 +52,78 @@ class SkillsManager:
         """
         Sync skills from disk to database.
         Scans *.py files AND directories with SKILL.md.
+        Removes any skills from DB that no longer exist on disk.
         """
         count = 0
+        seen_names = set()
 
         # 1. Scan for Python Skills (*.py)
-        # We iterate everything in the root
         for item in self.skills_dir.iterdir():
             if item.name == "__init__.py" or item.name.startswith("__"):
                 continue
 
             # Case A: Python File (Standard Skill)
             if item.is_file() and item.suffix == ".py":
+                name = item.stem
+                if name in seen_names:
+                    logger.warning(
+                        "Naming collision: Python skill '%s' already seen as folder. Prioritizing file.",
+                        name,
+                    )
                 if await self._sync_python_skill(item):
                     count += 1
+                seen_names.add(name)
 
             # Case B: Folder-Based Skill (Instructional/Complex)
             elif item.is_dir():
                 skill_md = item / "SKILL.md"
                 if skill_md.exists():
+                    name = item.name
+                    if name in seen_names:
+                        logger.warning(
+                            "Naming collision: Folder skill '%s' already seen as file. Skipping folder.",
+                            name,
+                        )
+                        continue
                     if await self._sync_instructional_skill(item, skill_md):
                         count += 1
+                    seen_names.add(name)
 
-        if count > 0:
-            logger.info("Synced %d skills from disk to FalkorDB.", count)
+        # 2. Cleanup Stale Skills
+        all_skills = self.list_skills()
+        for name in list(all_skills.keys()):
+            if name not in seen_names:
+                logger.info("🗑️ Removing stale skill from DB: %s", name)
+                self.db.query("MATCH (s:Skill {name: $name}) DELETE s", {"name": name})
+
+        total = len(self.list_skills())
+        logger.info(
+            "Sync complete: %d items updated. Database now contains %d skills.",
+            count,
+            total,
+        )
 
     async def _sync_python_skill(self, file_path: Path) -> bool:
         try:
             code = file_path.read_text(encoding="utf-8")
-            # Parse
-            tree = ast.parse(code)
+            name = file_path.stem
+
+            # Optimization: Check if content changed before parsing/embedding
+            existing = self.get_skill(name)
+            if existing and existing.get("code") == code:
+                # Still check if embedding exists
+                res = self.db.query(
+                    "MATCH (s:Skill {name: $name}) RETURN s.embedding IS NOT NULL as has_vec",
+                    {"name": name},
+                )
+                if res and res[0].get("has_vec"):
+                    return False  # Skip redundant work
+
+            # Parse with stricter warning checks
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("error", SyntaxWarning)
+                tree = ast.parse(code)
+
             func_def = next(
                 (
                     node
@@ -89,6 +133,9 @@ class SkillsManager:
                 None,
             )
             if not func_def:
+                logger.warning(
+                    "Skipping %s: No function definition found.", file_path.name
+                )
                 return False
 
             name = file_path.stem
@@ -161,6 +208,16 @@ class SkillsManager:
     async def _sync_instructional_skill(self, dir_path: Path, md_path: Path) -> bool:
         try:
             content = md_path.read_text(encoding="utf-8")
+            name = dir_path.name
+
+            # Optimization
+            existing = self.get_skill(name)
+            if (
+                existing
+                and existing.get("code") == content
+                and existing.get("type") == "instructional"
+            ):
+                return False
 
             # Simple Frontmatter Parser
             # We look for leading --- ... ---
@@ -315,7 +372,12 @@ class SkillsManager:
         # Sanitize and limit name length for OS compatibility
         name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
         try:
-            tree = ast.parse(code)
+            # 1. Parse with strict warning handling
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("error", SyntaxWarning)
+                tree = ast.parse(code)
+
+            # 2. Ensure function definition exists
             func_def = next(
                 (
                     node
@@ -327,8 +389,9 @@ class SkillsManager:
             if func_def is None:
                 raise ValueError("Code must contain a function definition")
             function_name = func_def.name
-        except SyntaxError as e:
-            raise ValueError(f"Invalid Python syntax: {e}") from e
+
+        except (SyntaxError, SyntaxWarning) as e:
+            raise ValueError(f"Invalid Python syntax or warning: {e}") from e
 
         # Generate embedding
         try:
@@ -621,18 +684,45 @@ class AxiomsManager:
     async def sync_from_disk(self) -> None:
         """Sync axiom files from disk to database with :Axiom label."""
         count = 0
+        seen_names = set()
         for item in self.axioms_dir.iterdir():
             if item.name == "__init__.py" or item.name.startswith("__"):
                 continue
             if item.is_file() and item.suffix == ".py":
                 if await self._sync_axiom(item):
                     count += 1
-        if count > 0:
-            logger.info("Synced %d axioms from disk to FalkorDB.", count)
+                seen_names.add(item.stem)
+
+        # Cleanup Stale Axioms
+        all_axioms = self.list_axioms()
+        for name in list(all_axioms.keys()):
+            if name not in seen_names:
+                logger.info("🗑️ Removing stale axiom from DB: %s", name)
+                self.db.query("MATCH (a:Axiom {name: $name}) DELETE a", {"name": name})
+
+        total = len(self.list_axioms())
+        logger.info(
+            "Sync complete: %d items updated. Database now contains %d axioms.",
+            count,
+            total,
+        )
 
     async def _sync_axiom(self, file_path: Path) -> bool:
         try:
             code = file_path.read_text(encoding="utf-8")
+            name = file_path.stem
+
+            # Optimization: Check if content changed
+            existing = self.get_axiom(name)
+            if existing and existing.get("code") == code:
+                # Still check if embedding exists
+                res = self.db.query(
+                    "MATCH (a:Axiom {name: $name}) RETURN a.embedding IS NOT NULL as has_vec",
+                    {"name": name},
+                )
+                if res and res[0].get("has_vec"):
+                    return False
+
             if "\x00" in code:
                 logger.warning(
                     "Skipping axiom %s: Contains null bytes (DB incompatible).",
@@ -664,6 +754,14 @@ class AxiomsManager:
             elif "math" in name.lower() or "logic" in name.lower():
                 tags.append("math")
 
+            # Extract tags from docstring (function and module level)
+            module_doc = ast.get_docstring(tree) or ""
+            if (
+                "Tags: system_utility" in description
+                or "Tags: system_utility" in module_doc
+            ):
+                tags.append("system_utility")
+
             # Extract axiom_type from docstring
             # Heuristic: "Axiom Type: solver" or "Type: advisor"
             axiom_type = "validator"
@@ -672,6 +770,14 @@ class AxiomsManager:
             )
             if type_match:
                 axiom_type = type_match.group(1).lower()
+
+            # Generate embedding for semantic search
+            text_to_embed = f"{name}: {description}" if description else name
+            try:
+                vec = await llm.get_embedding(text_to_embed)
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning("Failed to generate embedding for axiom %s: %s", name, e)
+                vec = None
 
             # Upsert into Graph with :Axiom label
             cypher = """
@@ -683,6 +789,9 @@ class AxiomsManager:
                 a.axiom_type = $type,
                 a.updated_at = timestamp()
             """
+            if vec:
+                cypher += ", a.embedding = vecf32($vec)"
+
             self.db.query(
                 cypher,
                 {
@@ -692,6 +801,7 @@ class AxiomsManager:
                     "func": function_name,
                     "tags": tags,
                     "type": axiom_type,
+                    "vec": vec,
                 },
             )
             return True
@@ -714,7 +824,12 @@ class AxiomsManager:
         """Save an axiom to the axioms library."""
         name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
         try:
-            tree = ast.parse(code)
+            # 1. Parse with strict warning handling
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("error", SyntaxWarning)
+                tree = ast.parse(code)
+
+            # 2. Ensure function definition exists
             func_def = next(
                 (
                     node
@@ -726,8 +841,9 @@ class AxiomsManager:
             if func_def is None:
                 raise ValueError("Code must contain a function definition")
             function_name = func_def.name
-        except SyntaxError as e:
-            raise ValueError(f"Invalid Python syntax: {e}") from e
+
+        except (SyntaxError, SyntaxWarning) as e:
+            raise ValueError(f"Invalid Python syntax or warning: {e}") from e
 
         # Generate embedding
         try:
@@ -816,6 +932,26 @@ class AxiomsManager:
             return None
 
         return props
+
+    def get_system_axioms(self) -> List[Dict[str, Any]]:
+        """
+        Get all axioms tagged as 'system_utility'.
+        These are the foundational axioms loaded by default.
+        """
+        cypher = "MATCH (a:Axiom) WHERE 'system_utility' IN a.tags RETURN a"
+        results = self.db.query(cypher) or []
+        system_axioms = []
+        for row in results:
+            if not row:
+                continue
+            node = row[0] if isinstance(row, list) else row.get("a")
+            if not node:
+                continue
+            props = node.properties if hasattr(node, "properties") else node
+            if not isinstance(props, dict):
+                continue
+            system_axioms.append(props)
+        return system_axioms
 
     async def find_similar_axioms(
         self, query: str, limit: int = 3

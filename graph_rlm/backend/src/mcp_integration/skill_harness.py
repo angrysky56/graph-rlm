@@ -59,7 +59,7 @@ def verify_skill_importable(skill_name: str, directory: str = "skills") -> bool:
 
     skill_path = skill_dir / f"{skill_name}.py"
     if not skill_path.exists():
-        logger.error(f"Skill file {skill_path} missing.")
+        logger.warning("Skill file %s missing (might be instructional).", skill_path)
         return False
 
     # Ensure directory is in sys.path
@@ -71,8 +71,8 @@ def verify_skill_importable(skill_name: str, directory: str = "skills") -> bool:
         spec = importlib.util.spec_from_file_location(skill_name, str(skill_path))
         if spec and spec.loader:
             return True
-    except Exception as e:
-        logger.error(f"Failed to verify import for {skill_name}: {e}")
+    except (ImportError, AttributeError, ValueError) as e:
+        logger.error("Failed to verify import for %s: %s", skill_name, e)
 
     return False
 
@@ -178,7 +178,8 @@ async def execute_skill_in_venv(skill_name: str, kwargs: dict[str, Any]) -> Any:
 
     env = os.environ.copy()
     # We need repo_root for graph_rlm package and skills package
-    env["PYTHONPATH"] = f"{repo_root}:{env.get('PYTHONPATH', '')}"
+    # skills are in backend/skills, so we need BACKEND_ROOT in path to import 'skills'
+    env["PYTHONPATH"] = f"{repo_root}:{str(BACKEND_ROOT)}:{env.get('PYTHONPATH', '')}"
     # Also ensure unbuffered output
     env["PYTHONUNBUFFERED"] = "1"
 
@@ -287,8 +288,6 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
     manager = get_skills_manager()
     skill = manager.get_skill(skill_name)
 
-    repo_root = BACKEND_ROOT.parent.parent
-
     if skill:
         # DB path - ensure file exists
         # Only call get_import_statement if it's a python skill to verify file on disk
@@ -299,10 +298,13 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         function_name = skill["function_name"]
     else:
         # File fallback path - check new location
-        skill_file = repo_root / "skills" / f"{skill_name}.py"
+        # Use BACKEND_ROOT for skills location
+        skills_root = BACKEND_ROOT / "skills"
+        skill_file = skills_root / f"{skill_name}.py"
+
         if not skill_file.exists():
             # Check for package (OpenCode style)
-            skill_dir = repo_root / "skills" / skill_name
+            skill_dir = skills_root / skill_name
             if skill_dir.exists():
                 # For now, simplistic assumption: if it's a dir, try importing the pkg
                 # If it needs a specific entry point, the metadata should have it.
@@ -321,9 +323,28 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
 
     # Verify importability before attempting import
     # This acts as a programmatic check to ensure RLM can actually see the module
-    if not verify_skill_importable(skill_name, "skills"):
+    # Pass absolute path to verify_skill_importable
+    if not verify_skill_importable(skill_name, str(BACKEND_ROOT / "skills")):
+        # Check if it is an instructional skill (SKILL.md only)
+        # Check if it is an instructional skill (SKILL.md only)
+        # We check the directory for SKILL.md
+        skills_root = BACKEND_ROOT / "skills"
+        skill_dir = skills_root / skill_name
+        skill_md = skill_dir / "SKILL.md"
+
+        if skill_dir.exists() and skill_md.exists():
+            logger.info("Skill '%s' is instructional. Returning content.", skill_name)
+            try:
+                content = skill_md.read_text(encoding="utf-8")
+                return f"Instructional Skill ({skill_name}):\n\n{content}"
+            except (OSError, UnicodeDecodeError) as e:
+                raise RuntimeError(
+                    f"Failed to read instructional skill {skill_name}: {e}"
+                ) from e
+
         logger.warning(
-            f"Skill '{skill_name}' verification failed. Attempting import anyway as fallback."
+            "Skill '%s' verification failed. Attempting import anyway as fallback.",
+            skill_name,
         )
 
     # Import the module

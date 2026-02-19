@@ -104,6 +104,11 @@ class IntelliSynth:
         trace_context: str,
         current_thought: str,
         divergence_point: str,
+        db: Any = None,
+        session_id: str = "unknown",
+        root_session_id: str = "unknown",
+        turn_id: int = 1,
+        step_id: int = 1,
     ) -> str:
         """
         Executes the IntelliSynth Advancement Cycle to break a logical knot.
@@ -120,8 +125,54 @@ class IntelliSynth:
         # 1. Truth (AP1 / Truth(T))
         truth_val, facts = await self._evaluate_truth(trace_context)
 
+        # PERSISTENCE: Materialize Truth Analysis
+        if db:
+            try:
+                db.create_thought_node(
+                    thought_id=f"{session_id}:REF:TRUTH:{step_id}",
+                    prompt="IntelliSynth Truth: Objective fact extraction.",
+                    result=f"### Truth (AP1)\n{facts}",
+                    status="reflexion",
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                    repl_id="REF",
+                    execution_summary=f"Truth Score: {truth_val:.2f}",
+                    turn_id=turn_id,
+                    step_id=step_id,
+                    validate=False,
+                )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+                logger.error(
+                    "Failed to persist IntelliSynth Truth (DB error): %s",
+                    db_err,
+                    exc_info=True,
+                )
+
         # 2. Scrutiny (AP2 / Analyze with Logic)
         scrutiny_val, analysis = await self._conduct_scrutiny(facts, current_thought)
+
+        # PERSISTENCE: Materialize Scrutiny Analysis
+        if db:
+            try:
+                db.create_thought_node(
+                    thought_id=f"{session_id}:REF:SCRUTINY:{step_id}",
+                    prompt="IntelliSynth Scrutiny: Logic and Metric analysis.",
+                    result=f"### Scrutiny (AP2)\n{analysis}",
+                    status="reflexion",
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                    repl_id="REF",
+                    execution_summary=f"Scrutiny Score: {scrutiny_val:.2f}",
+                    turn_id=turn_id,
+                    step_id=step_id,
+                    validate=False,
+                )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+                logger.error(
+                    "Failed to persist IntelliSynth Scrutiny (DB error): %s",
+                    db_err,
+                    exc_info=True,
+                )
 
         # 3. Improvement (AP3 / Improvement(I, T))
         improvement_val, directive = await self._implement_improvement(

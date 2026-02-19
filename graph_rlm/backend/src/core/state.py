@@ -7,7 +7,7 @@ import queue
 import re
 import sys
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 # Context variable for the event queue
 execution_events: contextvars.ContextVar[Optional[queue.Queue]] = (
@@ -26,6 +26,7 @@ class ExecutionState:
     depth: int = 0
     turn_id: int = 1
     recursion_stack: List[str] = field(default_factory=list)
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 # Session-specific state isolated by thread/context
@@ -42,16 +43,51 @@ def broadcast_trace(msg: str):
             # Simple approach: Strip ANSI for cleaner UI text
             clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
 
-            # Route messages based on content
+            # --- Signal vs. Noise Filter ---
+            # 1. Block List (Internal Implementation Details)
+            block_list = ["[LLM]", "[DB]", "[REPL]", "[SHEAF]", "[TRACE]"]
+            if any(tag in clean_msg for tag in block_list):
+                q.put_nowait(
+                    {"type": "trace", "content": clean_msg, "ui_target": "TERMINAL_RAW"}
+                )
+                return
+
+            # 2. Structured Logic Components
+            # These map to specific UI "boxes" for better UX
             ui_target = "TERMINAL_RAW"
-            if any(
-                k in clean_msg
-                for k in ["[THINKING]", "Axiomatic", "Reflexion"]
-            ):
+            ui_component = "text"
+
+            if "[META]" in clean_msg:
                 ui_target = "CHAT_RESPONSE"
+                ui_component = "meta_box"
+            elif "[REFLEXION]" in clean_msg:
+                ui_target = "CHAT_RESPONSE"
+                ui_component = "reflexion_box"
+            elif "[SKILL]" in clean_msg:
+                ui_target = "CHAT_RESPONSE"
+                ui_component = "skill_box"
+            elif "[DREAMER]" in clean_msg:
+                ui_target = "CHAT_RESPONSE"
+                ui_component = "dreamer_box"
+            elif "[AGENT]" in clean_msg:
+                # Agent messages must be high-signal to be shown
+                if any(
+                    x in clean_msg
+                    for x in ["Plan:", "Action:", "Decision:", "Final Answer"]
+                ):
+                    ui_target = "CHAT_RESPONSE"
+                    ui_component = "text"
+            elif "RLM_FINAL_OUTPUT" in clean_msg:
+                ui_target = "CHAT_RESPONSE"
+                ui_component = "final_result"
 
             q.put_nowait(
-                {"type": "trace", "content": clean_msg, "ui_target": ui_target}
+                {
+                    "type": "trace",
+                    "content": clean_msg,
+                    "ui_target": ui_target,
+                    "ui_component": ui_component,
+                }
             )
     except LookupError:
         pass

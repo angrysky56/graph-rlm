@@ -85,7 +85,7 @@ def extract_kernel_basis(
 
         if len(zero_indices) == 0:
             # If none are strictly 0, take the smallest one (Fiedler vector / H0 approx)
-            zero_indices = [np.argmin(np.abs(vals))]
+            zero_indices = np.array([np.argmin(np.abs(vals))])
 
         kernel_vecs = vecs[:, zero_indices]
 
@@ -94,5 +94,5 @@ def extract_kernel_basis(
     except (RuntimeError, AttributeError, ValueError):
         # Fallback to a simple ones vector (normalized)
         ones = np.ones(n)
-        norm = np.linalg.norm(ones)
+        norm = float(np.linalg.norm(ones))
         return [(ones / norm if norm > 0 else ones).tolist()]

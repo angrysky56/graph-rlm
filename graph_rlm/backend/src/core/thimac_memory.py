@@ -74,6 +74,11 @@ class ThimacMemory:
         self.subsistence: List[ThimacEvent] = []
         self._all_events: List[ThimacEvent] = []
 
+        # --- STATE TRACKING ---
+        self.known_skills: List[str] = []
+        self.known_files: List[str] = []
+        self.knowledge_horizon: List[str] = []  # Results of last 3 RECEIVE/Search ops
+
     # ------------------------------------------------------------------
     # Public API (matches MorphologicalMemory interface for drop-in use)
     # ------------------------------------------------------------------
@@ -81,6 +86,7 @@ class ThimacMemory:
     def ingest_thought(self, thought: Dict) -> ThimacEvent:
         """
         Classify and store a thought node by its Thimac operation and level.
+        Updates state tracking for Skills, Files, and Knowledge Horizon.
 
         Args:
             thought: Dict with keys from the Thought node
@@ -110,6 +116,8 @@ class ThimacMemory:
 
         if level == ThimacLevel.EXISTENCE:
             self.existence.append(event)
+            # Update Knowledge/Material State
+            self._update_state_tracking(event, thought)
         else:
             self.subsistence.append(event)
 
@@ -122,20 +130,73 @@ class ThimacMemory:
         )
         return event
 
+    def _update_state_tracking(self, event: ThimacEvent, thought: Dict) -> None:
+        """Analyze successful results to update the Known State."""
+        result = (thought.get("result") or "").lower()
+        prompt = (thought.get("prompt") or "").lower()
+
+        # 1. Update Known Skills
+        if "agentskills" in prompt or "list_skills" in prompt:
+            # Simple heuristic: look for skill names (often in backticks or quotes)
+            import re
+
+            skills = re.findall(r"['`]([a-zA-Z0-9_]+)['`]", result)
+            for skill in skills:
+                if skill not in self.known_skills and len(skill) > 3:
+                    self.known_skills.append(skill)
+
+        # 2. Update Known Files
+        if any(k in prompt for k in ["create_file", "write", "save", "open("]):
+            import re
+
+            # Look for absolute paths or typical workspace paths
+            paths = re.findall(r"(/[a-zA-Z0-9._/-]+)", prompt + " " + result)
+            for path in paths:
+                if "/home/ty/" in path and path not in self.known_files:
+                    self.known_files.append(path)
+
+        # 3. Update Knowledge Horizon (Last 3 RECEIVE/Search ops)
+        if event.operation == ThimacOperation.RECEIVE:
+            self.knowledge_horizon.append(event.summary)
+            if len(self.knowledge_horizon) > 3:
+                self.knowledge_horizon.pop(0)
+
     def get_gestalt_string(self) -> str:
         """
         Human-readable session overview using the two-level ontology.
-        Injected into the scratchpad as the Morphological Gestalt section.
+        Enhanced with Current Known State and Knowledge Horizon.
         """
         if not self._all_events:
             return "No session events tracked yet."
 
         lines = []
 
+        # --- STATE TRACKING: Known Environment ---
+        lines.append("### 🧠 Current Known State")
+        skills_str = (
+            ", ".join(self.known_skills[-10:]) if self.known_skills else "None yet"
+        )
+        lines.append(f"- **Known Skills**: [{skills_str}]")
+
+        last_file = self.known_files[-1] if self.known_files else "None"
+        lines.append(f"- **Last File Written**: `{last_file}`")
+
+        horizon = (
+            " | ".join(self.knowledge_horizon) if self.knowledge_horizon else "Clear"
+        )
+        lines.append(f"- **Knowledge Horizon**: {horizon}")
+
+        # Add a summary of active subsistence machine operations (potential next steps)
+        if self.subsistence:
+            pending_ops = [s.operation.value for s in self.subsistence[-5:]]
+            lines.append(f"- **Pending Potentials**: {', '.join(pending_ops)}")
+
+        lines.append("")
+
         # --- EXISTENCE: What has actually materialized ---
         if self.existence:
-            lines.append(f"**Existence** ({len(self.existence)} events):")
-            for e in self.existence[-5:]:
+            lines.append(f"**Existence** ({len(self.existence)} active results):")
+            for e in self.existence[-3:]:
                 ts_str = self._format_ts(e.timestamp)
                 lines.append(f"  {e.operation.value}: {e.summary} [{ts_str}]")
         else:
@@ -143,8 +204,8 @@ class ThimacMemory:
 
         # --- SUBSISTENCE: Knowledge / potential ---
         if self.subsistence:
-            lines.append(f"**Subsistence** ({len(self.subsistence)} items):")
-            for s in self.subsistence[-5:]:
+            lines.append(f"**Subsistence** ({len(self.subsistence)} potential states):")
+            for s in self.subsistence[-3:]:
                 ts_str = self._format_ts(s.timestamp)
                 lines.append(f"  {s.operation.value}: {s.summary} [{ts_str}]")
         else:
@@ -154,7 +215,7 @@ class ThimacMemory:
         total = len(self._all_events)
         exist_pct = (len(self.existence) / total * 100) if total else 0
         lines.append(
-            f"*{total} total events | "
+            f"\n*{total} total events | "
             f"{exist_pct:.0f}% materialized | "
             f"{100 - exist_pct:.0f}% potential*"
         )
@@ -215,7 +276,7 @@ class ThimacMemory:
         ):
             return ThimacOperation.TRANSFER
 
-        # RECEIVE: Input / data retrieval
+        # RECEIVE: Input / data retrieval / Search results
         if any(
             k in combined
             for k in [
@@ -227,6 +288,12 @@ class ThimacMemory:
                 "recv",
                 "get(",
                 "load(",
+                "ls -",
+                "find ",
+                "search",
+                "grep",
+                "cat ",
+                "view_",
             ]
         ):
             return ThimacOperation.RECEIVE
@@ -272,10 +339,15 @@ class ThimacMemory:
             if len(first_line) > 5:
                 return first_line
 
-        # Fall back to prompt
+        # Fall back to prompt (first meaningful command)
         prompt = thought.get("prompt") or ""
-        first_line = prompt.strip().split("\n")[0][:80]
-        return first_line if first_line else "(empty)"
+        # Look for the first line that isn't a comment or blank
+        for line in prompt.split("\n"):
+            clean = line.strip()
+            if clean and not clean.startswith("#"):
+                return clean[:80]
+
+        return prompt.strip().split("\n")[0][:80] if prompt else "(empty)"
 
     @staticmethod
     def _format_ts(epoch_ms: Optional[int]) -> str:

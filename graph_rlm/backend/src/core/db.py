@@ -88,6 +88,8 @@ class GraphClient:
         sheaf_score: Optional[float] = None,
         spectral_energy: Optional[float] = None,
         h0_rank: Optional[int] = None,
+        repe_profile: Optional[Dict[str, float]] = None,
+        omcd_score: Optional[float] = None,
         validate: bool = True,
     ):
         """
@@ -238,6 +240,17 @@ class GraphClient:
         if h0_rank is not None:
             params["h0_rank"] = h0_rank
             cypher += ", t.h0_rank = $h0_rank"
+
+        if repe_profile:
+            # Store RepE profile as individual properties for easier querying
+            for k, v in repe_profile.items():
+                key = f"repe_{k.lower()}"
+                params[key] = float(v)
+                cypher += f", t.{key} = ${key}"
+
+        if omcd_score is not None:
+            params["omcd_score"] = float(omcd_score)
+            cypher += ", t.omcd_score = $omcd_score"
 
         self.query(cypher, params)
 
@@ -727,6 +740,19 @@ class GraphClient:
         MERGE (t)-[:CONSOLIDATED_INTO]->(i)
         """
         self.query(cypher, {"ids": node_ids, "iid": insight_id})
+
+    def disable_axiom(self, axiom_id: str):
+        """
+        Disables an axiom by setting its 'enabled' property to false.
+        Used by the Dreamer/Sheaf when an axiom causes systemic inconsistency.
+        """
+        cypher = """
+        MATCH (a:Axiom {id: $aid})
+        SET a.enabled = false, a.disabled_at = timestamp()
+        RETURN a.id
+        """
+        self.query(cypher, {"aid": axiom_id})
+        logger.warning("🚫 Axiom %s has been DISABLED by the system.", axiom_id)
 
     def perform_synaptic_homeostasis(self, retention_window: int = 24):
         """

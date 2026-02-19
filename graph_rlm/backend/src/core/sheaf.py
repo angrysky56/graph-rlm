@@ -16,6 +16,7 @@ import numpy as np
 import scipy.sparse as sp  # type: ignore
 import scipy.sparse.linalg as spla  # type: ignore
 from pydantic import BaseModel, Field
+from scipy.sparse.csgraph import connected_components  # type: ignore
 
 from .core import PythonREPL
 from .db import db
@@ -97,6 +98,116 @@ class SheafMonitor:
         v = np.array(vec)
         norm = np.linalg.norm(v)
         return v / norm if norm > 0 else v
+
+    def analyze_axiom_consistency(self, axioms: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Analyzes the Sheaf Laplacian of the Axiom system.
+        Returns metrics and a list of potentially conflicting axioms.
+        """
+        if len(axioms) < 2:
+            return {"status": "consistent", "conflicts": [], "energy": 0.0}
+
+        try:
+            # 1. Build k-NN Graph from Embeddings
+            nodes = [
+                {"id": a["id"], "vec": self._normalize(a["embedding"])}
+                for a in axioms
+                if a.get("embedding")
+            ]
+            if len(nodes) < 2:
+                return {"status": "consistent", "conflicts": []}
+
+            edges = []
+            for i, n1 in enumerate(nodes):
+                scores = []
+                for j, n2 in enumerate(nodes):
+                    if i == j:
+                        continue
+                    sim = float(np.dot(n1["vec"], n2["vec"]))
+                    scores.append((sim, n2["id"]))
+
+                # Connect to top 2 similar axioms (Sparse Topology)
+                scores.sort(key=lambda x: x[0], reverse=True)
+                for sim, target_id in scores[:2]:
+                    # Only connect if positive correlation
+                    if sim > 0.5:
+                        edges.append((n1["id"], target_id))
+
+            # 2. Compute Laplacian
+            laplacian = compute_sheaf_laplacian(nodes, edges)
+
+            # 3. Spectral Analysis
+            # Fiedler value (2nd smallest eigenvalue) implies connectivity
+            vals = np.linalg.eigvalsh(laplacian)
+            vals.sort()
+
+            spectral_gap = vals[1] if len(vals) > 1 else 0.0
+
+            # If gap is near zero, the axiom system is fragmented or has internal conflict zones
+            status = "consistent"
+            conflicts = []
+
+            # --- BLAME ASSIGNMENT (Component Analysis) ---
+            # If the graph is disconnected (spectral gap ~ 0), we find the outliers.
+            # We assume the "Main Component" (largest group) is the reference frame.
+            # Any axiom not in the main component is flagged as a conflict/outlier.
+
+            # Reconstruct Adjacency for Component Check
+            n_nodes = len(nodes)
+            adj_row = []
+            adj_col = []
+            adj_data = []
+
+            # Map ID to index
+            id_to_idx = {n["id"]: i for i, n in enumerate(nodes)}
+
+            for src, dst in edges:
+                if src in id_to_idx and dst in id_to_idx:
+                    i, j = id_to_idx[src], id_to_idx[dst]
+                    adj_row.append(i)
+                    adj_col.append(j)
+                    adj_data.append(1)
+                    # Symmetrize
+                    adj_row.append(j)
+                    adj_col.append(i)
+                    adj_data.append(1)
+
+            adj_matrix = sp.coo_matrix(
+                (adj_data, (adj_row, adj_col)), shape=(n_nodes, n_nodes)
+            )
+
+            n_components, labels = connected_components(
+                csgraph=adj_matrix, directed=False, return_labels=True
+            )
+
+            if n_components > 1:
+                status = "fragmented"
+
+                # Count size of each component
+                counts = np.bincount(labels)
+                # Find largest component index
+                main_component_idx = np.argmax(counts)
+
+                # Identify outliers
+                for i, label in enumerate(labels):
+                    if label != main_component_idx:
+                        # This node is NOT in the main cluster -> Blame it.
+                        conflicts.append(nodes[i]["id"])
+                        logger.info(
+                            "Sheaf Blame: Axiom %s is isolated from main cluster.",
+                            nodes[i]["id"],
+                        )
+
+            return {
+                "status": status,
+                "spectral_gap": spectral_gap,
+                "conflicts": conflicts,
+                "energy": np.sum(vals),  # Total spectral energy
+            }
+
+        except (RuntimeError, ValueError, IndexError) as e:
+            logger.warning("Sheaf Axiom Analysis failed: %s", e)
+            return {"status": "error", "conflicts": []}
 
     def compute_sheaf_laplacian(
         self, graph_nodes: List[Dict], graph_edges: List[Tuple]

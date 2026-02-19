@@ -4,7 +4,7 @@ Hyperparameters for curiosity-driven exploration and topological analysis.
 """
 
 # Compression Progress (R(t))
-COMPRESSION_WINDOW = 100  # Number of steps to measure C(D, t)
+COMPRESSION_WINDOW = 50  # Number of steps to measure C(D, t)
 LZMA_PRESET = 6  # Compression level (0-9)
 
 # Causal Entropic Forces (S_tau)
@@ -21,4 +21,4 @@ EDGE_OF_CHAOS_LAMBDA_MIN = 0.35
 EDGE_OF_CHAOS_LAMBDA_MAX = 0.65
 
 # Recursion Safety
-MAX_CURIOSITY_DEPTH = 9  # Prevent infinite curiosity loops
+MAX_CURIOSITY_DEPTH = 50  # Prevent infinite curiosity loops

@@ -3,7 +3,8 @@ Representation Engineering (RepE) v2: Gestalt Vector Monitor.
 Provides psychological profiling of agent thoughts using steering axes.
 """
 
-from typing import Dict, List
+from pathlib import Path
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -119,11 +120,79 @@ class GestaltMonitor:
 
         self.steering_axes: Dict[str, np.ndarray] = {}
         self.is_calibrated = False
+        self._cache: Dict[str, Any] = {}
+        self._cache_path = (
+            Path(__file__).parent.parent.parent.parent / "data" / "repe_cache.json"
+        )
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache = self._load_cache()
+
+    def _load_cache(self) -> Dict[str, Any]:
+        import json
+
+        if self._cache_path.exists():
+            try:
+                return json.loads(self._cache_path.read_text())
+            except json.JSONDecodeError:
+                logger.error(
+                    "RepE cache corrupted at %s. Returning empty cache.",
+                    self._cache_path,
+                    exc_info=True,
+                )
+            except OSError as e:
+                logger.error(
+                    "Failed to read RepE cache file at %s: %s",
+                    self._cache_path,
+                    e,
+                    exc_info=True,
+                )
+            except Exception:
+                logger.error(
+                    "Unexpected error loading RepE cache from %s",
+                    self._cache_path,
+                    exc_info=True,
+                )
+        return {}
+
+    def _save_cache(self):
+        import json
+
+        try:
+            self._cache_path.write_text(json.dumps(self._cache))
+        except (OSError, TypeError) as e:
+            logger.error(
+                "Failed to save RepE cache to %s: %s",
+                self._cache_path,
+                e,
+                exc_info=True,
+            )
+        except Exception:
+            logger.error(
+                "Unexpected error saving RepE cache to %s",
+                self._cache_path,
+                exc_info=True,
+            )
+
+    def _get_polarities_hash(self) -> str:
+        import hashlib
+        import json
+
+        s = json.dumps(self.polarities, sort_keys=True)
+        return hashlib.sha256(s.encode()).hexdigest()
 
     async def _get_centroid(self, phrases: List[str]) -> np.ndarray:
         vectors = []
         for p in phrases:
-            v = await llm.get_embedding(p)
+            v = None
+            if p in self._cache:
+                v = self._cache[p]
+            else:
+                v = await llm.get_embedding(p)
+                if v:
+                    self._cache[p] = v
+                else:
+                    logger.warning("RepE: Failed to get embedding for phrase: '%s'", p)
+
             if v:
                 vectors.append(np.array(v, dtype=float))
 
@@ -131,11 +200,14 @@ class GestaltMonitor:
             return np.zeros(1)
 
         # Stack and average to find the center of the concept
-        return np.mean(np.stack(vectors), axis=0)
+        return np.array(vectors, dtype=float).mean(axis=0)
 
-    async def calibrate(self):
+    async def calibrate(self, force: bool = False):
         """Generates the Gestalt Axes (Good - Bad)."""
-        if self.is_calibrated:
+        current_hash = self._get_polarities_hash()
+        cached_hash = self._cache.get("__polarities_hash__")
+
+        if self.is_calibrated and current_hash == cached_hash and not force:
             return
 
         logger.info("🛡️ RepE: Calibrating Gestalt Axes (Perlsian Dynamics)...")
@@ -154,8 +226,15 @@ class GestaltMonitor:
                 # Normalize for consistent scoring (-1 to 1)
                 norm = np.linalg.norm(axis)
                 self.steering_axes[concept] = axis / norm if norm > 0 else axis
-                logger.info("   -> Calibrated Axis: %s", concept)
+                logger.debug("   -> Calibrated Axis: %s", concept)
+            else:
+                logger.error(
+                    "RepE: Skipped calibration for axis '%s' due to empty vectors.",
+                    concept,
+                )
 
+        self._cache["__polarities_hash__"] = current_hash
+        self._save_cache()
         self.is_calibrated = True
 
     def scan_thought(self, vector: List[float]) -> Dict[str, float]:

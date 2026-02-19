@@ -107,7 +107,7 @@ class LLMService:
         base = self.config.get("base_url", "").rstrip("/")
         if self.provider == "ollama" and path == "chat/completions":
             return f"{base}/api/chat"
-        elif self.provider == "ollama" and path == "embeddings":
+        if self.provider == "ollama" and path == "embeddings":
             return f"{base}/api/embeddings"
         return f"{base}/{path}"
 
@@ -117,6 +117,7 @@ class LLMService:
         stream: bool = False,
         model_override: Optional[str] = None,
         stop: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Format request body based on provider quirks."""
         model = model_override or self.config.get("model")
@@ -130,6 +131,8 @@ class LLMService:
             }
             if stop:
                 request["stop"] = stop
+            if max_tokens:
+                request["options"]["num_predict"] = max_tokens
             return request
         else:
             # Standard OpenAI format
@@ -140,6 +143,8 @@ class LLMService:
             }
             if stop:
                 body["stop"] = stop
+            if max_tokens:
+                body["max_tokens"] = max_tokens
             return body
 
     async def generate(
@@ -150,7 +155,22 @@ class LLMService:
         stop: Optional[List[str]] = None,
         on_usage: Optional[Any] = None,
         model: Optional[str] = None,
+        max_tokens: Optional[int] = None,
     ) -> Any:
+        """
+        Generates a response from the LLM.
+
+        Args:
+            prompt: Input string or list of message dictionaries.
+            system: Optional system prompt.
+            stream: Whether to return a stream of chunks.
+            stop: Optional stop sequences.
+            on_usage: Callback for usage statistics.
+            model: Optional model override.
+
+        Returns:
+            The generated text or an async iterator if streaming is enabled.
+        """
         # Note: prompt can be str or List[Dict] (messages)
         # We need to handle both since agent passes messages directly sometimes
 
@@ -166,7 +186,11 @@ class LLMService:
             return self._generate_stream(messages, stop=stop, on_usage=on_usage)
         else:
             return await self._generate_async(
-                messages, on_usage=on_usage, model_override=model, stop=stop
+                messages,
+                on_usage=on_usage,
+                model_override=model,
+                stop=stop,
+                max_tokens=max_tokens,
             )
 
     async def _generate_stream(
@@ -196,7 +220,12 @@ class LLMService:
                 try:
                     response.raise_for_status()
                 except httpx.HTTPStatusError as e:
-                    logger.error("LLM Stream HTTP error: %s", e)
+                    logger.error(
+                        "LLM Stream HTTP error for endpoint %s: %s",
+                        endpoint,
+                        e,
+                        exc_info=True,
+                    )
                     yield f"Error: {str(e)}"
                     return
                 async for line in response.aiter_lines():
@@ -242,11 +271,126 @@ class LLMService:
                         ) as e:
                             logger.warning("Stream Parse Error: %s", e)
         except httpx.TimeoutException as e:
-            logger.error("LLM Stream Timeout: %s", e)
+            logger.error(
+                "LLM Stream Timeout for endpoint %s: %s", endpoint, e, exc_info=True
+            )
             yield f"Error: Timeout occurred: {str(e)}"
         except httpx.RequestError as e:
-            logger.error("LLM Stream Request Error: %s", e)
+            logger.error(
+                "LLM Stream Request Error for endpoint %s: %s",
+                endpoint,
+                e,
+                exc_info=True,
+            )
             yield f"Error: Request failed: {str(e)}"
+
+    def _handle_async_http_error(
+        self, e: httpx.HTTPStatusError, body: Dict[str, Any], last_msg: str
+    ) -> str:
+        logger.error("LLM Async HTTP error: %s", e, exc_info=True)
+        try:
+            # Log the full response body for debugging
+            err_body = e.response.text
+            logger.error("Provider Response Body: %s", err_body)
+        except (AttributeError, RuntimeError, ValueError) as exc:
+            logger.warning("Failed to extract error body: %s", exc)
+
+        try:
+            # Log snippet of request body to check for bloat/format issues
+            messages_count = len(body.get("messages", []))
+            model_name = body.get("model", "unknown")
+            req_snippet = json.dumps(
+                {
+                    "model": model_name,
+                    "messages_count": messages_count,
+                    "sample_prompt": last_msg[:500],
+                }
+            )
+            logger.error("Request Metadata: %s", req_snippet)
+        except (TypeError, ValueError, RuntimeError) as exc:
+            logger.warning("Failed to log request metadata: %s", exc)
+
+        return f"Error: {str(e)}"
+
+    def _validate_provider_error(self, data: Dict[str, Any]) -> Optional[str]:
+        if "error" in data:
+            error_obj = data["error"]
+            # If error_obj is just a string, wrap it for safety
+            if not isinstance(error_obj, dict):
+                error_obj = {"message": str(error_obj)}
+            error_msg = error_obj.get("message", "Unknown error")
+            error_code = error_obj.get("code", "unknown")
+            error_meta = error_obj.get("metadata", {})
+            full_err = f"Provider Error (Code: {error_code}): {error_msg}"
+            if error_meta:
+                full_err += f"\nMetadata: {json.dumps(error_meta)}"
+            logger.error("LLM Error Object Detected: %s", full_err)
+            trace_action("LLM", "ERROR", result=full_err, tag="ERROR")
+
+            # [Resilience] Handle Malformed Function Calls
+            if "MALFORMED_FUNCTION_CALL" in error_msg or "native_finish_reason" in str(
+                error_obj
+            ):
+                return "SYSTEM ERROR: The model attempted a native function call which is malformed. Please use Python code blocks only."
+
+            return f"Error: {full_err}"
+        return None
+
+    def _validate_choice_error(self, choice: Dict[str, Any]) -> Optional[str]:
+        finish_reason = choice.get("finish_reason")
+        native_finish_reason = choice.get("native_finish_reason")
+
+        if (
+            finish_reason == "error"
+            or native_finish_reason == "MALFORMED_FUNCTION_CALL"
+        ):
+            err_msg = (
+                "SYSTEM ERROR: The model attempted a native function call which is malformed. "
+                "Please use Python code blocks only instead of attempting native tools."
+            )
+            logger.error(
+                "Choice-Level Error Detected: %s (Native: %s)",
+                finish_reason,
+                native_finish_reason,
+            )
+            trace_action(
+                "LLM",
+                "CHOICE_ERROR",
+                result=f"{finish_reason}/{native_finish_reason}",
+                tag="ERROR",
+            )
+            return err_msg
+        return None
+
+    def _polyfill_tool_calls(self, tool_calls: List[Dict[str, Any]]) -> str:
+        codes = []
+        for tc in tool_calls:
+            try:
+                func = tc.get("function", {})
+                name = func.get("name", "unknown_tool")
+                args_str = func.get("arguments", "{}")
+                # Normalize args (sometimes it's a dict, sometimes string)
+                if isinstance(args_str, str):
+                    args = json.loads(args_str)
+                else:
+                    args = args_str
+
+                # Construct kwargs string
+                kwargs_str = ", ".join(f"{k}={repr(v)}" for k, v in args.items())
+                codes.append(
+                    f"# Model triggered native tool: {name}\nval = {name}({kwargs_str})"
+                )
+            except (
+                json.JSONDecodeError,
+                KeyError,
+                AttributeError,
+                TypeError,
+            ) as e:
+                logger.error(
+                    "Failed to polyfill tool call (data/format error): %s",
+                    e,
+                )
+        return "\n".join(codes)
 
     async def _generate_async(
         self,
@@ -254,11 +398,16 @@ class LLMService:
         on_usage: Optional[Any] = None,
         model_override: Optional[str] = None,
         stop: Optional[List[str]] = None,
+        max_tokens: Optional[int] = None,
     ) -> str:
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
         body = self._format_request(
-            messages, stream=False, model_override=model_override, stop=stop
+            messages,
+            stream=False,
+            model_override=model_override,
+            stop=stop,
+            max_tokens=max_tokens,
         )
 
         # Trace Outgoing
@@ -276,31 +425,8 @@ class LLMService:
             try:
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                logger.error("LLM Async HTTP error: %s", e)
-                try:
-                    # Log the full response body for debugging
-                    err_body = e.response.text
-                    logger.error("Provider Response Body: %s", err_body)
-                except (AttributeError, RuntimeError, ValueError) as exc:
-                    logger.warning("Failed to extract error body: %s", exc)
+                return self._handle_async_http_error(e, body, last_msg)
 
-                try:
-                    # Log snippet of request body to check for bloat/format issues
-                    # Slice first to avoid massive string allocation in json.dumps
-                    messages_count = len(body.get("messages", []))
-                    model_name = body.get("model", "unknown")
-                    req_snippet = json.dumps(
-                        {
-                            "model": model_name,
-                            "messages_count": messages_count,
-                            "sample_prompt": last_msg[:500],
-                        }
-                    )
-                    logger.error("Request Metadata: %s", req_snippet)
-                except (TypeError, ValueError, RuntimeError) as exc:
-                    logger.warning("Failed to log request metadata: %s", exc)
-
-                return f"Error: {str(e)}"
             data = response.json()
 
             # [Usage Extraction]
@@ -312,145 +438,64 @@ class LLMService:
 
             if self.provider == "ollama":
                 return data.get("message", {}).get("content", "")
+
+            # Robust Error Parsing (OpenRouter/OpenAI)
+            if error_msg := self._validate_provider_error(data):
+                return error_msg
+
+            choices = data.get("choices", [])
+            if not choices:
+                return (
+                    ""
+                    if self.provider == "ollama"
+                    else "Error: Empty choices returned by provider."
+                )
+
+            choice = choices[0]
+            message = choice.get("message", {})
+            res = message.get("content", "")
+            tool_calls = message.get("tool_calls", [])
+
+            # [Resilience] Handle Choice-Level Errors
+            if choice_error := self._validate_choice_error(choice):
+                return choice_error
+
+            if tool_calls:
+                tool_code = self._polyfill_tool_calls(tool_calls)
+                if tool_code:
+                    if res:
+                        res += f"\n\n{tool_code}"
+                    else:
+                        res = tool_code
+                    trace_action("LLM", "TOOL_POLYFILL", result=res, tag="LLM")
+
+            if not res:
+                raw_data = json.dumps(data)
+                logger.warning(
+                    "Empty response from provider. Full Data: %s", raw_data[:1000]
+                )
+                trace_action(
+                    "LLM",
+                    "WARNING",
+                    result=f"Empty response from provider. Full Data: {raw_data[:1000]}",
+                    tag="ERROR",
+                )
             else:
-                # Robust Error Parsing (OpenRouter/OpenAI)
-                if "error" in data:
-                    error_obj = data["error"]
-                    # If error_obj is just a string, wrap it for safety
-                    if not isinstance(error_obj, dict):
-                        error_obj = {"message": str(error_obj)}
-                    error_msg = error_obj.get("message", "Unknown error")
-                    error_code = error_obj.get("code", "unknown")
-                    error_meta = error_obj.get("metadata", {})
-                    full_err = f"Provider Error (Code: {error_code}): {error_msg}"
-                    if error_meta:
-                        full_err += f"\nMetadata: {json.dumps(error_meta)}"
-                    logger.error("LLM Error Object Detected: %s", full_err)
-                    trace_action("LLM", "ERROR", result=full_err, tag="ERROR")
+                trace_action("LLM", "RESPONSE", result=res, tag="LLM")
 
-                    # [Resilience] Handle Malformed Function Calls
-                    if (
-                        "MALFORMED_FUNCTION_CALL" in error_msg
-                        or "native_finish_reason" in str(error_obj)
-                    ):
-                        return "SYSTEM ERROR: The model attempted a native function call which is malformed. Please use Python code blocks only."
-
-                    return f"Error: {full_err}"
-                choices = data.get("choices", [])
-                if not choices:
-                    return (
-                        ""
-                        if self.provider == "ollama"
-                        else "Error: Empty choices returned by provider."
-                    )
-
-                choice = choices[0]
-                message = choice.get("message", {})
-                res = message.get("content", "")
-                tool_calls = message.get("tool_calls", [])
-
-                # [Resilience] Handle Choice-Level Errors (e.g., MALFORMED_FUNCTION_CALL)
-                # Gemini 2.0 Flash on OpenRouter can return finish_reason: error with no content
-                finish_reason = choice.get("finish_reason")
-                native_finish_reason = choice.get("native_finish_reason")
-
-                if (
-                    finish_reason == "error"
-                    or native_finish_reason == "MALFORMED_FUNCTION_CALL"
-                ):
-                    err_msg = (
-                        "SYSTEM ERROR: The model attempted a native function call which is malformed. "
-                        "Please use Python code blocks only instead of attempting native tools."
-                    )
-                    logger.error(
-                        "Choice-Level Error Detected: %s (Native: %s)",
-                        finish_reason,
-                        native_finish_reason,
-                    )
-                    trace_action(
-                        "LLM",
-                        "CHOICE_ERROR",
-                        result=f"{finish_reason}/{native_finish_reason}",
-                        tag="ERROR",
-                    )
-                    return err_msg
-
-                if tool_calls:
-                    # Polyfill: Convert tool call to Python code for Agent
-                    # We assume the agent can handle standard Python tool invocations
-                    codes = []
-                    for tc in tool_calls:
-                        try:
-                            func = tc.get("function", {})
-                            name = func.get("name", "unknown_tool")
-                            args_str = func.get("arguments", "{}")
-                            # Normalize args (sometimes it's a dict, sometimes string)
-                            if isinstance(args_str, str):
-                                args = json.loads(args_str)
-                            else:
-                                args = args_str
-
-                            # Construct kwargs string
-                            kwargs_str = ", ".join(
-                                f"{k}={repr(v)}" for k, v in args.items()
-                            )
-                            codes.append(
-                                f"# Model triggered native tool: {name}\nval = {name}({kwargs_str})"
-                            )
-                        except (
-                            json.JSONDecodeError,
-                            KeyError,
-                            AttributeError,
-                            TypeError,
-                        ) as e:
-                            logger.error(
-                                "Failed to polyfill tool call (data/format error): %s",
-                                e,
-                            )
-
-                    if codes:
-                        # Append to existing content if any (reasoning might be there)
-                        tool_code = "\n".join(codes)
-                        if res:
-                            res += f"\n\n{tool_code}"
-                        else:
-                            res = tool_code
-
-                        trace_action("LLM", "TOOL_POLYFILL", result=res, tag="LLM")
-
-                if not res:
-                    raw_data = json.dumps(data)
-                    logger.warning(
-                        "Empty response from provider. Full Data: %s", raw_data[:1000]
-                    )
-                    trace_action(
-                        "LLM",
-                        "WARNING",
-                        result=f"Empty response from provider. Full Data: {raw_data[:1000]}",
-                        tag="ERROR",
-                    )
-                else:
-                    trace_action("LLM", "RESPONSE", result=res, tag="LLM")
-
-                if on_usage and "usage" in data:
-                    try:
-                        on_usage(data["usage"])
-                    except (TypeError, ValueError, KeyError) as e:
-                        logger.warning(
-                            "Failed to execute usage callback (format/logic error): %s",
-                            e,
-                        )
-                    except RuntimeError as e:
-                        logger.warning(
-                            "Failed to execute usage callback (runtime error): %s", e
-                        )
-
-                return res
+            return res
         except httpx.TimeoutException as e:
-            logger.error("LLM Async Timeout: %s", e)
+            logger.error(
+                "LLM Async Timeout for endpoint %s: %s", endpoint, e, exc_info=True
+            )
             return f"Error: Timeout occurred: {str(e)}"
         except httpx.RequestError as e:
-            logger.error("LLM Async Request Error: %s", e)
+            logger.error(
+                "LLM Async Request Error for endpoint %s: %s",
+                endpoint,
+                e,
+                exc_info=True,
+            )
             return f"Error: Request failed: {str(e)}"
 
     async def generate_structured(
@@ -563,8 +608,24 @@ class LLMService:
             TypeError,
             ValueError,
         ) as e:
-            logger.error("Embedding Error: %s", e)
+            logger.error("Embedding Error for model %s: %s", model, e, exc_info=True)
             return []
+
+    def compute_cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        if not v1 or not v2 or len(v1) != len(v2):
+            return 0.0
+
+        import math
+
+        dot_product = sum(a * b for a, b in zip(v1, v2, strict=False))
+        magnitude1 = math.sqrt(sum(a * a for a in v1))
+        magnitude2 = math.sqrt(sum(a * a for a in v2))
+
+        if magnitude1 == 0 or magnitude2 == 0:
+            return 0.0
+
+        return dot_product / (magnitude1 * magnitude2)
 
     def unload_model(self, model_name: str) -> bool:
         """

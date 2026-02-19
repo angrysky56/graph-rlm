@@ -45,7 +45,10 @@ class Dreamer:
         self._is_codifying = False  # Recursion guard for axiom generation
 
     def _get_session_trace(
-        self, session_id: Optional[str], turn_id: Optional[int] = None
+        self,
+        session_id: Optional[str],
+        turn_id: Optional[int] = None,
+        root_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Query DB for actual session metrics so validation can cross-reference
@@ -66,18 +69,20 @@ class Dreamer:
             return empty
 
         try:
-            # Aggregate metrics
             # Build turn filter
             turn_clause = ""
-            qparams: Dict[str, Any] = {"sid": session_id}
+            # We anchor on root_session_id if provided, falling back to session_id
+            target_id = root_session_id or session_id
+            qparams: Dict[str, Any] = {"sid": target_id}
+
             if turn_id is not None:
                 turn_clause = "AND t.turn_id = $tid"
                 qparams["tid"] = turn_id
 
             agg = self.db.query(
                 f"""
-                MATCH (t:Thought {{session_id: $sid}})
-                WHERE true {turn_clause}
+                MATCH (t:Thought)
+                WHERE (t.session_id = $sid OR t.root_session_id = $sid) {turn_clause}
                 RETURN count(t) as step_count,
                        collect(DISTINCT t.turn_id) as turns,
                        collect(DISTINCT t.repl_id) as repls,
@@ -89,8 +94,8 @@ class Dreamer:
             # Recent nodes with timestamps (for edge construction + timeline)
             recent = self.db.query(
                 f"""
-                MATCH (t:Thought {{session_id: $sid}})
-                WHERE true {turn_clause}
+                MATCH (t:Thought)
+                WHERE (t.session_id = $sid OR t.root_session_id = $sid) {turn_clause}
                 RETURN t.id as id, t.status as status, t.created_at as ts,
                        t.repl_id as repl_id
                 ORDER BY t.created_at DESC
@@ -165,7 +170,7 @@ class Dreamer:
                 props = props.properties
 
             content = props.get("content", str(props))
-            trace_str += f"Step -{i}: {content[:300]}...\n"
+            trace_str += f"Step -{i}: {content[:30000]}...\n"
 
         divergence_node_id = loop_nodes[-1].get("id") if loop_nodes else "unknown"
 
@@ -237,7 +242,7 @@ class Dreamer:
             recent_events = self.db.query(
                 """
                 MATCH (n:Thought)
-                WHERE n.session_id = $sid
+                WHERE (n.session_id = $sid OR n.root_session_id = $sid)
                 RETURN n.id as id, n.prompt as prompt, n.status as status, n.result as result
                 ORDER BY n.created_at DESC
                 """,
@@ -250,8 +255,8 @@ class Dreamer:
                 for r in recent_events:
                     rid = r.get("id", "???")
                     status = r.get("status", "unknown")
-                    prompt = str(r.get("prompt") or "")[:1000]
-                    res = str(r.get("result") or "")[:5000]
+                    prompt = str(r.get("prompt") or "")[:10000]
+                    res = str(r.get("result") or "")[:10000]
                     recent_lines.append(
                         f"- [Node {rid}] Status: {status} | Action: {prompt}... | Result: {res}..."
                     )
@@ -292,7 +297,9 @@ class Dreamer:
                         "child_result": "Session ended with no successful operations.",
                     }
                 )
-            else:
+            elif not final_response_candidate:
+                # [CAG Fix]: Only return early if NO surprise AND NO final response candidate.
+                # Successful runs often have low surprise but are the best time to extract skills.
                 logger.info("No high-surprise events found. Sleep was peaceful.")
                 trace_action(
                     "DREAMER",
@@ -308,6 +315,10 @@ class Dreamer:
                     "insights": [],
                     "message": "No high-surprise events found.",
                 }
+            else:
+                logger.info(
+                    "No high-surprise events, but final response candidate present. Proceeding with Dream Cycle."
+                )
 
         logger.info("Found %d high-surprise events.", len(surprise_events))
 
@@ -331,9 +342,9 @@ class Dreamer:
                 f"- Edge: {event['source']} -> {event['target']}\n"
                 f"  Surprise Score: {event['surprise_score']:.2f}\n"
                 f"  Status: {status_str}\n"
-                f"  Parent Thought: {src_node.get('prompt', 'Unknown')[:1000]}...\n"
-                f"  Child Action: {tgt_node.get('prompt', 'Unknown')[:1000]}...\n"
-                f"  Result: {tgt_node.get('result', 'Unknown')[:5000]}..."
+                f"  Parent Thought: {src_node.get('prompt', 'Unknown')[:10000]}...\n"
+                f"  Child Action: {tgt_node.get('prompt', 'Unknown')[:10000]}...\n"
+                f"  Result: {tgt_node.get('result', 'Unknown')[:10000]}..."
             )
 
         candidate_section = ""
@@ -497,7 +508,19 @@ class Dreamer:
                     result="Verified logical consistency.",
                     tag="DREAMER",
                 )
-                return {"status": "peaceful", "insights": [], "message": insight_text}
+                # FIX: Even if peaceful, we MUST consolidate the nodes (mark them resolved)
+                # otherwise they stay 'failed' and trigger the Dreamer again in an infinite loop.
+                insight_id = str(uuid.uuid4())
+                await self._save_insight_async(insight_id, insight_text)
+                logger.info(
+                    "🛌 peaceful_resolution: Metabolizing %d nodes to prevent looping...",
+                    len(processed_node_ids),
+                )
+                self.db.mark_nodes_as_consolidated(processed_node_ids, insight_id)
+
+                # [CAG Fix]: REMOVED pre-emptive return here.
+                # Flow must proceed to step 8 (Auto-Codification) to extract skills.
+                status_override = "peaceful"
 
         except (
             httpx.RequestError,
@@ -557,7 +580,9 @@ class Dreamer:
             "DREAMER",
             "INSIGHT_GENERATED",
             result=(
-                insight_text[:500] + "..." if len(insight_text) > 500 else insight_text
+                insight_text[:5000] + "..."
+                if len(insight_text) > 5000
+                else insight_text
             ),
             tag="DREAMER",
         )
@@ -619,7 +644,7 @@ class Dreamer:
             logger.warning("oMCD calibration skipped: %s", e)
 
         return {
-            "status": "lucid",
+            "status": locals().get("status_override", "lucid"),
             "events_processed": len(surprise_events),
             "insight": insight_text,
             "id": insight_id,
@@ -634,6 +659,7 @@ class Dreamer:
         current_step: int = 1,
         goal_embedding: Optional[List[float]] = None,
         turn_id: Optional[int] = None,
+        root_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Orchestrated Validation Phase (v3 Protocol).
@@ -659,7 +685,10 @@ class Dreamer:
                 f"The Agent has produced this candidate response:\n"
                 f"---\n{candidate}\n---\n"
                 f"Based on the scratchpad context below, identify ONE critical empirical claim (like file creation, data existence).\n"
-                f"Write Python code to verify it. If checking a file path, use `os.walk` or recursive glob to FIND it if the direct path fails.\n"
+                f"Write Python code to verify it. You MUST use the globally available `kb` proxy for paths.\n"
+                f"For example: `if os.path.exists(os.path.join(kb.reports_dir, 'filename.md')): ...`\n"
+                f"Do NOT attempt to import `kb` or `knowledge_base`; it is already in the global namespace.\n"
+                f"If checking a file path, use `os.walk` or recursive glob to FIND it if the direct path fails.\n"
                 f"If found in a different location, print 'FOUND: <actual_path>'.\n"
                 f"If no physical claim is made, write 'pass'.\n"
                 f"Output ONLY the python code block."
@@ -667,7 +696,7 @@ class Dreamer:
             # We use a smaller model/call for this quick check if possible, or main LLM
             verify_code_raw = await self.llm.generate(
                 system="You are a Python verification engine. Output only valid Python code.",
-                prompt=f"{verify_prompt}\n\nContext Snippet:\n{context[-2000:]}",  # Give tail of context
+                prompt=f"{verify_prompt}\n\nContext Snippet:\n{context[-200000:]}",  # Give tail of context
             )
 
             verify_code = (
@@ -677,12 +706,10 @@ class Dreamer:
             if verify_code and "pass" not in verify_code.lower():
                 # B) Execute in REPL
                 # Inject minimal context for verification
-                preamble = (
-                    "import os\n"
-                    "import sys\n"
-                    "from pathlib import Path\n"
-                    "from graph_rlm.backend.src.core.knowledge_base import kb\n"
-                )
+                preamble = """import os
+import sys
+from pathlib import Path
+"""
                 repl = PythonREPL()  # Ephemeral REPL for verification
                 stdout, stderr, _, _ = await repl.execute(preamble + "\n" + verify_code)
                 verification_result = (
@@ -695,7 +722,9 @@ class Dreamer:
             verification_result = f"Verification failed to execute: {e}"
 
         # ── 0. Session trace (timestamps, REPL IDs, recent node IDs) ──
-        trace = self._get_session_trace(session_id, turn_id=turn_id)
+        trace = self._get_session_trace(
+            session_id, turn_id=turn_id, root_session_id=root_session_id
+        )
 
         # ── 1. Embedding ──
         candidate_vec = await self.llm.get_embedding(candidate)
@@ -789,25 +818,34 @@ class Dreamer:
         )
 
         # ── 7. LLM-driven classification ──
+        logger.info(
+            "🛡️ [Dreamer] VALIDATION TARGET:\n"
+            "--- CANDIDATE ---\n%s\n"
+            "--- METRICS ---\n%s\n"
+            "----------------",
+            candidate[:1000],  # Log first 1000 chars of candidate for brevity in logs
+            metrics_block,
+        )
+
         validation_prompt = (
-            f"You are the Dreamer — the validation layer of a cognitive agent.\n"
-            f"Your task: decide if the agent's candidate response is ready to deliver.\n\n"
-            f"## Candidate Response (first 15000 chars)\n"
-            f"{candidate[:15000]}\n\n"
+            f"You are the Dreamer — the objective validation layer of a cognitive agent.\n"
+            f"Your task: verify if the agent's candidate response is logically grounded and complete.\n\n"
+            f"## Candidate Response\n"
+            f"{candidate[:150000]}\n\n"
+            f"## Execution Context & Metrics\n"
             f"{metrics_block}\n"
             f"## Instructions\n"
-            f"Analyze the metrics holistically. Consider:\n"
-            f"- [QUALITY] Is the response too brief or over-summarized given the task?\n"
-            f"- [DEPTH] If a report/analysis was requested, does it provide comprehensive detail?\n"
-            f"- Does the psychological profile show genuine grounding or performance?\n"
-            f"- Does the topology show consistency with the execution path?\n"
-            f"- Are there unresolved failures in the recent timeline?\n"
-            f"- Does the response contain placeholders, tracebacks, or hallucinated claims?\n"
-            f"- [CRITICAL] Review the 'Active Verification Results'. "
-            f"If the verification code FAILED to confirm the claim (e.g., FileNotFound), you MUST mark INVALID.\n\n"
+            f"Perform a cold, factual evaluation. Do NOT hallucinate failures.\n"
+            f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
+            f"- [PRESENCE] Ensure the response is not just a summary of failure. If the agent claims it completed the task, check the 'Active Verification Results' or 'Deterministic Flags'.\n"
+            f"- [HARD FAILS] Mark INVALID ONLY if there are:\n"
+            f"    1. Unresolved Tracebacks or obvious placeholders (e.g., 'TODO', '...') in the final output.\n"
+            f"    2. Clear empirical contradictions (e.g., claiming a file exists that the REPL says is missing).\n"
+            f"    3. Infinite meta-cognitive loops (talking about its own process instead of the task).\n"
+            f"- [RECOVERY] If the response is mostly correct but missing a minor detail found in the trace, suggest a minor adjustment in 'instruction' rather than a hard 'invalid' if confidence is otherwise high.\n\n"
             f"Respond with ONLY a JSON object (no markdown, no explanation):\n"
             f'{{"verdict": "valid" or "invalid", "confidence": 0.0-1.0, '
-            f'"reasons": ["short reason 1", ...], '
+            f'"reasons": ["objective reason 1", ...], '
             f'"instruction": "specific guidance for the agent if invalid, else empty string"}}'
         )
 
@@ -1080,6 +1118,15 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 "Block 1 is the Axiom, Block 2 is the optional Healing Script. "
                 "CRITICAL: Every block MUST contain a module-level docstring, "
                 "descriptive function docstrings, type hints, and follow PEP 8. "
+                "FORBIDDEN: Do NOT use mutable objects (list, dict, set) as default arguments; "
+                "use Optional[T] = None and initialize inside the function. "
+                "RAW STRINGS: You MUST use raw strings (r'...') for any code containing backslashes "
+                "(LaTeX, Regex, paths) to avoid SyntaxWarning. "
+                "HOLISM: Favor consolidating related functions into a single high-fidelity skill "
+                "rather than creating multiple fragmented files. If the requirement overlaps with "
+                "existing logic in the domain, extend the existing patterns. "
+                "DOCSTRINGS: The module-level docstring must be the first statement in the file. "
+                "Function docstrings must be the FIRST statement in the function body."
                 "NO trailing whitespace. Ensure exactly one newline at the end of each block."
             ),
             stream=False,
@@ -1344,6 +1391,15 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                     item.get("name", "unknown"),
                     e,
                 )
+
+        # Trigger Hot-Reload for newly codified axioms
+        if codified:
+            axioms_mgr = get_axioms_manager()
+            await axioms_mgr.sync_from_disk()
+            logger.info(
+                "🛠️ [Dreamer] Hot-Reload triggered for %d axioms.", len(codified)
+            )
+
         return {"status": "success", "codified_axioms": codified}
 
     async def _get_node_scan_async(self, node_id: str) -> Dict[str, Any]:
@@ -1415,6 +1471,61 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             "Insight %s saved to graph (not appending to rules.md per RALPH methodology)",
             insight_id[:8],
         )
+
+    async def validate_axioms_against_sheaf(self):
+        """
+        Runs a topological consistency check on the entire Axiom Library.
+        If the Sheaf Laplacian indicates fragmentation or zero-mode conflicts,
+        it flags the system for review.
+        """
+        try:
+            # 1. Load active axioms
+            # Query for them.
+            res = self.db.query(
+                "MATCH (a:Axiom) RETURN a.id as id, a.embedding as embedding"
+            )
+
+            axiom_list = []
+            if res:
+                for row in res:
+                    # Handle various DB driver return formats
+                    r_id, r_emb = None, None
+                    if isinstance(row, dict):
+                        r_id = row.get("id")
+                        r_emb = row.get("embedding")
+                    elif hasattr(row, "id"):  # Object wrapper
+                        r_id = row.id
+                        r_emb = row.embedding
+                    elif (
+                        isinstance(row, (list, tuple)) and len(row) >= 2
+                    ):  # List wrapper
+                        r_id = row[0]
+                        r_emb = row[1]
+
+                    if r_id and r_emb:
+                        axiom_list.append({"id": r_id, "embedding": r_emb})
+
+            if not axiom_list:
+                logger.debug("No axioms found for validation.")
+                return
+
+            # 2. Analyze
+            report = sheaf.analyze_axiom_consistency(axiom_list)
+
+            # 3. Act
+            if report.get("status") != "consistent":
+                logger.warning("Axiom System Inconsistency Detected: %s", report)
+
+                conflicts = report.get("conflicts", [])
+                if conflicts:
+                    logger.info(
+                        "Found %d conflicting axioms. Disabling...", len(conflicts)
+                    )
+                    for axiom_id in conflicts:
+                        self.db.disable_axiom(axiom_id)
+
+        except (AttributeError, RuntimeError, ValueError) as e:
+            logger.error("Axiom Validation failed: %s", e)
 
 
 dreamer = Dreamer()

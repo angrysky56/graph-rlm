@@ -6,6 +6,7 @@ Implements Intrinsic Motivation via Compression Progress and Causal Entropic For
 import lzma
 from typing import Any, Dict, List, Tuple
 
+from .db import db
 from .logger import get_logger
 from .navigator_config import (
     COMPRESSION_WINDOW,
@@ -178,8 +179,51 @@ class Navigator:
         Retrospective analysis to find patterns that yielded high compression progress.
         Used by Dreamer to codify skills.
         """
-        # Placeholder for full implementation which would query the graph for
-        return []
+        # Query for successful thoughts
+        # We look for thoughts with status='success' and substantial result content
+        cypher = """
+        MATCH (t:Thought {session_id: $sid, status: 'success'})
+        WHERE t.result IS NOT NULL AND size(t.result) > 10
+        RETURN t.id as id, t.prompt as prompt, t.result as result
+        ORDER BY t.created_at DESC
+        LIMIT 20
+        """
+
+        try:
+            results = db.query(cypher, {"sid": session_id})
+            patterns = []
+            for row in results:
+                # Handle both dict and object return types from DB wrapper
+                r_prompt = (
+                    row.get("prompt")
+                    if isinstance(row, dict)
+                    else getattr(row, "prompt", None)
+                )
+                r_result = (
+                    row.get("result")
+                    if isinstance(row, dict)
+                    else getattr(row, "result", None)
+                )
+                r_id = (
+                    row.get("id") if isinstance(row, dict) else getattr(row, "id", None)
+                )
+
+                if r_prompt and r_result:
+                    patterns.append(
+                        {
+                            "id": r_id,
+                            "prompt": r_prompt,
+                            "result": r_result,
+                            "compression_gain": 1.0,  # Placeholder until compute persist is active
+                        }
+                    )
+            return patterns
+        except (AttributeError, RuntimeError, KeyError, ValueError) as e:
+            logger.warning(
+                f"Failed to extract learnable patterns for session {session_id}: {e}",
+                exc_info=True,
+            )
+            return []
 
 
 navigator = Navigator(sheaf_monitor=sheaf)

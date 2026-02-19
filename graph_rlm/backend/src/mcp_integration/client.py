@@ -10,6 +10,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .circuit import safe_mcp_call
 from .core import McpClientManager
 
 logger = logging.getLogger("graph_rlm.mcp_integration.client")
@@ -52,8 +53,13 @@ class CoordinatorClient:
         from .runtime import get_stop_event
 
         stop_event = get_stop_event()
-        return await self.manager.call_tool(
-            server_name, tool_name, arguments, stop_event=stop_event
+        stop_event = get_stop_event()
+        return await safe_mcp_call(
+            self.manager.call_tool,
+            server_name,
+            tool_name,
+            arguments,
+            stop_event=stop_event,
         )
 
     async def close(self) -> None:

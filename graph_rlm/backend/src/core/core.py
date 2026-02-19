@@ -14,19 +14,34 @@ logger = get_logger("graph_rlm.core")
 
 
 class KnowledgeBaseStructure:
-    """Helper to provide semantic access to the KB folders."""
+    """Helper to provide semantic access to the KB and System folders."""
 
     def __init__(self, base_path: Optional[str] = None):
         self.root = Path(base_path).absolute() if base_path else Path.cwd()
+
+        # Calculate Project and Backend roots
+        # core.py is in graph_rlm/backend/src/core/
+        self.project_root = Path(__file__).parent.parent.parent.parent.parent
+        self.backend_root = self.project_root / "graph_rlm" / "backend"
+
+        # Knowledge Folders
         self.plans_dir = self.root / "plans"
-        self.reports_dir = self.root / "research-reports"
+        self.reports_dir = self.root / "reports"
         self.outputs_dir = self.root / "outputs"
-        self.axioms_dir = self.root / "axioms"
+
+        # System Folders (Direct pointers to the code/config)
+        self.axioms_dir = self.backend_root / "axioms_dir"
+        self.skills_dir = self.backend_root / "skills"
+        self.mcp_tools_dir = self.backend_root / "mcp_tools"
+        self.src_dir = self.backend_root / "src"
 
     def ensure_exists(self):
-        """Creates the KB structure if missing."""
-        for d in [self.plans_dir, self.reports_dir, self.outputs_dir, self.axioms_dir]:
+        """Creates the KB structure if missing (only for data folders)."""
+        for d in [self.plans_dir, self.reports_dir, self.outputs_dir]:
             d.mkdir(parents=True, exist_ok=True)
+
+        # We do NOT ensure_exists for system folders as they should be pre-populated
+        # or managed by specific tools.
 
 
 class PythonREPL:

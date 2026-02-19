@@ -12,30 +12,24 @@ import structlog
 
 from ..circuit import (
     CircuitOpenError,
-    get_correlation_id,
     generate_correlation_id,
+    get_correlation_id,
     llm_circuit,
-    set_correlation_id,
     reset_correlation_id,
+    set_correlation_id,
 )
-from ..llm import LLMService
+from ..llm import LLMService, llm
 
 logger = structlog.get_logger(__name__)
 
-# Singleton LLM service instance
-_llm_service: Optional[LLMService] = None
-
 
 def get_llm_service() -> LLMService:
-    """Get or create the LLM service singleton.
+    """Get the LLM service singleton.
 
     Returns:
         Configured LLMService instance.
     """
-    global _llm_service
-    if _llm_service is None:
-        _llm_service = LLMService()
-    return _llm_service
+    return llm
 
 
 async def protected_llm_generate(
@@ -46,6 +40,7 @@ async def protected_llm_generate(
     on_usage: Optional[Any] = None,
     model: Optional[str] = None,
     correlation_id: Optional[str] = None,
+    **kwargs: Any,
 ) -> Any:
     """Execute LLM query through circuit breaker with correlation tracking.
 
@@ -60,6 +55,7 @@ async def protected_llm_generate(
         on_usage: Optional callback for usage info.
         model: Optional model override.
         correlation_id: Correlation ID for tracing. Generated if not provided.
+        **kwargs: Additional arguments for the LLM service.
 
     Returns:
         LLM response.
@@ -91,6 +87,7 @@ async def protected_llm_generate(
             stop=stop,
             on_usage=on_usage,
             model=model,
+            **kwargs,
         )
 
         logger.info(

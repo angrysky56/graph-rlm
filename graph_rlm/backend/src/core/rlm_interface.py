@@ -196,7 +196,11 @@ class RLMInterface:
 
         # --- ATOMIC WORKER PROTOCOL (v2) ---
         # 1. Generate specialized profile based on subtask
-        profile = meta_agents.generate_sub_agent_profile(prompt)
+        mcp_names = list(self.mcp._aliases.keys())
+        skills_mgr = get_skills_manager()
+        profile = await meta_agents.generate_sub_agent_profile(
+            prompt, skills_manager=skills_mgr, mcp_names=mcp_names
+        )
 
         # 2. Get high-execution worker instructions
         worker_instructions = meta_agents.get_worker_instructions(
@@ -316,6 +320,7 @@ class RLMInterface:
     async def recall(self, query: str, limit: int = 5):
         """
         Active Recall: Semantic search for past thoughts using core database methods.
+        Use this to find specific steps or results that are truncated in the scratchpad.
         Now supports direct UUID lookups for precise grounding.
         """
         self.record_tool_use("rlm.recall")
@@ -427,7 +432,10 @@ class RLMInterface:
             return f"Error during memory recall: {e}"
 
     async def search(self, query: str, limit: int = 10):
-        """Topological search across the graph (alias for graph_search)."""
+        """
+        Topological search across the graph (alias for graph_search).
+        Useful for finding relevant context in the full session history.
+        """
         self.record_tool_use("rlm.search")
         vec = await self.agent.llm.get_embedding(query)
         if vec:
@@ -469,6 +477,26 @@ class RLMInterface:
         mgr = get_skills_manager()
         await mgr.save_skill(name, code, description)
         return f"Skill '{name}' saved successfully."
+
+    async def sync_skills(self):
+        """
+        Manually triggers a synchronization of skills and axioms from disk to the database.
+        Use this if you have manually added or edited files in the skills/ or axioms_dir/.
+        """
+        self.record_tool_use("rlm.sync_skills")
+        if not is_skills_available():
+            return "Skills system not available."
+
+        skills_mgr = get_skills_manager()
+        axioms_mgr = get_axioms_manager()
+
+        await skills_mgr.sync_from_disk()
+        await axioms_mgr.sync_from_disk()
+
+        total_skills = len(skills_mgr.list_skills())
+        total_axioms = len(axioms_mgr.list_axioms())
+
+        return f"Synchronization complete. Database now contains {total_skills} skills and {total_axioms} axioms."
 
     async def save_instructional_skill(
         self,
@@ -579,15 +607,17 @@ class RLMInterface:
         """
         self.record_tool_use("rlm.done")
 
-        # Store the candidate — do NOT set stop_requested
-        if final_answer:
-            self.agent.final_result = final_answer
+        # Store the candidate as a string for consistency
+        if final_answer is not None:
+            self.agent.final_result = str(final_answer)
 
         # Signal the agent loop to enter validation phase
         self.agent.awaiting_validation = True
 
         # Log for terminal visibility
-        summary = final_answer[:200] if final_answer else "(no answer provided)"
+        # Ensure we stringify before slicing to avoid KeyError if final_answer is a dict
+        answer_str = str(final_answer) if final_answer else ""
+        summary = (answer_str[:200] + "...") if answer_str else "(no answer provided)"
         print(
             f"\n[RLM] 📋 Initial Response submitted for Dreamer Validation: {summary}"
         )
@@ -618,6 +648,7 @@ class RLMInterface:
             "generate_report_data(title)": "Generate complete report data from DB for template population.",
             "ingest_document(path, domain)": "CAG: Codify docs into Axioms.",
             "save_skill(name, code, desc)": "Persist a code block.",
+            "sync_skills()": "Manually trigger a re-index of all skills and axioms from disk.",
             "save_instructional_skill(name, inst, desc)": (
                 "Persist an instructional skill (SKILL.md)."
             ),
@@ -793,6 +824,36 @@ class RLMInterface:
                     "avg_h0_rank": 0,
                 },
             }
+
+    def __getattr__(self, name: str):
+        """
+        Dynamic dispatch for user-defined skills.
+        If a method is not found on RLMInterface, check if it's a registered skill.
+        This allows users to call `rlm.my_custom_skill(arg=val)` directly.
+        """
+        # Avoid infinite recursion for internal dunder methods
+        if name.startswith("_"):
+            raise AttributeError(
+                f"'{type(self).__name__}' object has no attribute '{name}'"
+            )
+
+        # Check if the skill exists without triggering a full load if possible
+        # (For now we just return a wrapper that tries to run it)
+        async def dynamic_skill_wrapper(*args, **kwargs):
+            # If positional args are used, we can't map them easily since execute_skill expects a dict.
+            # However, execute_skill CAN take kwargs.
+            # If args are present, we might need inspecting the skill signature, which is expensive.
+            # Ideally, users should use kwargs: rlm.run_code_agency(repo_path="...")
+            if args:
+                return (
+                    f"Error: Dynamic skill calls only support keyword arguments. "
+                    f"Please call `rlm.{name}(key=value)` instead of positional args."
+                )
+
+            # Delegate to run_skill
+            return await self.run_skill(name, args=kwargs)
+
+        return dynamic_skill_wrapper
 
     def __repr__(self):
         return (

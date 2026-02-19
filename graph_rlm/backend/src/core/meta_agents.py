@@ -13,12 +13,18 @@ Principles:
 """
 
 import datetime
+import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import httpx
+from pydantic import BaseModel, Field
+
 from .config import settings
+from .db import db
+from .llm import llm
 from .logger import get_logger
 from .omcd import omcd
 from .trace import trace_action
@@ -61,6 +67,16 @@ class CollaborationState:
     is_complete: bool = False
 
 
+class SubAgentProfile(BaseModel):
+    """Structured persona and tool assignment for a sub-agent."""
+
+    persona: str = Field(..., description="The specialized role title.")
+    tools: List[str] = Field(
+        ..., description="Exact available tool names (mcp.x, skills.y, rlm.z)."
+    )
+    reasoning: str = Field(..., description="Why these tools were selected.")
+
+
 class MetaAgentController:
     """
     Orchestrates Breaker/Synthesizer collaboration for complex tasks.
@@ -78,6 +94,7 @@ class MetaAgentController:
 
     def __init__(self):
         self.active_collaborations: Dict[str, CollaborationState] = {}
+        self.db = db
 
     def start_collaboration(
         self, root_session_id: str, task: str
@@ -91,6 +108,27 @@ class MetaAgentController:
             result=f"Task: {task}",
             tag="SYSTEM",
         )
+
+        # PERSISTENCE: Materialize collaboration start
+        try:
+            start_id = f"{root_session_id}:META:START"
+            self.db.create_thought_node(
+                thought_id=start_id,
+                prompt=f"META-COLLABORATION START: {task}",
+                status="system",
+                session_id=root_session_id,
+                root_session_id=root_session_id,
+                repl_id="BRK",
+                execution_summary="Initializing Breaker/Synthesizer protocol.",
+                validate=False,
+            )
+        except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+            logger.error(
+                "Failed to persist meta-collaboration start (DB error): %s",
+                db_err,
+                exc_info=True,
+            )
+
         return state
 
     def get_collaboration(self, root_session_id: str) -> Optional[CollaborationState]:
@@ -153,7 +191,7 @@ INSTRUCTIONS:
 
 OUTPUT FORMAT:
 ## Analysis
-[Detailed analysis here]
+[Detailed analysis here - Be comprehensive]
 
 ## Key Findings
 - Finding 1: [Explanation]
@@ -194,53 +232,94 @@ OUTPUT FORMAT:
 ═══════════════════════════════════════════════════════════════
 """
 
-    def generate_sub_agent_profile(self, task: str) -> Dict[str, Any]:
+    async def generate_sub_agent_profile(
+        self,
+        task: str,
+        skills_manager: Optional[Any] = None,
+        mcp_names: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """
-        Analyze the task and generate a specialized persona profile.
+        Analyze the task and generate a specialized persona profile using semantic discovery.
 
-        Heuristics for persona selection:
-        - Code/File tasks -> Coder
-        - Search/Info tasks -> Researcher
-        - Logic/Math tasks -> Analyst
-        - Default -> Generalist
+        Queries the skills_manager and uses an LLM to synthesize a bespoke persona
+        and assign exact available tools.
         """
-        task_lower = task.lower()
+        # 1. Gather available capabilities
+        relevant_skills = []
+        if skills_manager:
+            try:
+                # Semantic search for relevant skills
+                matches = await skills_manager.find_similar_skills(task, limit=5)
+                for s in matches:
+                    skill_name = s.get("name")
+                    func_name = s.get("function_name")
+                    desc = s.get("description", "")
+                    if skill_name and func_name:
+                        relevant_skills.append(
+                            f"- {skill_name} ({func_name}): {desc}"
+                        )
+            except (AttributeError, RuntimeError, KeyError, ValueError, httpx.RequestError) as e:
+                logger.warning("Skill discovery failed during profiling for task: %s... -> %s", task[:50], e, exc_info=True)
 
-        if any(
-            w in task_lower
-            for w in ["write", "code", "file", "create", "implement", "fix"]
-        ):
+        mcp_list = ", ".join(mcp_names) if mcp_names else "None (Use rlm commands)"
+
+        # 2. Synthesize Persona and Tools via LLM
+        discovery_prompt = f"""
+Analyze this task and available capabilities to synthesize a specialized Sub-Agent Profile.
+
+TASK:
+"{task}"
+
+AVAILABLE MCP NAMESPACES (mcp.<name>.<tool>):
+{mcp_list}
+
+RELEVANT SKILLS (from skills.<name> import <func>):
+{"\n".join(relevant_skills) if relevant_skills else "None"}
+
+INSTRUCTIONS:
+1. Define a 'Persona' title (e.g., 'Financial Analyst', 'Code Architect').
+2. Select the EXACT tool names available above that are most relevant.
+   - For MCP: Use 'mcp.<namespace>.<tool>' format (if you know the tools) or just 'mcp.<namespace>'.
+   - For Skills: Use 'skills.<name>' format.
+   - Always include 'rlm' core tools (rlm.recall, rlm.query, etc.).
+3. Return ONLY a JSON object with this structure:
+{{
+  "persona": "string",
+  "tools": ["string", "string"],
+  "reasoning": "string"
+}}
+"""
+        try:
+            profile_json = await llm.generate_structured(
+                discovery_prompt,
+                output_type=SubAgentProfile,
+                system="You are the Meta-Agent Profiler. Your goal is to map tasks to physical capabilities.",
+            )
             return {
-                "persona": "Implementation Engineer",
-                "tools": ["File System", "Python REPL", "Linter", "Git"],
+                "persona": profile_json.persona,
+                "tools": profile_json.tools,
+                "role": AgentRole.WORKER,
+                "reasoning": profile_json.reasoning,
+            }
+        except (AttributeError, RuntimeError, KeyError, ValueError, httpx.RequestError) as e:
+            logger.error("LLM Profiling failed for task: %s... -> %s. Falling back to heuristics.", task[:50], e, exc_info=True)
+
+            # FALLBACK HEURISTICS
+            task_lower = task.lower()
+            if any(
+                w in task_lower
+                for w in ["write", "code", "file", "create", "implement", "fix"]
+            ):
+                return {
+                    "persona": "Implementation Engineer",
+                    "tools": ["File System", "Python REPL", "rlm"],
+                    "role": AgentRole.WORKER,
+                }
+            return {
+                "persona": "Autonomous Generalist",
+                "tools": ["rlm"],
                 "role": AgentRole.WORKER,
             }
-
-        if any(
-            w in task_lower
-            for w in ["search", "find", "research", "investigate", "price", "latest"]
-        ):
-            return {
-                "persona": "Intelligence Researcher",
-                "tools": ["Web Search", "Browser", "Semantic Recall"],
-                "role": AgentRole.WORKER,
-            }
-
-        if any(
-            w in task_lower
-            for w in ["calculate", "analyze", "math", "logic", "check", "verify"]
-        ):
-            return {
-                "persona": "Systems Analyst",
-                "tools": ["Python REPL", "Axiom Validator", "Graph Search"],
-                "role": AgentRole.WORKER,
-            }
-
-        return {
-            "persona": "Autonomous Generalist",
-            "tools": ["All"],
-            "role": AgentRole.WORKER,
-        }
 
     def get_synthesizer_instructions(self, root_session_id: str) -> str:
         """Generate Synthesizer-specific system prompt for final integration."""
@@ -271,7 +350,11 @@ OUTPUT FORMAT:
             digest_path.write_text("\n".join(fragment_content), encoding="utf-8")
             digest_ref = f"Fragment data saved to: {digest_path}"
         except OSError as e:
-            logger.warning("Failed to create synthesis digest file: %s", e)
+            logger.warning(
+                "Failed to create synthesis digest file (IO error): %s",
+                e,
+                exc_info=True,
+            )
             digest_ref = "Error creating digest file. Proceed with available context."
 
         return f"""
@@ -287,7 +370,7 @@ CONTEXT REFERENCE:
 {digest_ref}
 
 INSTRUCTIONS:
-1. Combine fragments into a COHERENT NARRATIVE.
+1. Combine fragments into a COMPREHENSIVE NARRATIVE REPORT.
 2. You MUST read the digest file above to see the fragment details.
 3. Use 'await rlm.read_document(path)' or standard file tools to ingest the data.
 4. Ensure logical flow between sections.
@@ -296,7 +379,7 @@ INSTRUCTIONS:
 
 OUTPUT FORMAT:
 ## Synthesized Analysis
-[Your integrated analysis here]
+[Your integrated, comprehensive report here. Stitch facts together.]
 
 ## Gaps Identified (if any)
 - [Gap that needs more investigation]
@@ -324,6 +407,25 @@ OUTPUT FORMAT:
 
         state.fragments.append(fragment)
         state.iteration += 1
+
+        # PERSISTENCE: Save fragment to Graph so Scratchpad Builder sees it
+        try:
+            thought_id = str(uuid.uuid4())
+            self.db.create_thought_node(
+                thought_id=thought_id,
+                prompt=f"Meta-Agent Fragment: {fragment.summary}",
+                result=f"## Analysis\n{fragment.raw_output}",
+                session_id=fragment.session_id,
+                root_session_id=root_session_id,
+                status="fragment",
+                repl_id="BRK",
+                execution_summary=f"Fragment Confidence: {fragment.confidence:.2f}",
+                validate=False,  # Skip guardrails for system-inserted nodes
+            )
+        except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+            logger.error(
+                "Failed to persist fragment node (DB error): %s", db_err, exc_info=True
+            )
 
         trace_action(
             "META_AGENT",
@@ -359,6 +461,27 @@ OUTPUT FORMAT:
 
         if threshold_met or max_reached or omcd_stop:
             state.is_complete = True
+
+            # PERSISTENCE: Materialize coherence achievement
+            try:
+                coh_id = f"{root_session_id}:META:COHERENCE:{state.iteration}"
+                self.db.create_thought_node(
+                    thought_id=coh_id,
+                    prompt=f"META-COHERENCE ACHIEVED: Threshold {state.coherence_threshold:.2f} met.",
+                    status="system",
+                    session_id=root_session_id,
+                    root_session_id=root_session_id,
+                    repl_id="SYN",
+                    execution_summary=f"Score: {avg_confidence:.2f}, Iterations: {state.iteration}",
+                    validate=False,
+                )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+                logger.error(
+                    "Failed to persist coherence achievement (DB error): %s",
+                    db_err,
+                    exc_info=True,
+                )
+
             trace_action(
                 "META_AGENT",
                 "COHERENCE_ACHIEVED",

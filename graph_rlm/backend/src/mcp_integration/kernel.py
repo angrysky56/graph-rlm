@@ -11,7 +11,6 @@ import json
 import logging
 import os
 import sys
-import traceback
 from typing import Optional
 
 # Optional scientific computing modules
@@ -139,12 +138,44 @@ class KBProxy:
     @property
     def axioms_dir(self):
         """Path to axioms directory."""
-        return os.path.join(self._kb_root, "axioms")
+        return os.path.join(self._base_path, "graph_rlm", "backend", "axioms_dir")
+
+    @property
+    def workspace_dir(self):
+        """Path to workspace directory."""
+        return os.path.join(self._kb_root, "workspace")
+
+    @property
+    def src_dir(self):
+        """Path to source directory."""
+        return os.path.join(self._base_path, "graph_rlm", "backend", "src")
 
     @property
     def root(self):
         """Knowledge base root path."""
         return self._kb_root
+
+    def __getitem__(self, key: str) -> str:
+        """Allow dictionary-like access to knowledge base paths."""
+        if hasattr(self, key):
+            val = getattr(self, key)
+            if isinstance(val, str):
+                return val
+        if key == "root":
+            return self._kb_root
+        raise KeyError(f"KBProxy has no attribute or path: {key}")
+
+    def __dir__(self):
+        """Include dynamic keys in directory listing."""
+        return list(super().__dir__()) + [
+            "reports_dir",
+            "plans_dir",
+            "outputs_dir",
+            "axioms_dir",
+            "src_dir",
+            "workspace_dir",
+            "root",
+        ]
 
 
 class RLMClient:
@@ -196,6 +227,7 @@ rlm = RLMClient()
 
 async def execute_code(code: str, globals_dict: dict):
     """Compiles and executes code allowing top-level await and returning the last expression."""
+    result = None
     try:
         # Parse the code to check for a final expression
         flags = ast.PyCF_ALLOW_TOP_LEVEL_AWAIT
@@ -213,9 +245,8 @@ async def execute_code(code: str, globals_dict: dict):
             if tree.body:
                 # We must re-compile the modified tree
                 module_obj = compile(tree, "<input>", "exec", flags=flags)
-                res = eval(
-                    module_obj, globals_dict
-                )  # nosec # pylint: disable=eval-used
+                # Use eval to capture the coroutine if TOP_LEVEL_AWAIT is used
+                res = eval(module_obj, globals_dict)  # nosec
                 if inspect.iscoroutine(res):
                     await res
 
@@ -227,9 +258,7 @@ async def execute_code(code: str, globals_dict: dict):
                 ast.fix_missing_locations(expr_val)
 
                 expr_obj = compile(expr_val, "<input>", "eval", flags=flags)
-                result = eval(
-                    expr_obj, globals_dict
-                )  # nosec # pylint: disable=eval-used
+                result = eval(expr_obj, globals_dict)  # nosec
                 # Await if it's a coroutine (from top-level await expression)
                 if inspect.iscoroutine(result):
                     result = await result
@@ -239,9 +268,10 @@ async def execute_code(code: str, globals_dict: dict):
         else:
             # No final expression (e.g., assignment, def, import), just exec whole block
             code_obj = compile(tree, "<input>", "exec", flags=flags)
-            result = eval(code_obj, globals_dict)  # nosec # pylint: disable=eval-used
-            if inspect.iscoroutine(result):
-                await result
+            # Use eval to capture the coroutine if TOP_LEVEL_AWAIT is used
+            res = eval(code_obj, globals_dict)  # nosec
+            if inspect.iscoroutine(res):
+                await res
             result = None
 
         # Output the logical result specifically for validation checks
@@ -259,14 +289,24 @@ async def execute_code(code: str, globals_dict: dict):
                 logger.warning("Result serialization failed (JSON error): %s", e)
             except Exception as e:  # pylint: disable=broad-exception-caught
                 # Fallback catch for other unexpected errors during result processing
-                logger.warning("Result serialization failed (Unexpected): %s", e)
+                logger.warning(
+                    "Result serialization failed (Unexpected): %s", e, exc_info=True
+                )
 
     except (SyntaxError, NameError, TypeError, ValueError) as e:
-        logger.error("Execution Error: %s", str(e))
-        traceback.print_exc()
-    except Exception as e:  # noqa: BLE001
-        logger.error("Unexpected Execution Error: %s", str(e))
-        # We don't exit here; we just report the error and keep the kernel alive.
+        logger.error(
+            "Execution Error in code block:\n%s\nError: %s", code, str(e), exc_info=True
+        )
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error(
+            "Unexpected Execution Error in code block:\n%s\nError: %s: %s",
+            code,
+            type(e).__name__,
+            str(e),
+            exc_info=True,
+        )
+
+    return result
 
 
 async def kernel_loop():
@@ -288,6 +328,7 @@ async def kernel_loop():
         {
             "mcp": mcp,
             "rlm": rlm,
+            "kb": rlm.kb,
             "print": builtins.print,
             "asyncio": asyncio,
             "json": json,
@@ -340,9 +381,10 @@ async def kernel_loop():
 
         except EOFError:
             break
-        except Exception as e:  # noqa: BLE001
-            logger.error("Kernel Loop Error: %s", str(e))
-            traceback.print_exc()
+        except Exception as e:  # pylint: disable=broad-exception-caught
+            logger.error(
+                "Kernel Loop Error: %s: %s", type(e).__name__, str(e), exc_info=True
+            )
 
 
 if __name__ == "__main__":

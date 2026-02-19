@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     REPL_TIMEOUT: int = 3000  # Seconds for REPL execution timeout
 
     GRAPH_NAME: str = "rlm_graph"
-    MAX_RECURSION_DEPTH: int = 25  # Maximum depth for rlm.query recursive calls
+    MAX_RECURSION_DEPTH: int = 1000  # Maximum depth for rlm.query recursive calls
 
     # OpenRouter
     OPENROUTER_API_KEY: str = ""
@@ -95,7 +95,7 @@ class Settings(BaseSettings):
                 "embedding_model": self.OPENAI_EMBEDDING_MODEL,
             },
         }
-        return configs.get(provider, configs["ollama"])
+        return configs.get(provider, configs["openrouter"])
 
     def get_llm_config(self) -> dict:
         """Returns the active LLM configuration based on LLM_PROVIDER."""
@@ -168,7 +168,19 @@ class Settings(BaseSettings):
             print(f"Error saving to .env: {e}")
             return False
 
-    model_config = ConfigDict(env_file=".env", extra="ignore")
+    # Resolve .env paths relative to this file's location (src/core/config.py)
+    # Repo Root: 5 levels up
+    _repo_env = str(
+        (Path(__file__).parent.parent.parent.parent.parent / ".env").absolute()
+    )
+    # Backend Root: 3 levels up
+    _backend_env = str((Path(__file__).parent.parent.parent / ".env").absolute())
+
+    # Pydantic will load these in order, with later files overriding earlier ones.
+    # System environment variables ALWAYS have the highest priority.
+    model_config = ConfigDict(
+        env_file=[".env", _backend_env, _repo_env], extra="ignore"
+    )
 
 
 settings = Settings()

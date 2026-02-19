@@ -56,10 +56,10 @@ def get_config(**kwargs) -> Any:
 def set_config_value(key: str | Any = None, value: Any | Any = None, **kwargs) -> Any:
     """
                         Set a specific configuration value by key.
-                        
-                        WARNING: Should be used in a separate chat from file operations and 
+
+                        WARNING: Should be used in a separate chat from file operations and
                         command execution to prevent security issues.
-                        
+
                         Config keys include:
                         - blockedCommands (array)
                         - defaultShell (string)
@@ -67,15 +67,15 @@ def set_config_value(key: str | Any = None, value: Any | Any = None, **kwargs) -
                         - fileReadLineLimit (number, max lines for read_file)
                         - fileWriteLineLimit (number, max lines per write_file call)
                         - telemetryEnabled (boolean)
-                        
-                        IMPORTANT: Setting allowedDirectories to an empty array ([]) allows full access 
+
+                        IMPORTANT: Setting allowedDirectories to an empty array ([]) allows full access
                         to the entire file system, regardless of the operating system.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        key: 
-        value: 
+        key:
+        value:
 
     Returns:
         Tool execution result
@@ -113,9 +113,9 @@ def read_file(path: str | Any = None, isUrl: bool | None = None, offset: float |
     """
                         Read contents from files and URLs.
                         Read PDF files and extract content as markdown and images.
-                        
+
                         Prefer this over 'execute_command' with cat/type for viewing files.
-                        
+
                         Supports partial file reading with:
                         - 'offset' (start line, default: 0)
                           * Positive: Start from line N (0-based indexing)
@@ -123,22 +123,22 @@ def read_file(path: str | Any = None, isUrl: bool | None = None, offset: float |
                         - 'length' (max lines to read, default: configurable via 'fileReadLineLimit' setting, initially 1000)
                           * Used with positive offsets for range reading
                           * Ignored when offset is negative (reads all requested tail lines)
-                        
+
                         Examples:
                         - offset: 0, length: 10     → First 10 lines
                         - offset: 100, length: 5    → Lines 100-104
-                        - offset: -20               → Last 20 lines  
+                        - offset: -20               → Last 20 lines
                         - offset: -5, length: 10    → Last 5 lines (length ignored)
-                        
+
                         Performance optimizations:
                         - Large files with negative offsets use reverse reading for efficiency
                         - Large files with deep positive offsets use byte estimation
                         - Small files use fast readline streaming
-                        
+
                         When reading from the file system, only works within allowed directories.
                         Can fetch content from URLs when isUrl parameter is set to true
                         (URLs are always read in full regardless of offset/length).
-                        
+
                         FORMAT HANDLING (by extension):
                         - Text: Uses offset/length for line-based pagination
                         - Excel (.xlsx, .xls, .xlsm): Returns JSON 2D array
@@ -154,13 +154,13 @@ def read_file(path: str | Any = None, isUrl: bool | None = None, offset: float |
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
-        isUrl: 
-        offset: 
-        length: 
-        sheet: 
-        range: 
-        options: 
+        path:
+        isUrl:
+        offset:
+        length:
+        sheet:
+        range:
+        options:
 
     Returns:
         Tool execution result
@@ -207,19 +207,19 @@ def read_file(path: str | Any = None, isUrl: bool | None = None, offset: float |
 def read_multiple_files(paths: list[str] | Any = None, **kwargs) -> Any:
     """
                         Read the contents of multiple files simultaneously.
-                        
+
                         Each file's content is returned with its path as a reference.
                         Handles text files normally and renders images as viewable content.
                         Recognized image types: PNG, JPEG, GIF, WebP.
-                        
+
                         Failed reads for individual files won't stop the entire operation.
                         Only works within allowed directories.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        paths: 
+        paths:
 
     Returns:
         Tool execution result
@@ -290,9 +290,9 @@ def write_file(path: str | Any = None, content: str | Any = None, mode: str | No
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
-        content: 
-        mode: 
+        path:
+        content:
+        mode:
 
     Returns:
         Tool execution result
@@ -364,7 +364,7 @@ def write_pdf(path: str | Any = None, content: Any | Any = None, outputPath: str
                         PAGE BREAKS:
                         To force a page break, use this HTML element:
                         <div style="page-break-before: always;"></div>
-                        
+
                         Example:
                         "# Page 1\n\n<div style=\"page-break-before: always;\"></div>\n\n# Page 2"
 
@@ -383,10 +383,10 @@ def write_pdf(path: str | Any = None, content: Any | Any = None, outputPath: str
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
-        content: 
-        outputPath: 
-        options: 
+        path:
+        content:
+        outputPath:
+        options:
 
     Returns:
         Tool execution result
@@ -427,15 +427,15 @@ def write_pdf(path: str | Any = None, content: Any | Any = None, outputPath: str
 def create_directory(path: str | Any = None, **kwargs) -> Any:
     """
                         Create a new directory or ensure a directory exists.
-                        
+
                         Can create multiple nested directories in one operation.
                         Only works within allowed directories.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
+        path:
 
     Returns:
         Tool execution result
@@ -470,38 +470,38 @@ def create_directory(path: str | Any = None, **kwargs) -> Any:
 def list_directory(path: str | Any = None, depth: float | None = None, **kwargs) -> Any:
     """
                         Get a detailed listing of all files and directories in a specified path.
-                        
+
                         Use this instead of 'execute_command' with ls/dir commands.
                         Results distinguish between files and directories with [FILE] and [DIR] prefixes.
-                        
+
                         Supports recursive listing with the 'depth' parameter (default: 2):
                         - depth=1: Only direct contents of the directory
                         - depth=2: Contents plus one level of subdirectories
                         - depth=3+: Multiple levels deep
-                        
+
                         CONTEXT OVERFLOW PROTECTION:
                         - Top-level directory shows ALL items
                         - Nested directories are limited to 100 items maximum per directory
                         - When a nested directory has more than 100 items, you'll see a warning like:
                           [WARNING] node_modules: 500 items hidden (showing first 100 of 600 total)
                         - This prevents overwhelming the context with large directories like node_modules
-                        
+
                         Results show full relative paths from the root directory being listed.
                         Example output with depth=2:
                         [DIR] src
                         [FILE] src/index.ts
                         [DIR] src/tools
                         [FILE] src/tools/filesystem.ts
-                        
+
                         If a directory cannot be accessed, it will show [DENIED] instead.
                         Only works within allowed directories.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
-        depth: 
+        path:
+        depth:
 
     Returns:
         Tool execution result
@@ -538,16 +538,16 @@ def list_directory(path: str | Any = None, depth: float | None = None, **kwargs)
 def move_file(source: str | Any = None, destination: str | Any = None, **kwargs) -> Any:
     """
                         Move or rename files and directories.
-                        
+
                         Can move files between directories and rename them in a single operation.
                         Both source and destination must be within allowed directories.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        source: 
-        destination: 
+        source:
+        destination:
 
     Returns:
         Tool execution result
@@ -584,54 +584,54 @@ def move_file(source: str | Any = None, destination: str | Any = None, **kwargs)
 def start_search(path: str | Any = None, pattern: str | Any = None, searchType: str | None = None, filePattern: str | None = None, ignoreCase: bool | None = None, maxResults: float | None = None, includeHidden: bool | None = None, contextLines: float | None = None, timeout_ms: float | None = None, earlyTermination: bool | None = None, literalSearch: bool | None = None, **kwargs) -> Any:
     """
                         Start a streaming search that can return results progressively.
-                        
+
                         SEARCH STRATEGY GUIDE:
                         Choose the right search type based on what the user is looking for:
-                        
+
                         USE searchType="files" WHEN:
                         - User asks for specific files: "find package.json", "locate config files"
-                        - Pattern looks like a filename: "*.js", "README.md", "test-*.tsx" 
+                        - Pattern looks like a filename: "*.js", "README.md", "test-*.tsx"
                         - User wants to find files by name/extension: "all TypeScript files", "Python scripts"
                         - Looking for configuration/setup files: ".env", "dockerfile", "tsconfig.json"
-                        
+
                         USE searchType="content" WHEN:
                         - User asks about code/logic: "authentication logic", "error handling", "API calls"
                         - Looking for functions/variables: "getUserData function", "useState hook"
                         - Searching for text/comments: "TODO items", "FIXME comments", "documentation"
                         - Finding patterns in code: "console.log statements", "import statements"
                         - User describes functionality: "components that handle login", "files with database queries"
-                        
+
                         WHEN UNSURE OR USER REQUEST IS AMBIGUOUS:
                         Run TWO searches in parallel - one for files and one for content:
-                        
+
                         Example approach for ambiguous queries like "find authentication stuff":
                         1. Start file search: searchType="files", pattern="auth"
-                        2. Simultaneously start content search: searchType="content", pattern="authentication"  
+                        2. Simultaneously start content search: searchType="content", pattern="authentication"
                         3. Present combined results: "Found 3 auth-related files and 8 files containing authentication code"
-                        
+
                         SEARCH TYPES:
                         - searchType="files": Find files by name (pattern matches file names)
                         - searchType="content": Search inside files for text patterns
-                        
+
                         PATTERN MATCHING MODES:
                         - Default (literalSearch=false): Patterns are treated as regular expressions
                         - Literal (literalSearch=true): Patterns are treated as exact strings
-                        
+
                         WHEN TO USE literalSearch=true:
                         Use literal search when searching for code patterns with special characters:
                         - Function calls with parentheses and quotes
                         - Array access with brackets
                         - Object methods with dots and parentheses
                         - File paths with backslashes
-                        - Any pattern containing: . * + ? ^ $ { } [ ] | \ ( )
-                        
+                        - Any pattern containing: . * + ? ^ $ { } [ ] | \\ ( )
+
                         IMPORTANT PARAMETERS:
                         - pattern: What to search for (file names OR content text)
                         - literalSearch: Use exact string matching instead of regex (default: false)
                         - filePattern: Optional filter to limit search to specific file types (e.g., "*.js", "package.json")
                         - ignoreCase: Case-insensitive search (default: true). Works for both file names and content.
                         - earlyTermination: Stop search early when exact filename match is found (optional: defaults to true for file searches, false for content searches)
-                        
+
                         DECISION EXAMPLES:
                         - "find package.json" → searchType="files", pattern="package.json" (specific file)
                         - "find authentication components" → searchType="content", pattern="authentication" (looking for functionality)
@@ -639,7 +639,7 @@ def start_search(path: str | Any = None, pattern: str | Any = None, searchType: 
                         - "find TODO comments" → searchType="content", pattern="TODO" (text in files)
                         - "show me login files" → AMBIGUOUS → run both: files with "login" AND content with "login"
                         - "find config" → AMBIGUOUS → run both: config files AND files containing config code
-                        
+
                         COMPREHENSIVE SEARCH EXAMPLES:
                         - Find package.json files: searchType="files", pattern="package.json"
                         - Find all JS files: searchType="files", pattern="*.js"
@@ -648,32 +648,32 @@ def start_search(path: str | Any = None, pattern: str | Any = None, searchType: 
                         - Ambiguous request "find auth stuff": Run two searches:
                           1. searchType="files", pattern="auth"
                           2. searchType="content", pattern="authentication"
-                        
+
                         PRO TIP: When user requests are ambiguous about whether they want files or content,
                         run both searches concurrently and combine results for comprehensive coverage.
-                        
+
                         Unlike regular search tools, this starts a background search process and returns
                         immediately with a session ID. Use get_more_search_results to get results as they
                         come in, and stop_search to stop the search early if needed.
-                        
+
                         Perfect for large directories where you want to see results immediately and
                         have the option to cancel if the search takes too long or you find what you need.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
-        pattern: 
-        searchType: 
-        filePattern: 
-        ignoreCase: 
-        maxResults: 
-        includeHidden: 
-        contextLines: 
-        timeout_ms: 
-        earlyTermination: 
-        literalSearch: 
+        path:
+        pattern:
+        searchType:
+        filePattern:
+        ignoreCase:
+        maxResults:
+        includeHidden:
+        contextLines:
+        timeout_ms:
+        earlyTermination:
+        literalSearch:
 
     Returns:
         Tool execution result
@@ -728,7 +728,7 @@ def start_search(path: str | Any = None, pattern: str | Any = None, searchType: 
 def get_more_search_results(sessionId: str | Any = None, offset: float | None = None, length: float | None = None, **kwargs) -> Any:
     """
                         Get more results from an active search with offset-based pagination.
-                        
+
                         Supports partial result reading with:
                         - 'offset' (start result index, default: 0)
                           * Positive: Start from result N (0-based indexing)
@@ -736,23 +736,23 @@ def get_more_search_results(sessionId: str | Any = None, offset: float | None = 
                         - 'length' (max results to read, default: 100)
                           * Used with positive offsets for range reading
                           * Ignored when offset is negative (reads all requested tail results)
-                        
+
                         Examples:
                         - offset: 0, length: 100     → First 100 results
                         - offset: 200, length: 50    → Results 200-249
                         - offset: -20                → Last 20 results
                         - offset: -5, length: 10     → Last 5 results (length ignored)
-                        
+
                         Returns only results in the specified range, along with search status.
                         Works like read_process_output - call this repeatedly to get progressive
                         results from a search started with start_search.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        sessionId: 
-        offset: 
-        length: 
+        sessionId:
+        offset:
+        length:
 
     Returns:
         Tool execution result
@@ -791,18 +791,18 @@ def get_more_search_results(sessionId: str | Any = None, offset: float | None = 
 def stop_search(sessionId: str | Any = None, **kwargs) -> Any:
     """
                         Stop an active search.
-                        
+
                         Stops the background search process gracefully. Use this when you've found
                         what you need or if a search is taking too long. Similar to force_terminate
                         for terminal processes.
-                        
+
                         The search will still be available for reading final results until it's
                         automatically cleaned up after 5 minutes.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        sessionId: 
+        sessionId:
 
     Returns:
         Tool execution result
@@ -837,11 +837,11 @@ def stop_search(sessionId: str | Any = None, **kwargs) -> Any:
 def list_searches(**kwargs) -> Any:
     """
                         List all active searches.
-                        
+
                         Shows search IDs, search types, patterns, status, and runtime.
                         Similar to list_sessions for terminal processes. Useful for managing
                         multiple concurrent searches.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Returns:
@@ -886,12 +886,12 @@ def get_file_info(path: str | Any = None, **kwargs) -> Any:
                         - sheets (for Excel files - array of {name, rowCount, colCount})
 
                         Only works within allowed directories.
-                        
+
                         IMPORTANT: Always use absolute paths for reliability. Paths are automatically normalized regardless of slash direction. Relative paths may fail as they depend on the current working directory. Tilde paths (~/...) might not work in all contexts. Unless the user explicitly asks for relative paths, use absolute paths.
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        path: 
+        path:
 
     Returns:
         Tool execution result
@@ -968,13 +968,13 @@ def edit_block(file_path: str | Any = None, old_string: str | None = None, new_s
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        file_path: 
-        old_string: 
-        new_string: 
-        expected_replacements: 
-        range: 
-        content: 
-        options: 
+        file_path:
+        old_string:
+        new_string:
+        expected_replacements:
+        range:
+        content:
+        options:
 
     Returns:
         Tool execution result
@@ -1021,29 +1021,29 @@ def edit_block(file_path: str | Any = None, old_string: str | None = None, new_s
 def start_process(command: str | Any = None, timeout_ms: float | Any = None, shell: str | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Start a new terminal process with intelligent state detection.
-                        
+
                         PRIMARY TOOL FOR FILE ANALYSIS AND DATA PROCESSING
                         This is the ONLY correct tool for analyzing local files (CSV, JSON, logs, etc.).
                         The analysis tool CANNOT access local files and WILL FAIL - always use processes for file-based work.
-                        
+
                         CRITICAL RULE: For ANY local file work, ALWAYS use this tool + interact_with_process, NEVER use analysis/REPL tool.
-                        
+
                         Running on Linux. Default shell: bash.
-        
+
 LINUX-SPECIFIC NOTES:
 - Package managers vary by distro: apt, yum, dnf, pacman, zypper
 - Python 3 might be 'python3' command, not 'python'
 - Standard Unix shell tools available (grep, awk, sed, etc.)
 - File permissions and ownership important for many operations
 - Systemd services common on modern distributions
-                        
+
                         REQUIRED WORKFLOW FOR LOCAL FILES:
                         1. start_process("python3 -i") - Start Python REPL for data analysis
                         2. interact_with_process(pid, "import pandas as pd, numpy as np")
                         3. interact_with_process(pid, "df = pd.read_csv('/absolute/path/file.csv')")
                         4. interact_with_process(pid, "print(df.describe())")
                         5. Continue analysis with pandas, matplotlib, seaborn, etc.
-                        
+
                         COMMON FILE ANALYSIS PATTERNS:
                         • start_process("python3 -i") → Python REPL for data analysis (RECOMMENDED)
                         • start_process("node -i") → Node.js REPL for JSON processing
@@ -1051,10 +1051,10 @@ LINUX-SPECIFIC NOTES:
                         • start_process("cut -d',' -f1 file.csv | sort | uniq -c") → Quick CSV analysis
                         • start_process("wc -l /path/file.csv") → Line counting
                         • start_process("head -10 /path/file.csv") → File preview
-                        
+
                         BINARY FILE SUPPORT:
                         For PDF, Excel, Word, archives, databases, and other binary formats, use process tools with appropriate libraries or command-line utilities.
-                        
+
                         INTERACTIVE PROCESSES FOR DATA ANALYSIS:
                         For code/calculations, use in this priority order:
                         1. start_process("python3 -i") - Python REPL (preferred)
@@ -1070,7 +1070,7 @@ LINUX-SPECIFIC NOTES:
                         - Identifies when process is waiting for input
                         - Recognizes process completion vs timeout
                         - Early exit prevents unnecessary waiting
-                        
+
                         STATES DETECTED:
                         Process waiting for input (shows prompt)
                         Process finished execution
@@ -1091,10 +1091,10 @@ LINUX-SPECIFIC NOTES:
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        command: 
-        timeout_ms: 
-        shell: 
-        verbose_timing: 
+        command:
+        timeout_ms:
+        shell:
+        verbose_timing:
 
     Returns:
         Tool execution result
@@ -1135,31 +1135,31 @@ LINUX-SPECIFIC NOTES:
 def read_process_output(pid: float | Any = None, timeout_ms: float | None = None, offset: float | None = None, length: float | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Read output from a running process with file-like pagination support.
-                        
+
                         Supports partial output reading with offset and length parameters (like read_file):
                         - 'offset' (start line, default: 0)
                           * offset=0: Read NEW output since last read (default, like old behavior)
                           * Positive: Read from absolute line position
                           * Negative: Read last N lines from end (tail behavior)
                         - 'length' (max lines to read, default: configurable via 'fileReadLineLimit' setting)
-                        
+
                         Examples:
                         - offset: 0, length: 100     → First 100 NEW lines since last read
                         - offset: 0                  → All new lines (respects config limit)
                         - offset: 500, length: 50    → Lines 500-549 (absolute position)
                         - offset: -20                → Last 20 lines (tail)
                         - offset: -50, length: 10    → Start 50 from end, read 10 lines
-                        
+
                         OUTPUT PROTECTION:
                         - Uses same fileReadLineLimit as read_file (default: 1000 lines)
                         - Returns status like: [Reading 100 lines from line 0 (total: 5000 lines, 4900 remaining)]
                         - Prevents context overflow from verbose processes
-                        
+
                         SMART FEATURES:
                         - For offset=0, waits up to timeout_ms for new output to arrive
                         - Detects REPL prompts and process completion
                         - Shows process state (waiting for input, finished, etc.)
-                        
+
                         DETECTION STATES:
                         Process waiting for input (ready for interact_with_process)
                         Process finished execution
@@ -1168,11 +1168,11 @@ def read_process_output(pid: float | Any = None, timeout_ms: float | None = None
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        pid: 
-        timeout_ms: 
-        offset: 
-        length: 
-        verbose_timing: 
+        pid:
+        timeout_ms:
+        offset:
+        length:
+        verbose_timing:
 
     Returns:
         Tool execution result
@@ -1215,32 +1215,32 @@ def read_process_output(pid: float | Any = None, timeout_ms: float | None = None
 def interact_with_process(pid: float | Any = None, input: str | Any = None, timeout_ms: float | None = None, wait_for_prompt: bool | None = None, verbose_timing: bool | None = None, **kwargs) -> Any:
     """
                         Send input to a running process and automatically receive the response.
-                        
+
                         CRITICAL: THIS IS THE PRIMARY TOOL FOR ALL LOCAL FILE ANALYSIS
                         For ANY local file analysis (CSV, JSON, data processing), ALWAYS use this instead of the analysis tool.
                         The analysis tool CANNOT access local files and WILL FAIL - use processes for ALL file-based work.
-                        
+
                         FILE ANALYSIS PRIORITY ORDER (MANDATORY):
                         1. ALWAYS FIRST: Use this tool (start_process + interact_with_process) for local data analysis
-                        2. ALTERNATIVE: Use command-line tools (cut, awk, grep) for quick processing  
+                        2. ALTERNATIVE: Use command-line tools (cut, awk, grep) for quick processing
                         3. NEVER EVER: Use analysis tool for local file access (IT WILL FAIL)
-                        
+
                         REQUIRED INTERACTIVE WORKFLOW FOR FILE ANALYSIS:
                         1. Start REPL: start_process("python3 -i")
                         2. Load libraries: interact_with_process(pid, "import pandas as pd, numpy as np")
                         3. Read file: interact_with_process(pid, "df = pd.read_csv('/absolute/path/file.csv')")
                         4. Analyze: interact_with_process(pid, "print(df.describe())")
                         5. Continue: interact_with_process(pid, "df.groupby('column').size()")
-                        
+
                         BINARY FILE PROCESSING WORKFLOWS:
                         Use appropriate Python libraries (PyPDF2, pandas, docx2txt, etc.) or command-line tools for binary file analysis.
-                        
+
                         SMART DETECTION:
                         - Automatically waits for REPL prompt (>>>, >, etc.)
                         - Detects errors and completion states
                         - Early exit prevents timeout delays
                         - Clean output formatting (removes prompts)
-                        
+
                         SUPPORTED REPLs:
                         - Python: python3 -i (RECOMMENDED for data analysis)
                         - Node.js: node -i
@@ -1248,7 +1248,7 @@ def interact_with_process(pid: float | Any = None, input: str | Any = None, time
                         - Julia: julia
                         - Shell: bash, zsh
                         - Database: mysql, postgres
-                        
+
                         PARAMETERS:
                         - pid: Process ID from start_process
                         - input: Code/command to execute
@@ -1272,11 +1272,11 @@ def interact_with_process(pid: float | Any = None, input: str | Any = None, time
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        pid: 
-        input: 
-        timeout_ms: 
-        wait_for_prompt: 
-        verbose_timing: 
+        pid:
+        input:
+        timeout_ms:
+        wait_for_prompt:
+        verbose_timing:
 
     Returns:
         Tool execution result
@@ -1319,11 +1319,11 @@ def interact_with_process(pid: float | Any = None, input: str | Any = None, time
 def force_terminate(pid: float | Any = None, **kwargs) -> Any:
     """
                         Force terminate a running terminal session.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        pid: 
+        pid:
 
     Returns:
         Tool execution result
@@ -1358,17 +1358,17 @@ def force_terminate(pid: float | Any = None, **kwargs) -> Any:
 def list_sessions(**kwargs) -> Any:
     """
                         List all active terminal sessions.
-                        
+
                         Shows session status including:
-                        - PID: Process identifier  
+                        - PID: Process identifier
                         - Blocked: Whether session is waiting for input
                         - Runtime: How long the session has been running
-                        
+
                         DEBUGGING REPLs:
                         - "Blocked: true" often means REPL is waiting for input
                         - Use this to verify sessions are running before sending input
                         - Long runtime with blocked status may indicate stuck process
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Returns:
@@ -1402,9 +1402,9 @@ def list_sessions(**kwargs) -> Any:
 def list_processes(**kwargs) -> Any:
     """
                         List all running processes.
-                        
+
                         Returns process information including PID, command name, CPU usage, and memory usage.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Returns:
@@ -1444,7 +1444,7 @@ def kill_process(pid: float | Any = None, **kwargs) -> Any:
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        pid: 
+        pid:
 
     Returns:
         Tool execution result
@@ -1479,9 +1479,9 @@ def kill_process(pid: float | Any = None, **kwargs) -> Any:
 def get_usage_stats(**kwargs) -> Any:
     """
                         Get usage statistics for debugging and analysis.
-                        
+
                         Returns summary of tool usage, success/failure rates, and performance metrics.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Returns:
@@ -1516,21 +1516,21 @@ def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None 
     """
                         Get recent tool call history with their arguments and outputs.
                         Returns chronological list of tool calls made during this session.
-                        
+
                         Useful for:
                         - Onboarding new chats about work already done
                         - Recovering context after chat history loss
                         - Debugging tool call sequences
-                        
+
                         Note: Does not track its own calls or other meta/query tools.
                         History kept in memory (last 1000 calls, lost on restart).
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        maxResults: 
-        toolName: 
-        since: 
+        maxResults:
+        toolName:
+        since:
 
     Returns:
         Tool execution result
@@ -1569,10 +1569,10 @@ def get_recent_tool_calls(maxResults: float | None = None, toolName: str | None 
 def give_feedback_to_desktop_commander(**kwargs) -> Any:
     """
                         Open feedback form in browser to provide feedback about Desktop Commander.
-                        
+
                         IMPORTANT: This tool simply opens the feedback form - no pre-filling available.
                         The user will fill out the form manually in their browser.
-                        
+
                         WORKFLOW:
                         1. When user agrees to give feedback, just call this tool immediately
                         2. No need to ask questions or collect information
@@ -1581,7 +1581,7 @@ def give_feedback_to_desktop_commander(**kwargs) -> Any:
                            - days_using: How many days they've used Desktop Commander
                            - platform: Their operating system (Mac/Windows/Linux)
                            - client_id: Analytics identifier
-                        
+
                         All survey questions will be answered directly in the form:
                         - Job title and technical comfort level
                         - Company URL for industry context
@@ -1591,14 +1591,14 @@ def give_feedback_to_desktop_commander(**kwargs) -> Any:
                         - Recommendation likelihood (0-10)
                         - User study participation interest
                         - Email and any additional feedback
-                        
+
                         EXAMPLE INTERACTION:
                         User: "sure, I'll give feedback"
                         Claude: "Perfect! Let me open the feedback form for you."
                         [calls tool immediately]
-                        
+
                         No parameters are needed - just call the tool to open the form.
-                        
+
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Returns:
@@ -1632,16 +1632,16 @@ def give_feedback_to_desktop_commander(**kwargs) -> Any:
 def get_prompts(action: str | Any = None, promptId: str | Any = None, **kwargs) -> Any:
     """
                         Retrieve a specific Desktop Commander onboarding prompt by ID and execute it.
-                        
+
                         SIMPLIFIED ONBOARDING V2: This tool only supports direct prompt retrieval.
                         The onboarding system presents 5 options as a simple numbered list:
-                        
+
                         1. Organize my Downloads folder (promptId: 'onb2_01')
                         2. Explain a codebase or repository (promptId: 'onb2_02')
                         3. Create organized knowledge base (promptId: 'onb2_03')
                         4. Analyze a data file (promptId: 'onb2_04')
                         5. Check system health and resources (promptId: 'onb2_05')
-                        
+
                         USAGE:
                         When user says "1", "2", "3", "4", or "5" from onboarding:
                         - "1" → get_prompts(action='get_prompt', promptId='onb2_01')
@@ -1649,14 +1649,14 @@ def get_prompts(action: str | Any = None, promptId: str | Any = None, **kwargs) 
                         - "3" → get_prompts(action='get_prompt', promptId='onb2_03')
                         - "4" → get_prompts(action='get_prompt', promptId='onb2_04')
                         - "5" → get_prompts(action='get_prompt', promptId='onb2_05')
-                        
+
                         The prompt content will be injected and execution begins immediately.
 
                         This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.
 
     Args:
-        action: 
-        promptId: 
+        action:
+        promptId:
 
     Returns:
         Tool execution result
