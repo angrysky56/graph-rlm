@@ -137,9 +137,31 @@ class LazyMCPNamespace:
             return self._aliases[name]
         raise AttributeError(f"No MCP server found with name or alias '{name}'")
 
-    def __dir__(self):
+    def list_servers(self):
+        """Returns a list of all discovered MCP server names."""
         self._scan()
         return list(self._aliases.keys())
 
+    def __dir__(self):
+        return self.list_servers()
+
     def __repr__(self):
         return f"<LazyMCPNamespace with {len(self._aliases)} server aliases>"
+
+
+def get_mcp_server_names() -> list[str]:
+    """
+    Directly scans the mcp_tools directory and returns list of server names.
+    Does NOT require a full RLMInterface or LazyMCPNamespace.
+    """
+    names = []
+    if not is_mcp_available():
+        return names
+    try:
+        for _, mod_name, _ in pkgutil.iter_modules(mcp_tools_pkg.__path__):
+            if mod_name.startswith("_") or mod_name == "skills":
+                continue
+            names.append(mod_name)
+    except Exception as e:
+        logger.warning("Quick MCP name scan failed: %s", e)
+    return names

@@ -141,6 +141,16 @@ class KBProxy:
         return os.path.join(self._base_path, "graph_rlm", "backend", "axioms_dir")
 
     @property
+    def mcp_tools_dir(self):
+        """Path to MCP tools directory."""
+        return os.path.join(self._base_path, "graph_rlm", "backend", "mcp_tools")
+
+    @property
+    def skills_dir(self):
+        """Path to skills directory."""
+        return os.path.join(self._base_path, "graph_rlm", "backend", "skills")
+
+    @property
     def workspace_dir(self):
         """Path to workspace directory."""
         return os.path.join(self._kb_root, "workspace")
@@ -172,6 +182,8 @@ class KBProxy:
             "plans_dir",
             "outputs_dir",
             "axioms_dir",
+            "mcp_tools_dir",
+            "skills_dir",
             "src_dir",
             "workspace_dir",
             "root",

@@ -144,36 +144,53 @@ class Navigator:
             for h in history[-COMPRESSION_WINDOW:]:
                 self.history_buffer.append(h.get("result", "") or h.get("prompt", ""))
 
+        # 0. Calculate Baseline Entropy (Current State)
+        # We use a neutral anchor or the average of the last few steps
+        baseline_s_tau = 0.5  # Default neutral anchor
+
         ranked = []
         for cand in candidates:
             # 1. Compression Progress (Learnability)
             r_t = self.compute_compression_progress(cand)
 
             # 2. Future Entropy (Freedom)
-            s_tau = await self.estimate_future_entropy(cand)
+            current_s_tau = await self.estimate_future_entropy(cand)
 
             # 3. Langton's Lambda Filter (Edge of Chaos)
             # Class 4 behavior: where the system is most learnable and interesting.
-            # We use the compression ratio as a proxy for lambda complexity.
             is_class_4 = (
                 EDGE_OF_CHAOS_LAMBDA_MIN
                 <= self._last_compression_ratio
                 <= EDGE_OF_CHAOS_LAMBDA_MAX
             )
-            lambda_multiplier = 1.2 if is_class_4 else 0.8
 
             # 4. Causal Entropic Force (F = T * grad(S_tau))
-            # Normalized implementation: Force is the potential for future freedom.
-            force = s_tau * lambda_multiplier
+            # The force is the gradient of freedom: how much freedom this action ADDS.
+            # grad_S = S_tau(candidate) - S_tau(baseline)
+            grad_s = current_s_tau - baseline_s_tau
+
+            # T (Temperature/Multiplier) is boosted at the Edge of Chaos
+            temperature = 1.5 if is_class_4 else 1.0
+            force = temperature * grad_s
 
             # Total Curiosity Score
-            # Weight compression progress higher as it indicates "understanding"
-            score = (r_t * 0.6) + (force * 0.4)
+            # Weighting: 40% Compression Progress, 60% Causal Entropic Force
+            # We use a Sigmoid to squash scores into the 0.0 - 1.0 range
+            # k=0.1 for a gentle slope centered at 0
+            def sigmoid(x: float) -> float:
+                import math
+
+                return 1 / (1 + math.exp(-0.2 * x))
+
+            raw_score = (r_t * 0.4) + (force * 0.6)
+            score = sigmoid(raw_score)
 
             details = {
                 "content": cand,
                 "compression_progress": r_t,
-                "future_entropy": s_tau,
+                "future_entropy": current_s_tau,
+                "causal_force": force,
+                "is_class_4": is_class_4,
                 "score": score,
             }
             ranked.append((score, details))
@@ -232,7 +249,9 @@ class Navigator:
             return patterns
         except (AttributeError, RuntimeError, KeyError, ValueError) as e:
             logger.warning(
-                f"Failed to extract learnable patterns for session {session_id}: {e}",
+                "Failed to extract learnable patterns for session %s: %s",
+                session_id,
+                e,
                 exc_info=True,
             )
             return []

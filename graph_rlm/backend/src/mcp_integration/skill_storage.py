@@ -811,6 +811,8 @@ class AxiomsManager:
         tags: list[str] | None = None,
         axiom_type: str = "validator",
         healing_code: str | None = None,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
     ) -> str:
         """Save an axiom to the axioms library."""
         name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
@@ -852,6 +854,8 @@ class AxiomsManager:
             a.tags = $tags,
             a.axiom_type = $type,
             a.healing_code = $healing,
+            a.session_id = $session_id,
+            a.root_session_id = $root_id,
             a.version = COALESCE(a.version, 0) + 1,
             a.updated_at = timestamp()
         """
@@ -870,6 +874,8 @@ class AxiomsManager:
                 "tags": tags or ["general"],
                 "type": axiom_type,
                 "healing": healing_code,
+                "session_id": session_id,
+                "root_id": root_session_id,
                 "vec": vec,
             },
         )

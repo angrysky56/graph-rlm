@@ -35,32 +35,45 @@ class LLMService:
 
     def __init__(self):
         logger.info("LLMService initialized.")
-        self._client: Optional[httpx.AsyncClient] = None
+        # Store clients and locks per event loop to prevent loop-match deadlocks
+        # {loop: (client, lock)}
+        self._loop_resources: Dict[
+            asyncio.AbstractEventLoop, tuple[httpx.AsyncClient, asyncio.Lock]
+        ] = {}
         self._timeout = httpx.Timeout(
             connect=self.DEFAULT_CONNECT_TIMEOUT,
             read=self.DEFAULT_READ_TIMEOUT,
             write=self.DEFAULT_WRITE_TIMEOUT,
             pool=self.DEFAULT_POOL_TIMEOUT,
         )
-        self._client_lock = asyncio.Lock()
+
+    async def _get_client_and_lock(self) -> tuple[httpx.AsyncClient, asyncio.Lock]:
+        """
+        Retrieves or initializes the httpx.AsyncClient and asyncio.Lock for the current loop.
+        """
+        loop = asyncio.get_running_loop()
+        if loop not in self._loop_resources:
+            # Atomic creation within the current loop
+            self._loop_resources[loop] = (
+                httpx.AsyncClient(timeout=self._timeout),
+                asyncio.Lock(),
+            )
+        return self._loop_resources[loop]
 
     async def _get_client(self) -> httpx.AsyncClient:
         """
-        Retrieves or initializes the shared httpx.AsyncClient.
+        Retrieves the client for the current loop, initializing if necessary.
         """
-        if self._client is None:
-            async with self._client_lock:
-                if self._client is None:
-                    self._client = httpx.AsyncClient(timeout=self._timeout)
-        return self._client
+        client, _ = await self._get_client_and_lock()
+        return client
 
     async def aclose(self):
         """
-        Gracefully closes the persistent httpx client.
+        Gracefully closes all persistent httpx clients across all loops.
         """
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        for client, _ in self._loop_resources.values():
+            await client.aclose()
+        self._loop_resources.clear()
 
     async def refresh(self):
         """
@@ -582,34 +595,37 @@ class LLMService:
 
         trace_action("LLM", f"EMBEDDING ({model})", result=text, tag="LLM")
 
-        client = await self._get_client()
-        try:
-            response = await client.post(endpoint, headers=headers, json=body)
+        client, lock = await self._get_client_and_lock()
+        async with lock:
             try:
-                response.raise_for_status()
-            except httpx.HTTPStatusError as e:
-                logger.error("Embedding HTTP error: %s", e)
+                response = await client.post(endpoint, headers=headers, json=body)
+                try:
+                    response.raise_for_status()
+                except httpx.HTTPStatusError as e:
+                    logger.error("Embedding HTTP error: %s", e)
+                    return []
+                data = response.json()
+                if self.provider == "ollama":
+                    return data.get("embedding", [])
+                else:
+                    return data.get("data", [{}])[0].get("embedding", [])
+            except httpx.TimeoutException as e:
+                logger.error("Embedding Timeout: %s", e)
                 return []
-            data = response.json()
-            if self.provider == "ollama":
-                return data.get("embedding", [])
-            else:
-                return data.get("data", [{}])[0].get("embedding", [])
-        except httpx.TimeoutException as e:
-            logger.error("Embedding Timeout: %s", e)
-            return []
-        except (
-            httpx.HTTPError,
-            httpx.RequestError,
-            json.JSONDecodeError,
-            KeyError,
-            AttributeError,
-            RuntimeError,
-            TypeError,
-            ValueError,
-        ) as e:
-            logger.error("Embedding Error for model %s: %s", model, e, exc_info=True)
-            return []
+            except (
+                httpx.HTTPError,
+                httpx.RequestError,
+                json.JSONDecodeError,
+                KeyError,
+                AttributeError,
+                RuntimeError,
+                TypeError,
+                ValueError,
+            ) as e:
+                logger.error(
+                    "Embedding Error for model %s: %s", model, e, exc_info=True
+                )
+                return []
 
     def compute_cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
         """Compute cosine similarity between two vectors."""

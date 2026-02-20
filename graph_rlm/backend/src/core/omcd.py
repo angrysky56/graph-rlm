@@ -73,16 +73,27 @@ class OmcdController:
         # p = precision (0..1), d = depth
         # We check if p * (d + 1)^8 > 2^-15
         threshold = 2**-15
-        val = precision * ((depth + 1) ** 8)
+
+        # Ensure precision is at least a small epsilon to avoid zeroing out too early
+        p = max(1e-10, precision)
+        val = p * ((depth + 1) ** 8)
 
         self._last_bernshteyn_score = val
 
         if val > threshold:
             # Singularity detected: increase cost multiplier
-            # We use a log scale penalty to avoid immediate explosion but enforce limit
             import math
 
-            penalty = 1.0 + math.log(val / threshold)
+            # Using k * log(val/threshold) to create a steep but stable penalty
+            # k=10 makes it quite aggressive
+            penalty = 1.0 + 10.0 * math.log(val / threshold)
+
+            trace_action(
+                "oMCD",
+                "BERNSHTEYN_LIMIT_BREACH",
+                result=f"Singularity Breach: {val:.2e} > {threshold:.2e}. Penalty: {penalty:.2f}",
+                tag="SYSTEM",
+            )
             return max(1.0, penalty)
         return 1.0
 

@@ -1,0 +1,650 @@
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.llm] - LLMService initialized.
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - Knowledge Base structure verified at: /home/ty/Repositories/ai_workspace/graph-rlm/knowledge_base
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - Agent initialized using active environment: /home/ty/Repositories/ai_workspace/graph-rlm/.venv
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - Agent initialized with Persistent REPL support
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - RepE Safety Layer & Sheaf Topology Monitor Loaded.
+--- Verifying Communication Flow ---
+Emitting external event...
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - [THINKING] External Thought
+Emitting internal event...
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.agent] - [THINKING] Internal Noise
+Captured 1 events in queue.
+ - {'type': 'thinking', 'is_sub_event': False, 'content': 'External Thought'}
+✅ Communication flow filtering passed!
+
+--- Verifying Sheaf Monitor Robustness ---
+Testing code with imports and Path...
+2026-02-05 21:09:27 - [94mINFO[0m - [graph_rlm.sheaf] - 🛡️ Axiomatic Check: Running 101 relevant guardrails...
+2026-02-05 21:09:27 - [90mDEBUG[0m - [graph_rlm.repl.core] - Initializing REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c
+2026-02-05 21:09:27 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 21, in validate_auto_discovery_704a4e89
+ValueError: Input must be a list of execution attempts.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 46, in validate_auto_discovery_704a4e89
+ValueError: An unexpected error occurred during validation: Input must be a list of execution attempts.
+
+2026-02-05 21:09:27 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_704a4e89' execution error: True
+2026-02-05 21:09:27 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 24, in validate_auto_discovery_d8eba21f
+ValueError: Input data must contain 'final_response_status'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 43, in validate_auto_discovery_d8eba21f
+ValueError: Validation failed due to unexpected error: Input data must contain 'final_response_status'
+
+2026-02-05 21:09:27 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_d8eba21f' execution error: True
+2026-02-05 21:09:27 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 47, in validate_modelintegrity_79f7cd50
+  File "<string>", line 33, in validate_modelintegrity_79f7cd50
+ValueError: Missing 'repl_id' in response or execution_trace.
+
+2026-02-05 21:09:27 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_79f7cd50' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 23, in validate_modelintegrity_f82ef549
+ValueError: Input data must be a string.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_f82ef549' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 23, in validate_auto_discovery_391c3ac3
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_391c3ac3' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 40, in validate_agentorchestration_e8836bc0
+  File "/home/ty/miniconda3/lib/python3.13/re/__init__.py", line 177, in search
+    return _compile(pattern, flags).search(string)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+TypeError: expected string or bytes-like object, got 'dict'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 55, in validate_agentorchestration_e8836bc0
+ValueError: An error occurred during agent orchestration validation.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_agentorchestration_e8836bc0' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 26, in validate_orchestration_aed14d0d
+ValueError: Dictionary must contain 'tool_result' and 'agent_action' keys.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 46, in validate_orchestration_aed14d0d
+ValueError: An error occurred during validation: Dictionary must contain 'tool_result' and 'agent_action' keys.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_orchestration_aed14d0d' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 20, in validate_auto_discovery_f5b9484e
+  File "/home/ty/miniconda3/lib/python3.13/re/__init__.py", line 177, in search
+    return _compile(pattern, flags).search(string)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+TypeError: expected string or bytes-like object, got 'dict'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 37, in validate_auto_discovery_f5b9484e
+RuntimeError: An unexpected error occurred during validation.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_f5b9484e' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 25, in validate_observability_9bcf1d26
+ValueError: Input must contain 'reported_data' (list) and 'trace_logs' (string).
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 38, in validate_observability_9bcf1d26
+ValueError: An error occurred during validation: Input must contain 'reported_data' (list) and 'trace_logs' (string).
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_observability_9bcf1d26' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 16, in validate_auto_discovery_242f7700
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 18, in validate_auto_discovery_242f7700
+ValueError: The provided input is not valid Python code.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_242f7700' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 22, in validate_agentorchestration_a6cba2aa
+ValueError: Input data must be a string representing code or execution logs.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_agentorchestration_a6cba2aa' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 33, in validate_contextmanagement_f53489a3
+ValueError: Missing required fields: ['internal_state', 'temporal_logs', 'final_response']
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_contextmanagement_f53489a3' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 23, in validate_auto_discovery_0c32f16f
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_0c32f16f' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 46, in validate_auto_discovery_96b02a76
+  File "<string>", line 33, in validate_auto_discovery_96b02a76
+ValueError: Missing required fields: 'has_unhandled_exception' and 'response_acknowledges_failure'
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_96b02a76' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 21, in validate_agentorchestration_c490c801
+ValueError: Input data must be a string representing task logic.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_agentorchestration_c490c801' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 23, in validate_contextmanagement_387af083
+ValueError: Input must be a list of interaction logs.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 54, in validate_contextmanagement_387af083
+ValueError: Validation failed due to unexpected error: Input must be a list of interaction logs.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_contextmanagement_387af083' execution error: True
+2026-02-05 21:09:28 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 33, in validate_observability_55fa0996
+TypeError: expected string or bytes-like object, got 'dict'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 38, in validate_observability_55fa0996
+ValueError: An error occurred during string validation.
+
+2026-02-05 21:09:28 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_observability_55fa0996' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 29, in validate_auto_discovery_814ff847
+KeyError: "Missing required validation keys: ['skill_id', 'previous_failure_type', 'timeout_increased', 'deadlock_resolved']"
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 42, in validate_auto_discovery_814ff847
+ValueError: Schema validation failed due to missing fields.
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_814ff847' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 17, in validate_filesystem_b5d85ed4
+ValueError: Input data must be a string representing the logic block.
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_filesystem_b5d85ed4' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 26, in validate_auto_discovery_0da7dd93
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 110, in literal_eval
+    return _convert(node_or_string)
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 109, in _convert
+    return _convert_signed_num(node)
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 83, in _convert_signed_num
+    return _convert_num(node)
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 74, in _convert_num
+    _raise_malformed_node(node)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 71, in _raise_malformed_node
+    raise ValueError(msg + f': {node!r}')
+ValueError: malformed node or string: {'time': <module 'time' (built-in)>, 'math': <module 'math' from '/home/ty/miniconda3/lib/python3.13/lib-dynload/math.cpython-313-x86_64-linux-gnu.so'>, 're': <module 're' from '/home/ty/miniconda3/lib/python3.13/re/__init__.py'>, 'random': <module 'random' from '/home/ty/miniconda3/lib/python3.13/random.py'>, 'Path': <class 'pathlib._local.Path'>, 'session_id': 'mock_session', 'root_session_id': 'mock_root', 'task_input': 'mock_task', 'validate_test': <function validate_test at 0x76d05a9f96c0>, 'validate_auto_discovery_f27b6abb': <function validate_auto_discovery_f27b6abb at 0x76d05a9f9620>, 'validate_auto_discovery_3bb16fcc': <function validate_auto_discovery_3bb16fcc at 0x76d05a9f99e0>, 'validate_auto_discovery_a33bf392': <function validate_auto_discovery_a33bf392 at 0x76d05a9f9b20>, 'validate_filesystem_26805d19': <function validate_filesystem_26805d19 at 0x76d05a9f9c60>, 'validate_auto_discovery_64426904': <function validate_auto_discovery_64426904 at 0x76d05a9f9da0>, 'validate_auto_discovery_03febc48': <function validate_auto_discovery_03febc48 at 0x76d05a9f9f80>, 'Union': typing.Union, 'Dict': typing.Dict, 'Any': typing.Any, 'validate_auto_discovery_1fd60d89': <function validate_auto_discovery_1fd60d89 at 0x76d05a9fa0c0>, 'validate_auto_discovery_35fb2b34': <function validate_auto_discovery_35fb2b34 at 0x76d05a9fa200>, 'validate_auto_discovery_62d6f33a': <function validate_auto_discovery_62d6f33a at 0x76d05a9fa3e0>, 'validate_filesystem_2d4bc6fa': <function validate_filesystem_2d4bc6fa at 0x76d05a9fa660>, 'ast': <module 'ast' from '/home/ty/miniconda3/lib/python3.13/ast.py'>, 'validate_auto_discovery_704a4e89': <function validate_auto_discovery_704a4e89 at 0x76d05a9fa700>, 'validate_auto_discovery_d8eba21f': <function validate_auto_discovery_d8eba21f at 0x76d05a9f9760>, 'validate_auto_discovery_0888b5ef': <function validate_auto_discovery_0888b5ef at 0x76d05a9fa5c0>, 'validate_auto_discovery_0f4195fb': <function validate_auto_discovery_0f4195fb at 0x76d05a9fa7a0>, 'validate_auto_discovery_1195b89c': <function validate_auto_discovery_1195b89c at 0x76d030b33b00>, 'validate_auto_discovery_95c047af': <function validate_auto_discovery_95c047af at 0x76d030b339c0>, 'validate_contextmanagement_26b97231': <function validate_contextmanagement_26b97231 at 0x76d030b33740>, 'validate_auto_discovery_65a9614b': <function validate_auto_discovery_65a9614b at 0x76d030b33ce0>, 'validate_modelintegrity_79f7cd50': <function validate_modelintegrity_79f7cd50 at 0x76d030b33380>, 'validate_contextmanagement_abb1537e': <function validate_contextmanagement_abb1537e at 0x76d030b336a0>, 'validate_orchestration_52638c6a': <function validate_orchestration_52638c6a at 0x76d030b33560>, 'validate_auto_discovery_6743fab5': <function validate_auto_discovery_6743fab5 at 0x76d030b33880>, 'validate_auto_discovery_1cf8a5ca': <function validate_auto_discovery_1cf8a5ca at 0x76d030b33c40>, 'validate_auto_discovery_97f16272': <function validate_auto_discovery_97f16272 at 0x76d030b5c0e0>, 'validate_observability_9b75a8bb': <function validate_observability_9b75a8bb at 0x76d030b5c220>, 'validate_modelintegrity_f82ef549': <function validate_modelintegrity_f82ef549 at 0x76d030b5c360>, 'validate_auto_discovery_391c3ac3': <function validate_auto_discovery_391c3ac3 at 0x76d030b5c540>, 'validate_agentorchestration_e8836bc0': <function validate_agentorchestration_e8836bc0 at 0x76d030b5c720>, 'validate_orchestration_aed14d0d': <function validate_orchestration_aed14d0d at 0x76d030b5c900>, 'validate_auto_discovery_f5b9484e': <function validate_auto_discovery_f5b9484e at 0x76d030b5c7c0>, 'validate_auto_discovery_df1a785b': <function validate_auto_discovery_df1a785b at 0x76d030b5cae0>, 'validate_observability_9bcf1d26': <function validate_observability_9bcf1d26 at 0x76d030b5ca40>, 'validate_orchestration_eaa522d8': <function validate_orchestration_eaa522d8 at 0x76d030b5cea0>, 'validate_contextmanagement_67367c05': <function validate_contextmanagement_67367c05 at 0x76d030b5cc20>, 'validate_modelintegrity_b134d290': <function validate_modelintegrity_b134d290 at 0x76d030b5cfe0>, 'validate_agentorchestration_3bf79a77': <function validate_agentorchestration_3bf79a77 at 0x76d030b5d080>, 'validate_auto_discovery_242f7700': <function validate_auto_discovery_242f7700 at 0x76d030b5d1c0>, 'validate_modelintegrity_36d8de03': <function validate_modelintegrity_36d8de03 at 0x76d030b5d300>, 'validate_agentorchestration_a6cba2aa': <function validate_agentorchestration_a6cba2aa at 0x76d030b334c0>, 'validate_filesystem_eb62478d': <function validate_filesystem_eb62478d at 0x76d030b5d260>, 'validate_agentorchestration_cab52dc1': <function validate_agentorchestration_cab52dc1 at 0x76d030b5d3a0>, 'validate_contextmanagement_f53489a3': <function validate_contextmanagement_f53489a3 at 0x76d030b5d620>, 'validate_auto_discovery_5799b68e': <function validate_auto_discovery_5799b68e at 0x76d030b5d760>, 'validate_auto_discovery_0c32f16f': <function validate_auto_discovery_0c32f16f at 0x76d030b5d8a0>, 'validate_modelintegrity_bd21012b': <function validate_modelintegrity_bd21012b at 0x76d030b5dd00>, 'validate_auto_discovery_96b02a76': <function validate_auto_discovery_96b02a76 at 0x76d030b5d800>, 'validate_agentorchestration_c490c801': <function validate_agentorchestration_c490c801 at 0x76d030b5de40>, 'validate_contextmanagement_387af083': <function validate_contextmanagement_387af083 at 0x76d030b5dda0>, 'validate_agentorchestration_858430e4': <function validate_agentorchestration_858430e4 at 0x76d030b5e0c0>, 'List': typing.List, 'validate_auto_discovery_ea86cd7d': <function validate_auto_discovery_ea86cd7d at 0x76d030b5e2a0>, 'validate_observability_55fa0996': <function validate_observability_55fa0996 at 0x76d030b5e3e0>, 'validate_auto_discovery_bff24dcc': <function validate_auto_discovery_bff24dcc at 0x76d030b5e5c0>, 'validate_modelintegrity_883a3246': <function validate_modelintegrity_883a3246 at 0x76d030b5e520>, 'validate_filesystem_4b5a5ef1': <function validate_filesystem_4b5a5ef1 at 0x76d030b5db20>, 'validate_auto_discovery_c7256d5a': <function validate_auto_discovery_c7256d5a at 0x76d030b5e700>, 'validate_auto_discovery_814ff847': <function validate_auto_discovery_814ff847 at 0x76d030b5eac0>, 'validate_auto_discovery_7da9069d': <function validate_auto_discovery_7da9069d at 0x76d030b5ec00>, 'validate_modelintegrity_768a9097': <function validate_modelintegrity_768a9097 at 0x76d030b5d940>, 'validate_contextmanagement_8c33ae0f': <function validate_contextmanagement_8c33ae0f at 0x76d030b5e8e0>, 'validate_filesystem_b5d85ed4': <function validate_filesystem_b5d85ed4 at 0x76d030b5e7a0>, 'validate_auto_discovery_0da7dd93': <function validate_auto_discovery_0da7dd93 at 0x76d030b5f100>}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 48, in validate_auto_discovery_0da7dd93
+ValueError: Failed to validate auto_discovery invariant due to malformed input: malformed node or string: {'time': <module 'time' (built-in)>, 'math': <module 'math' from '/home/ty/miniconda3/lib/python3.13/lib-dynload/math.cpython-313-x86_64-linux-gnu.so'>, 're': <module 're' from '/home/ty/miniconda3/lib/python3.13/re/__init__.py'>, 'random': <module 'random' from '/home/ty/miniconda3/lib/python3.13/random.py'>, 'Path': <class 'pathlib._local.Path'>, 'session_id': 'mock_session', 'root_session_id': 'mock_root', 'task_input': 'mock_task', 'validate_test': <function validate_test at 0x76d05a9f96c0>, 'validate_auto_discovery_f27b6abb': <function validate_auto_discovery_f27b6abb at 0x76d05a9f9620>, 'validate_auto_discovery_3bb16fcc': <function validate_auto_discovery_3bb16fcc at 0x76d05a9f99e0>, 'validate_auto_discovery_a33bf392': <function validate_auto_discovery_a33bf392 at 0x76d05a9f9b20>, 'validate_filesystem_26805d19': <function validate_filesystem_26805d19 at 0x76d05a9f9c60>, 'validate_auto_discovery_64426904': <function validate_auto_discovery_64426904 at 0x76d05a9f9da0>, 'validate_auto_discovery_03febc48': <function validate_auto_discovery_03febc48 at 0x76d05a9f9f80>, 'Union': typing.Union, 'Dict': typing.Dict, 'Any': typing.Any, 'validate_auto_discovery_1fd60d89': <function validate_auto_discovery_1fd60d89 at 0x76d05a9fa0c0>, 'validate_auto_discovery_35fb2b34': <function validate_auto_discovery_35fb2b34 at 0x76d05a9fa200>, 'validate_auto_discovery_62d6f33a': <function validate_auto_discovery_62d6f33a at 0x76d05a9fa3e0>, 'validate_filesystem_2d4bc6fa': <function validate_filesystem_2d4bc6fa at 0x76d05a9fa660>, 'ast': <module 'ast' from '/home/ty/miniconda3/lib/python3.13/ast.py'>, 'validate_auto_discovery_704a4e89': <function validate_auto_discovery_704a4e89 at 0x76d05a9fa700>, 'validate_auto_discovery_d8eba21f': <function validate_auto_discovery_d8eba21f at 0x76d05a9f9760>, 'validate_auto_discovery_0888b5ef': <function validate_auto_discovery_0888b5ef at 0x76d05a9fa5c0>, 'validate_auto_discovery_0f4195fb': <function validate_auto_discovery_0f4195fb at 0x76d05a9fa7a0>, 'validate_auto_discovery_1195b89c': <function validate_auto_discovery_1195b89c at 0x76d030b33b00>, 'validate_auto_discovery_95c047af': <function validate_auto_discovery_95c047af at 0x76d030b339c0>, 'validate_contextmanagement_26b97231': <function validate_contextmanagement_26b97231 at 0x76d030b33740>, 'validate_auto_discovery_65a9614b': <function validate_auto_discovery_65a9614b at 0x76d030b33ce0>, 'validate_modelintegrity_79f7cd50': <function validate_modelintegrity_79f7cd50 at 0x76d030b33380>, 'validate_contextmanagement_abb1537e': <function validate_contextmanagement_abb1537e at 0x76d030b336a0>, 'validate_orchestration_52638c6a': <function validate_orchestration_52638c6a at 0x76d030b33560>, 'validate_auto_discovery_6743fab5': <function validate_auto_discovery_6743fab5 at 0x76d030b33880>, 'validate_auto_discovery_1cf8a5ca': <function validate_auto_discovery_1cf8a5ca at 0x76d030b33c40>, 'validate_auto_discovery_97f16272': <function validate_auto_discovery_97f16272 at 0x76d030b5c0e0>, 'validate_observability_9b75a8bb': <function validate_observability_9b75a8bb at 0x76d030b5c220>, 'validate_modelintegrity_f82ef549': <function validate_modelintegrity_f82ef549 at 0x76d030b5c360>, 'validate_auto_discovery_391c3ac3': <function validate_auto_discovery_391c3ac3 at 0x76d030b5c540>, 'validate_agentorchestration_e8836bc0': <function validate_agentorchestration_e8836bc0 at 0x76d030b5c720>, 'validate_orchestration_aed14d0d': <function validate_orchestration_aed14d0d at 0x76d030b5c900>, 'validate_auto_discovery_f5b9484e': <function validate_auto_discovery_f5b9484e at 0x76d030b5c7c0>, 'validate_auto_discovery_df1a785b': <function validate_auto_discovery_df1a785b at 0x76d030b5cae0>, 'validate_observability_9bcf1d26': <function validate_observability_9bcf1d26 at 0x76d030b5ca40>, 'validate_orchestration_eaa522d8': <function validate_orchestration_eaa522d8 at 0x76d030b5cea0>, 'validate_contextmanagement_67367c05': <function validate_contextmanagement_67367c05 at 0x76d030b5cc20>, 'validate_modelintegrity_b134d290': <function validate_modelintegrity_b134d290 at 0x76d030b5cfe0>, 'validate_agentorchestration_3bf79a77': <function validate_agentorchestration_3bf79a77 at 0x76d030b5d080>, 'validate_auto_discovery_242f7700': <function validate_auto_discovery_242f7700 at 0x76d030b5d1c0>, 'validate_modelintegrity_36d8de03': <function validate_modelintegrity_36d8de03 at 0x76d030b5d300>, 'validate_agentorchestration_a6cba2aa': <function validate_agentorchestration_a6cba2aa at 0x76d030b334c0>, 'validate_filesystem_eb62478d': <function validate_filesystem_eb62478d at 0x76d030b5d260>, 'validate_agentorchestration_cab52dc1': <function validate_agentorchestration_cab52dc1 at 0x76d030b5d3a0>, 'validate_contextmanagement_f53489a3': <function validate_contextmanagement_f53489a3 at 0x76d030b5d620>, 'validate_auto_discovery_5799b68e': <function validate_auto_discovery_5799b68e at 0x76d030b5d760>, 'validate_auto_discovery_0c32f16f': <function validate_auto_discovery_0c32f16f at 0x76d030b5d8a0>, 'validate_modelintegrity_bd21012b': <function validate_modelintegrity_bd21012b at 0x76d030b5dd00>, 'validate_auto_discovery_96b02a76': <function validate_auto_discovery_96b02a76 at 0x76d030b5d800>, 'validate_agentorchestration_c490c801': <function validate_agentorchestration_c490c801 at 0x76d030b5de40>, 'validate_contextmanagement_387af083': <function validate_contextmanagement_387af083 at 0x76d030b5dda0>, 'validate_agentorchestration_858430e4': <function validate_agentorchestration_858430e4 at 0x76d030b5e0c0>, 'List': typing.List, 'validate_auto_discovery_ea86cd7d': <function validate_auto_discovery_ea86cd7d at 0x76d030b5e2a0>, 'validate_observability_55fa0996': <function validate_observability_55fa0996 at 0x76d030b5e3e0>, 'validate_auto_discovery_bff24dcc': <function validate_auto_discovery_bff24dcc at 0x76d030b5e5c0>, 'validate_modelintegrity_883a3246': <function validate_modelintegrity_883a3246 at 0x76d030b5e520>, 'validate_filesystem_4b5a5ef1': <function validate_filesystem_4b5a5ef1 at 0x76d030b5db20>, 'validate_auto_discovery_c7256d5a': <function validate_auto_discovery_c7256d5a at 0x76d030b5e700>, 'validate_auto_discovery_814ff847': <function validate_auto_discovery_814ff847 at 0x76d030b5eac0>, 'validate_auto_discovery_7da9069d': <function validate_auto_discovery_7da9069d at 0x76d030b5ec00>, 'validate_modelintegrity_768a9097': <function validate_modelintegrity_768a9097 at 0x76d030b5d940>, 'validate_contextmanagement_8c33ae0f': <function validate_contextmanagement_8c33ae0f at 0x76d030b5e8e0>, 'validate_filesystem_b5d85ed4': <function validate_filesystem_b5d85ed4 at 0x76d030b5e7a0>, 'validate_auto_discovery_0da7dd93': <function validate_auto_discovery_0da7dd93 at 0x76d030b5f100>}
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_0da7dd93' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 25, in validate_auto_discovery_56206fce
+ValueError: Missing 'final_response' in execution log.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 40, in validate_auto_discovery_56206fce
+ValueError: Validation error: Missing 'final_response' in execution log.
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_56206fce' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 20, in validate_modelintegrity_72c0300e
+ValueError: Input data must be a string representing code.
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_72c0300e' execution error: True
+2026-02-05 21:09:29 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 22, in validate_filesystem_a7845813
+ValueError: Input must be a string representing code or execution logs.
+
+2026-02-05 21:09:29 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_filesystem_a7845813' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 22, in validate_agentorchestration_067a3ad1
+ValueError: Input data must be a string.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_agentorchestration_067a3ad1' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 24, in validate_auto_discovery_958fe496
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_958fe496' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 23, in validate_auto_discovery_34f47ca1
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_34f47ca1' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 29, in validate_modelintegrity_f40c7810
+ValueError: Input dictionary must contain 'Result' and 'Full Answer' keys.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_f40c7810' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 35, in validate_general_898e8d11
+ValueError: Invariant Violation: Semantic clusters must be defined.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 57, in validate_general_898e8d11
+ValueError: Validation failed: Invariant Violation: Semantic clusters must be defined.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_general_898e8d11' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 28, in validate_general_acc5fb14
+  File "/home/ty/miniconda3/lib/python3.13/re/__init__.py", line 285, in finditer
+    return _compile(pattern, flags).finditer(string)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+TypeError: expected string or bytes-like object, got 'dict'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 42, in validate_general_acc5fb14
+ValueError: Failed to parse the structural input for validation.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_general_acc5fb14' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 28, in validate_orchestration_85f391b9
+  File "/home/ty/miniconda3/lib/python3.13/re/__init__.py", line 177, in search
+    return _compile(pattern, flags).search(string)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+TypeError: expected string or bytes-like object, got 'dict'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 32, in validate_orchestration_85f391b9
+ValueError: Error processing orchestration logic validation.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_orchestration_85f391b9' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 41, in validate_modelintegrity_b097f270
+ValueError: Execution Trace ID '' does not match Ground Truth schema.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 59, in validate_modelintegrity_b097f270
+ValueError: Integrity check failed: Execution Trace ID '' does not match Ground Truth schema.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_b097f270' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 23, in validate_auto_discovery_49c96932
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 25, in validate_auto_discovery_49c96932
+ValueError: Invalid Python code provided for validation.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_49c96932' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 32, in validate_modelintegrity_1f522432
+ValueError: Missing 'directory_listing' or 'execution_trace' in input.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 57, in validate_modelintegrity_1f522432
+ValueError: Validation failed due to data integrity error: Missing 'directory_listing' or 'execution_trace' in input.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_1f522432' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 17, in validate_agentorchestration_ed1df9ea
+ValueError: Input must be a string representing action logs.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_agentorchestration_ed1df9ea' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "<string>", line 24, in validate_auto_discovery_60e913e2
+ValueError: Input dictionary must contain 'status' and 'traceback' keys.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 50, in validate_auto_discovery_60e913e2
+ValueError: Validation failed due to input error: Input dictionary must contain 'status' and 'traceback' keys.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_60e913e2' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 20, in validate_auto_discovery_f676182f
+  File "/home/ty/miniconda3/lib/python3.13/ast.py", line 50, in parse
+    return compile(source, filename, mode, flags,
+                   _feature_version=feature_version, optimize=optimize)
+TypeError: compile() arg 1 must be a string, bytes or AST object
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_auto_discovery_f676182f' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 63, in validate_modelintegrity_4acd05f7
+  File "<string>", line 22, in validate_modelintegrity_4acd05f7
+ValueError: Input must contain both 'scratchpad' and 'final_response' keys.
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_modelintegrity_4acd05f7' execution error: True
+2026-02-05 21:09:30 - [91mERROR[0m - [graph_rlm.repl.core] - REPL d1f65c3a-69d8-4c50-815f-247967e0bb6c Execution Error: Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/graph_rlm/backend/src/core/core.py", line 246, in execute
+    result = self.namespace["__eval_wrapper__"]()
+  File "<string>", line 1, in __eval_wrapper__
+  File "<string>", line 9, in validate_file_system_workspace_persistence
+  File "<frozen genericpath>", line 19, in exists
+TypeError: stat: path should be string, bytes, os.PathLike or integer, not dict
+
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - Axiom 'axiom_validate_file_system_workspace_persistence' execution error: True
+2026-02-05 21:09:30 - [93mWARNING[0m - [graph_rlm.sheaf] - 🚫 Axiomatic Violation detected: ["Axiom 'axiom_validate_auto_discovery_0f4195fb' violated: Validates the consistency between the Turn Log and edge status metadata\nbefore the # RLM_VALIDATED_RESPONSE marker is present.\n\nRule:\nA consistency check between the Turn Log and the actual edge status metadata\nmust be performed before outputting `# RLM_VALIDATED_RESPONSE`.\n\nArgs:\n    data (dict): A dictionary containing 'turn_log', 'edge_status_metadata', \n                and the 'response_body'.\n\nReturns:\n    bool: True if validation passes, False otherwise.\n\nRaises:\n    ValueError: If required keys are missing or internal processing fails.", "Axiom 'axiom_validate_auto_discovery_95c047af' violated: Validates the invariant: The agent must emit a literal error report if a skill \nis unreachable or the environment state cannot be verified.\n\nThis validator checks that if the input is code, it contains logic to handle\nskill reachability and environment verification via explicit error reporting.\nIf the input is a data dictionary, it ensures the required emission flags \nor reporting parameters are present.\n\nArgs:\n    data_or_code (str | dict): The auto_discovery logic or configuration.\n    \nReturns:\n    bool: True if the invariant is satisfied, False otherwise.\n\nRaises:\n    ValueError: If the input cannot be processed or violates the naming requirements.", "Axiom 'axiom_validate_contextmanagement_abb1537e' violated: Validates the ContextManagement invariant: The agent must not report success for a\nfile operation without performing a verification via `ls` or `read` functions.\n\nSpecifically, if the code contains a success notification (e.g., 'Task completed',\n'File saved successfully'), it must be preceded by a call to a verification \nfunction like 'ls' or 'read' within the same context.\n\nArgs:\n    code (str): The Python code string or log output representing agent actions.\n\nReturns:\n    bool: True if the invariant is satisfied, False otherwise.", 'Axiom \'axiom_validate_modelintegrity_36d8de03\' violated: Validates the invariant: Every "Final Response" must be derived exclusively \nfrom a verified, successful REPL result present in the session history.\n\nArgs:\n    session_data (dict): A dictionary containing \'history\' (list of interactions)\n                        and \'final_response\' (string).\n\nReturns:\n    bool: True if the final response is based on a successful REPL result, False otherwise.\n\nRaises:\n    ValueError: If the input data format is incorrect.', "Axiom 'axiom_validate_modelintegrity_883a3246' violated: Validates the ModelIntegrity invariant for hard logical constraints.\n\nThe function ensures that the input (dictionary or code string) meets \nthe integrity requirements defined for the domain. Specifically, if a string \nis provided, it checks for basic structural syntax. If a dictionary is \nprovided, it ensures that mandatory integrity keys are present and follow\ndefined logical patterns.\n\nRequirements:\n- Input must be a dictionary or a non-empty string.\n- If string: Must contain at least one valid logical operator or assignment.\n- If dictionary: Must contain 'id' and 'constraints' list.", "Axiom 'axiom_validate_filesystem_4b5a5ef1' violated: Validates the invariant: The content provided in a response must originate \nexclusively from verified REPL execution results within the FileSystem domain.\n\nThis function checks if the response structure contains 'content' that is\nattributed to a 'repl_output' block and ensures no unverified manual \nfilesystem descriptions are present.\n\nArgs:\n    data (dict): The response data to validate.\n\nReturns:\n    bool: True if validation passes, False otherwise.\n\nRaises:\n    ValueError: If the input structure is malformed.", "Axiom 'axiom_validate_auto_discovery_c7256d5a' violated: Validates the 'auto_discovery' logical invariant.\n\nThis function ensures that the input represents a valid configuration \nfor the auto-discovery domain. If the input is a string, it must be \nparsable Python code. If the input is a dictionary, it must contain \nthe necessary keys for auto-discovery.\n\nRule:\n1. If a dictionary: must contain 'domain' key with value 'auto_discovery'.\n2. If a string: must be valid Python syntax representing an assignment \n   or call related to auto_discovery.\n\nArgs:\n    data: A dictionary containing config or a string of source code.\n\nReturns:\n    bool: True if the invariant holds.\n\nRaises:\n    ValueError: If validation logic fails due to unexpected data format.", 'Axiom \'axiom_validate_observability_a730e6a9\' violated: Validates the filesystem structure for an observability domain task.\n\nThe invariant requires that the filesystem contains exactly:\n- A file \'SKILL.md\'\n- A file \'references/best-practices.md\'\n- An empty folder \'scripts/\'\n\nArgs:\n    filesystem (dict): A dictionary representing the filesystem where keys\n                       are file/directory paths and values are content strings\n                       or None for directories.\n                       Example: {"SKILL.md": "...", "scripts/": None}\n\nReturns:\n    bool: True if the filesystem strictly adheres to the structure, False otherwise.', "Axiom 'axiom_validate_orchestration_eededf45' violated: Invariant: Agents must verify the `Result` field of a tool call before\nupdating the Logical State Audit or generating a Final Response.\n\nThis validator checks if an orchestration script or execution log demonstrates\nthe verification of tool results prior to state updates or final output generation.\n\nArgs:\n    input_data (str | dict): The code string or dictionary representing the agent's logic.\n\nReturns:\n    bool: True if the invariant is satisfied, False otherwise.\n\nRaises:\n    ValueError: If input format is unsupported.", "Axiom 'axiom_validate_general_4a643d44' violated: Validates that thoughts are represented as dynamic graph structures.\n\nRule:\nThe input must contain or describe a structure consisting of 'nodes' and 'edges'.\n- If a dictionary: must contain keys 'nodes' and 'edges'.\n- If a code string: must define variables or keys related to 'nodes' and 'edges',\n  or use graph-related class definitions/instantiations.\n\nArgs:\n    input_data (dict|str): The representation of thoughts to validate.\n    \nReturns:\n    bool: True if the structure represents a dynamic graph, False otherwise."]
+Result: AXIOMATIC_VIOLATION
+Traceback (most recent call last):
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/tests/verify_comm_flow.py", line 98, in <module>
+    asyncio.run(main())
+    ~~~~~~~~~~~^^^^^^^^
+  File "/home/ty/miniconda3/lib/python3.13/asyncio/runners.py", line 195, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "/home/ty/miniconda3/lib/python3.13/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/home/ty/miniconda3/lib/python3.13/asyncio/base_events.py", line 725, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/tests/verify_comm_flow.py", line 95, in main
+    await verify_sheaf_robustness()
+  File "/home/ty/Repositories/ai_workspace/graph-rlm/tests/verify_comm_flow.py", line 73, in verify_sheaf_robustness
+    assert res["status"] == "HEALTHY", f"Status should be HEALTHY, got {res['status']}: {res.get('critique')}"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: Status should be HEALTHY, got AXIOMATIC_VIOLATION: 🚫 AXIOMATIC VIOLATIONS DETECTED:
+Axiom 'axiom_validate_auto_discovery_0f4195fb' violated: Validates the consistency between the Turn Log and edge status metadata
+before the # RLM_VALIDATED_RESPONSE marker is present.
+
+Rule:
+A consistency check between the Turn Log and the actual edge status metadata
+must be performed before outputting `# RLM_VALIDATED_RESPONSE`.
+
+Args:
+    data (dict): A dictionary containing 'turn_log', 'edge_status_metadata', 
+                and the 'response_body'.
+
+Returns:
+    bool: True if validation passes, False otherwise.
+
+Raises:
+    ValueError: If required keys are missing or internal processing fails.
+Axiom 'axiom_validate_auto_discovery_95c047af' violated: Validates the invariant: The agent must emit a literal error report if a skill 
+is unreachable or the environment state cannot be verified.
+
+This validator checks that if the input is code, it contains logic to handle
+skill reachability and environment verification via explicit error reporting.
+If the input is a data dictionary, it ensures the required emission flags 
+or reporting parameters are present.
+
+Args:
+    data_or_code (str | dict): The auto_discovery logic or configuration.
+    
+Returns:
+    bool: True if the invariant is satisfied, False otherwise.
+
+Raises:
+    ValueError: If the input cannot be processed or violates the naming requirements.
+Axiom 'axiom_validate_contextmanagement_abb1537e' violated: Validates the ContextManagement invariant: The agent must not report success for a
+file operation without performing a verification via `ls` or `read` functions.
+
+Specifically, if the code contains a success notification (e.g., 'Task completed',
+'File saved successfully'), it must be preceded by a call to a verification 
+function like 'ls' or 'read' within the same context.
+
+Args:
+    code (str): The Python code string or log output representing agent actions.
+
+Returns:
+    bool: True if the invariant is satisfied, False otherwise.
+Axiom 'axiom_validate_modelintegrity_36d8de03' violated: Validates the invariant: Every "Final Response" must be derived exclusively 
+from a verified, successful REPL result present in the session history.
+
+Args:
+    session_data (dict): A dictionary containing 'history' (list of interactions)
+                        and 'final_response' (string).
+
+Returns:
+    bool: True if the final response is based on a successful REPL result, False otherwise.
+
+Raises:
+    ValueError: If the input data format is incorrect.
+Axiom 'axiom_validate_modelintegrity_883a3246' violated: Validates the ModelIntegrity invariant for hard logical constraints.
+
+The function ensures that the input (dictionary or code string) meets 
+the integrity requirements defined for the domain. Specifically, if a string 
+is provided, it checks for basic structural syntax. If a dictionary is 
+provided, it ensures that mandatory integrity keys are present and follow
+defined logical patterns.
+
+Requirements:
+- Input must be a dictionary or a non-empty string.
+- If string: Must contain at least one valid logical operator or assignment.
+- If dictionary: Must contain 'id' and 'constraints' list.
+Axiom 'axiom_validate_filesystem_4b5a5ef1' violated: Validates the invariant: The content provided in a response must originate 
+exclusively from verified REPL execution results within the FileSystem domain.
+
+This function checks if the response structure contains 'content' that is
+attributed to a 'repl_output' block and ensures no unverified manual 
+filesystem descriptions are present.
+
+Args:
+    data (dict): The response data to validate.
+
+Returns:
+    bool: True if validation passes, False otherwise.
+
+Raises:
+    ValueError: If the input structure is malformed.
+Axiom 'axiom_validate_auto_discovery_c7256d5a' violated: Validates the 'auto_discovery' logical invariant.
+
+This function ensures that the input represents a valid configuration 
+for the auto-discovery domain. If the input is a string, it must be 
+parsable Python code. If the input is a dictionary, it must contain 
+the necessary keys for auto-discovery.
+
+Rule:
+1. If a dictionary: must contain 'domain' key with value 'auto_discovery'.
+2. If a string: must be valid Python syntax representing an assignment 
+   or call related to auto_discovery.
+
+Args:
+    data: A dictionary containing config or a string of source code.
+
+Returns:
+    bool: True if the invariant holds.
+
+Raises:
+    ValueError: If validation logic fails due to unexpected data format.
+Axiom 'axiom_validate_observability_a730e6a9' violated: Validates the filesystem structure for an observability domain task.
+
+The invariant requires that the filesystem contains exactly:
+- A file 'SKILL.md'
+- A file 'references/best-practices.md'
+- An empty folder 'scripts/'
+
+Args:
+    filesystem (dict): A dictionary representing the filesystem where keys
+                       are file/directory paths and values are content strings
+                       or None for directories.
+                       Example: {"SKILL.md": "...", "scripts/": None}
+
+Returns:
+    bool: True if the filesystem strictly adheres to the structure, False otherwise.
+Axiom 'axiom_validate_orchestration_eededf45' violated: Invariant: Agents must verify the `Result` field of a tool call before
+updating the Logical State Audit or generating a Final Response.
+
+This validator checks if an orchestration script or execution log demonstrates
+the verification of tool results prior to state updates or final output generation.
+
+Args:
+    input_data (str | dict): The code string or dictionary representing the agent's logic.
+
+Returns:
+    bool: True if the invariant is satisfied, False otherwise.
+
+Raises:
+    ValueError: If input format is unsupported.
+Axiom 'axiom_validate_general_4a643d44' violated: Validates that thoughts are represented as dynamic graph structures.
+
+Rule:
+The input must contain or describe a structure consisting of 'nodes' and 'edges'.
+- If a dictionary: must contain keys 'nodes' and 'edges'.
+- If a code string: must define variables or keys related to 'nodes' and 'edges',
+  or use graph-related class definitions/instantiations.
+
+Args:
+    input_data (dict|str): The representation of thoughts to validate.
+    
+Returns:
+    bool: True if the structure represents a dynamic graph, False otherwise.

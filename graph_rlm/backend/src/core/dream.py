@@ -200,6 +200,7 @@ class Dreamer:
         final_response_candidate: Optional[str] = None,
         context: Optional[str] = None,
         turn_id: Optional[int] = None,
+        root_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Public wrapper for Dream Cycle with strict locking to prevent overlapping execution.
@@ -228,7 +229,12 @@ class Dreamer:
         self._is_dreaming = True
         try:
             return await self._dream_cycle_impl(
-                emit_callback, session_id, final_response_candidate, context, turn_id
+                emit_callback,
+                session_id,
+                final_response_candidate,
+                context,
+                turn_id,
+                root_session_id,
             )
         except Exception as e:
             logger.error(
@@ -245,6 +251,7 @@ class Dreamer:
         final_response_candidate: Optional[str] = None,
         context: Optional[str] = None,
         turn_id: Optional[int] = None,
+        root_session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Main Sleep Cycle:
@@ -267,6 +274,7 @@ class Dreamer:
                 emit_callback(event_type, content=content, is_internal=is_internal)
 
         logger.info("🛌 Initiating Dream Cycle (Sleep Phase)...")
+        status_override = "lucid"
         emit("thinking", "🛌 [Dreamer] Initiating Dream Cycle...", is_internal=True)
 
         # 1. Gather Surprise (High Energy Edges) - scoped to current session if provided
@@ -558,7 +566,9 @@ class Dreamer:
                 # FIX: Even if peaceful, we MUST consolidate the nodes (mark them resolved)
                 # otherwise they stay 'failed' and trigger the Dreamer again in an infinite loop.
                 insight_id = str(uuid.uuid4())
-                await self._save_insight_async(insight_id, insight_text)
+                await self._save_insight_async(
+                    insight_id, insight_text, session_id, root_session_id
+                )
                 logger.info(
                     "🛌 peaceful_resolution: Metabolizing %d nodes to prevent looping...",
                     len(processed_node_ids),
@@ -635,7 +645,9 @@ class Dreamer:
         )
 
         insight_id = str(uuid.uuid4())
-        await self._save_insight_async(insight_id, insight_text)
+        await self._save_insight_async(
+            insight_id, insight_text, session_id, root_session_id
+        )
 
         # 6. [METABOLISM] Close the Gestalt (Mark nodes as consolidated)
         logger.info("🛌 Metabolizing %d failed thoughts...", len(processed_node_ids))
@@ -653,7 +665,9 @@ class Dreamer:
                 "🤖 Dreamer detected a potential Axiom. Attempting to codify..."
             )
             try:
-                axiom_res = await self._auto_codify_from_insight(insight_text)
+                axiom_res = await self._auto_codify_from_insight(
+                    insight_text, session_id, root_session_id
+                )
                 if axiom_res:
                     logger.info("✅ Auto-Axiom generated: %s", axiom_res)
                     trace_action(
@@ -697,7 +711,7 @@ class Dreamer:
             self._is_dreaming = False
 
         return {
-            "status": locals().get("status_override", "lucid"),
+            "status": status_override,
             "events_processed": len(surprise_events),
             "insight": insight_text,
             "id": insight_id,
@@ -713,6 +727,7 @@ class Dreamer:
         goal_embedding: Optional[List[float]] = None,
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
+        termination_reason: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Orchestrated Validation Phase (v3 Protocol).
@@ -733,8 +748,13 @@ class Dreamer:
         verification_result = "No verification performed."
         try:
             # A) Ask for verification code
+            term_signal = (
+                f"\n*** TERMINATION SIGNAL: {termination_reason} ***\n"
+                if termination_reason
+                else ""
+            )
             verify_prompt = (
-                f"You are the Dreamer, a verifiable guardian of truth.\n"
+                f"You are the Dreamer, a verifiable guardian of truth.{term_signal}\n"
                 f"The Agent has produced this candidate response:\n"
                 f"---\n{candidate}\n---\n"
                 f"Based on the scratchpad context below, identify ONE critical empirical claim (like file creation, data existence).\n"
@@ -763,7 +783,9 @@ class Dreamer:
 import sys
 from pathlib import Path
 """
-                repl = PythonREPL()  # Ephemeral REPL for verification
+                repl = PythonREPL(
+                    repl_id=f"verify_{uuid.uuid4().hex[:8]}"
+                )  # Ephemeral REPL for verification
                 stdout, stderr, _, _ = await repl.execute(preamble + "\n" + verify_code)
                 verification_result = (
                     f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
@@ -1029,7 +1051,7 @@ from pathlib import Path
 
         # 2. Test the Axiom against the Nightmare
         # If the Axiom crashes (raises uncaught exception) instead of returning False/Error, it fails REM.
-        repl = PythonREPL()
+        repl = PythonREPL(repl_id=f"dream_{uuid.uuid4().hex[:8]}")
 
         # We need to construct a wrapper that defines the function and runs it
         # Extract function name
@@ -1068,7 +1090,13 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         logger.info("👁️ REM Sleep: Axiom survived the nightmare. Consolidating.")
         return True
 
-    async def ingest_document(self, doc_path: str, domain: str) -> Dict[str, Any]:
+    async def ingest_document(
+        self,
+        doc_path: str,
+        domain: str,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
+    ) -> Dict[str, Any]:
         """Ingest a document and codify its knowledge into Axioms (Validators, Solvers, Advisors)."""
 
         path = Path(doc_path)
@@ -1078,38 +1106,15 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         logger.info("📖 Ingesting document for CAG: %s (Domain: %s)", path.name, domain)
         text = path.read_text(encoding="utf-8")
 
-        knowledge_items = await self._mine_knowledge(text, domain)
-        if not knowledge_items:
-            return {
-                "status": "peaceful",
-                "message": "No actionable knowledge found in document.",
-            }
-
-        codified = []
-        for item in knowledge_items:
-            try:
-                axiom_code, healing_code = await self._codify_axiom(item, domain)
-                if await self._verify_axiom_async(axiom_code, item["description"]):
-                    axiom_name = await self._save_axiom(
-                        code=axiom_code,
-                        description=item["description"],
-                        domain=domain,
-                        axiom_type=item["type"],
-                        healing_code=healing_code,
-                    )
-                    codified.append(axiom_name)
-            except (
-                AttributeError,
-                ValueError,
-                TypeError,
-                RuntimeError,
-            ) as e:  # pylint: disable=broad-except
-                logger.error(
-                    "Failed to codify knowledge item '%s': %s", item.get("name"), e
-                )
-
-        logger.info("✅ Ingestion complete. Codified %d axioms.", len(codified))
-        return {"status": "success", "codified_axioms": codified, "domain": domain}
+        res = await self.ingest_document_text_async(
+            text, domain, session_id=session_id, root_session_id=root_session_id
+        )
+        res["domain"] = domain  # Add domain for compatibility
+        logger.info(
+            "✅ Ingestion complete. Codified %d axioms.",
+            len(res.get("codified_axioms", [])),
+        )
+        return res
 
     async def _mine_knowledge(self, text: str, domain: str) -> List[Dict[str, Any]]:
         """Extract multi-tier knowledge (Validators, Solvers, Advisors) from text."""
@@ -1209,7 +1214,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         if was_fallback:
             logger.warning("dream_verify_fallback_used")
 
-        repl = PythonREPL()
+        repl = PythonREPL(repl_id=f"cag_verify_{uuid.uuid4().hex[:8]}")
         pure_code = code.replace("```python", "").replace("```", "").strip()
         pure_test = test_code.replace("```python", "").replace("```", "").strip()
 
@@ -1316,6 +1321,8 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         domain: str,
         axiom_type: str = "validator",
         healing_code: str | None = None,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
     ) -> str:
         axioms_mgr = get_axioms_manager()
         match = re.search(r"def ([\w_]+)", code)
@@ -1328,10 +1335,17 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             tags=[domain],
             axiom_type=axiom_type,
             healing_code=healing_code,
+            session_id=session_id,
+            root_session_id=root_session_id,
         )
         return axiom_name
 
-    async def _auto_codify_from_insight(self, insight: str) -> Optional[str]:
+    async def _auto_codify_from_insight(
+        self,
+        insight: str,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
+    ) -> Optional[str]:
         """Attempt to codify an axiom discovered during dreaming."""
         # RECURSION GUARD: Prevent nested axiom generation loops
         if self._is_codifying:
@@ -1345,7 +1359,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             # Dynamic Domain Classification
             domain = await self._classify_domain(insight)
             logger.info("🔍 [Dreamer] Classified Insight Domain: %s", domain)
-            res = await self.ingest_document_text_async(insight, domain)
+            res = await self.ingest_document_text_async(
+                insight, domain, session_id=session_id, root_session_id=root_session_id
+            )
             codified_axioms = res.get("codified_axioms")
             if (
                 codified_axioms
@@ -1416,7 +1432,11 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         return domain.strip().replace(" ", "") or "General"
 
     async def ingest_document_text_async(
-        self, text: str, domain: str
+        self,
+        text: str,
+        domain: str,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
     ) -> Dict[str, Any]:
         """Async version to ingest raw text and codify knowledge into multi-tier axioms."""
         knowledge_items = await self._mine_knowledge(text, domain)
@@ -1431,6 +1451,8 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                         domain=domain,
                         axiom_type=item["type"],
                         healing_code=healing_code,
+                        session_id=session_id,
+                        root_session_id=root_session_id,
                     )
                     codified.append(axiom_name)
             except (
@@ -1504,11 +1526,23 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             logger.error("[Dreamer] _get_node_scan failed for %s: %s", node_id, e)
             return {}
 
-    async def _save_insight_async(self, insight_id: str, content: str):
+    async def _save_insight_async(
+        self,
+        insight_id: str,
+        content: str,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
+    ):
         """Async version of save insight."""
-        self._save_insight(insight_id, content)
+        self._save_insight(insight_id, content, session_id, root_session_id)
 
-    def _save_insight(self, insight_id: str, content: str):
+    def _save_insight(
+        self,
+        insight_id: str,
+        content: str,
+        session_id: str | None = None,
+        root_session_id: str | None = None,
+    ):
         """
         Save insight to graph as :Insight node.
 
@@ -1517,9 +1551,18 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         """
         cypher = (
             "CREATE (i:Insight {id: $id, content: $content, "
+            "session_id: $sid, root_session_id: $rsid, "
             "created_at: timestamp(), type: 'dream_consolidation'})"
         )
-        self.db.query(cypher, {"id": insight_id, "content": content})
+        self.db.query(
+            cypher,
+            {
+                "id": insight_id,
+                "content": content,
+                "sid": session_id,
+                "rsid": root_session_id,
+            },
+        )
         logger.info(
             "Insight %s saved to graph (not appending to rules.md per RALPH methodology)",
             insight_id[:8],

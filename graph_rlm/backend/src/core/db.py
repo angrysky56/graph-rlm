@@ -70,6 +70,7 @@ class GraphClient:
         self,
         thought_id: str,
         prompt: str,
+        logical_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         prompt_embedding: Optional[List[float]] = None,
         session_id: str = "default",
@@ -99,9 +100,10 @@ class GraphClient:
         If parent_id is provided, creates a DECOMPOSES_INTO edge from parent to child.
 
         Args:
-            thought_id: Unique ID for the thought
+            thought_id: Global Unique ID for the thought (usually a UUID)
             prompt: Reasoning/action prompt
-            parent_id: Optional ID of parent thought
+            logical_id: Deterministic ID for UI/deduplication (e.g. T1:S1)
+            parent_id: Optional ID of parent thought (UUID)
             prompt_embedding: Optional vector representation
             session_id: Active session ID
             root_session_id: Root of the reasoning tree
@@ -186,6 +188,10 @@ class GraphClient:
             "SET t.prompt = $prompt, t.status = $status, t.created_at = timestamp(), "
             "t.session_id = $sid, t.root_session_id = $rsid"
         )
+
+        if logical_id:
+            params["lid"] = logical_id
+            cypher += ", t.logical_id = $lid"
 
         if prompt_embedding:
             params["vec"] = prompt_embedding

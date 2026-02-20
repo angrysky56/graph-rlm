@@ -62,11 +62,32 @@ class ScratchpadBuilder:
 
         lines.append("## Agent Session State (System TUI)")
         lines.append(f"- **Time**: {now.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} UTC")
-        lines.append(f"- **Session**: `{session_id}`")
-        lines.append(
-            f"- **Round**: {current_round_num} | **Step**: {current_step}/{max_steps}"
+        header = f"Session: {session_id[:8]}... | Round: {current_round_num} | Step: {current_step}/{max_steps}"
+        if current_repl_id:
+            header += f" | Active REPL: {current_repl_id}"
+
+        # Fetch Last Successful REPL for grounding
+        q_last_success = """
+        MATCH (n:Thought)
+        WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
+        AND n.status IN ['completed', 'success']
+        AND n.repl_id IS NOT NULL
+        RETURN n.repl_id
+        ORDER BY n.created_at DESC LIMIT 1
+        """
+        last_repl_res = self.db.query(
+            q_last_success, {"rsid": root_session_id, "sid": session_id}
         )
-        lines.append(f"- **Active REPL**: `{current_repl_id or 'None'}`")
+        if last_repl_res:
+            last_repl = (
+                last_repl_res[0].get("n.repl_id") or last_repl_res[0].get("repl_id")
+                if isinstance(last_repl_res[0], dict)
+                else last_repl_res[0][0]
+            )
+            header += f" | Last Successful REPL: {last_repl}"
+
+        header += "\n" + "=" * 60 + "\n"
+        lines.append(header)
         lines.append("")
 
         # === Thimac Memory Gestalt (Primary Anchor) ===
@@ -159,7 +180,7 @@ class ScratchpadBuilder:
             return "(empty)"
 
         # Threshold: Don't waste LLM calls on short text
-        if len(text) < 500:
+        if len(text) < 2000:
             return text.strip()
 
         try:
@@ -516,19 +537,51 @@ Summary:"""
                 for row in active_res:
                     if isinstance(row, dict):
                         rid = row.get("n.id") or row.get("id")
-                        prompt = row.get("n.prompt") or row.get("prompt")
+                        prompt = (
+                            row.get("n.prompt") or row.get("prompt") or ""
+                        ).lower()
+                        result = (
+                            row.get("n.result") or row.get("result") or ""
+                        ).lower()
                         status = row.get("status") or "failed"
                     else:
                         rid = row[0]
-                        prompt = row[1]
+                        prompt = (row[1] or "").lower()
+                        result = (row[2] or "").lower()
                         status = "failed"
 
-                    # Heuristic for triplet extraction representation
+                    # (S, R, O) Triplet Extraction (Heuristic)
+                    # S = Subject (What was being accessed)
+                    # R = Relation (The failure type/action)
+                    # O = Object (The target component)
+
+                    subject = "Agent"
+                    relation = "Failure"
+                    target = "Goal"
+
+                    if "error" in result:
+                        relation = (
+                            result.split(":")[0].strip() if ":" in result else "Error"
+                        )
+                        # Extract probable subject/object from error message
+                        words = result.split()
+                        if len(words) > 2:
+                            target = words[-1].strip("'\"")
+
                     rid_display = rid[:8] if rid else "unknown"
-                    prompt_display = prompt[:100] if prompt else "(empty)"
                     lines.append(
-                        f"- **{status.upper()}** [{rid_display}]: {prompt_display}..."
+                        f"- **{status.upper()}** [{rid_display}]: `{subject}` -> `{relation}` -> `{target}`"
                     )
+                    # Add H1 Obstruction Warning if energy is high
+                    from .sheaf import sheaf
+
+                    h1_score = sheaf.calculate_h1_obstruction(
+                        [{"prompt": prompt, "result": result, "status": status}]
+                    )
+                    if h1_score > 0.5:
+                        lines.append(
+                            f"  > [!WARNING] High H1 Cohomology Obstruction ({h1_score:.2f}) detected."
+                        )
 
             return "\n".join(lines)
         except (AttributeError, RuntimeError, ValueError):

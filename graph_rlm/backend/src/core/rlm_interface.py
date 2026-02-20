@@ -196,7 +196,7 @@ class RLMInterface:
 
         # --- ATOMIC WORKER PROTOCOL (v2) ---
         # 1. Generate specialized profile based on subtask
-        mcp_names = list(self.mcp._aliases.keys())
+        mcp_names = self.mcp.list_servers()
         skills_mgr = get_skills_manager()
         profile = await meta_agents.generate_sub_agent_profile(
             prompt, skills_manager=skills_mgr, mcp_names=mcp_names
@@ -334,15 +334,16 @@ class RLMInterface:
             uuid_pattern = r"^[0-9a-f\-]{4,36}$"  # Allow partial hex/uuid strings
             is_hex_query = re.match(uuid_pattern, query.lower())
 
-            if is_hex_query:
-                # Direct Match or Prefix Search
+            if is_hex_query or ":" in query:
+                # Direct Match or Prefix Search (UUID OR Logical ID)
                 logger.info("Direct/Partial ID check in recall: %s", query)
                 cypher = (
-                    "MATCH (n:Thought) WHERE n.id STARTS WITH $id "
+                    "MATCH (n:Thought) "
+                    "WHERE n.id STARTS WITH $id OR n.logical_id STARTS WITH $id "
                     "RETURN n.id as id, n.prompt as prompt, n.result as result "
                     "LIMIT 5"
                 )
-                res = self.agent.db.query(cypher, {"id": query.lower()})
+                res = self.agent.db.query(cypher, {"id": query})
                 if res:
                     formatted = []
                     for row in res:

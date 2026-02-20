@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 
@@ -551,7 +552,7 @@ class Agent:
 
     def _create_system_node(
         self,
-        node_id: str,
+        logical_id: str,
         summary: str,
         parent_id: Optional[str] = None,
         status: str = "system",
@@ -566,10 +567,13 @@ class Agent:
         validate: bool = False,
     ):
         """Standardized helper for materializing system-level reasoning in the graph."""
+        thought_id = "unknown"
         try:
+            thought_id = str(uuid.uuid4())
             self.db.create_thought_node(
-                thought_id=node_id,
+                thought_id=thought_id,
                 prompt=summary,
+                logical_id=logical_id,
                 result=result,
                 parent_id=parent_id or self.current_thought_id,
                 status=status,
@@ -583,7 +587,12 @@ class Agent:
                 validate=validate,
             )
         except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as e:
-            logger.error("Failed to create system node %s: %s", node_id, e)
+            logger.error(
+                "Failed to create system node %s (LID: %s): %s",
+                thought_id,
+                logical_id,
+                e,
+            )
 
     def emit_event(
         self,
@@ -859,18 +868,21 @@ class Agent:
         current_round_started = datetime.datetime.now().timestamp() * 1000  # ms
 
         try:
-            task_id = f"{session_id}:Task:0"
+            task_lid = f"{session_id}:Task:0"
+            task_id = str(uuid.uuid4())
             logger.info(
-                "Session %s: Starting Task %s (Round %s)",
+                "Session %s: Starting Task %s (LID: %s, Round %s)",
                 session_id,
                 task_id,
+                task_lid,
                 current_round_id,
             )
 
             self.db.create_thought_node(
-                task_id,
-                prompt,
-                parent_id,
+                thought_id=task_id,
+                prompt=prompt,
+                logical_id=task_lid,
+                parent_id=parent_id,
                 prompt_embedding=None,
                 session_id=session_id,
                 root_session_id=final_root_id,
@@ -887,6 +899,7 @@ class Agent:
             # Profile the task using meta_agents and emit a task plan
             task_profile = {}
             try:
+                from .mcp_runtime import get_mcp_server_names
                 from .meta_agents import meta_agents
 
                 # Discover available capabilities for profiling
@@ -894,15 +907,24 @@ class Agent:
                 skills_mgr = None
                 if is_mcp_available():
                     try:
-                        # Instantiate ephemeral RLM interface for discovery
-                        temp_rlm = RLMInterface(
-                            self, session_id=session_id, root_session_id=final_root_id
+                        logger.info(
+                            "Session %s: Rapidly scanning MCP servers for profiling...",
+                            session_id,
                         )
-                        # Explicitly trigger scan if not done
-                        if not temp_rlm.mcp._scan_done:
-                            temp_rlm.mcp._scan()
-                        mcp_names = list(temp_rlm.mcp._aliases.keys())
+                        mcp_names = get_mcp_server_names()
+                        logger.info(
+                            "Session %s: Discovered %d MCP servers.",
+                            session_id,
+                            len(mcp_names),
+                        )
+
+                        logger.info(
+                            "Session %s: Initializing Skills Manager...", session_id
+                        )
                         skills_mgr = get_skills_manager()
+                        logger.info(
+                            "Session %s: Skills Manager initialized.", session_id
+                        )
                     except (
                         AttributeError,
                         RuntimeError,
@@ -917,12 +939,40 @@ class Agent:
                             exc_info=True,
                         )
 
-                task_profile = await meta_agents.generate_sub_agent_profile(
-                    prompt, skills_manager=skills_mgr, mcp_names=mcp_names
+                logger.info(
+                    "Session %s: Generating sub-agent profile via LLM (5s timeout)...",
+                    session_id,
+                )
+                try:
+                    # Enforce strict timeout to prevent profiling from hanging the agent
+                    task_profile = await asyncio.wait_for(
+                        meta_agents.generate_sub_agent_profile(
+                            prompt, skills_manager=skills_mgr, mcp_names=mcp_names
+                        ),
+                        timeout=5.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Session %s: Profiling timed out, falling back to Generalist.",
+                        session_id,
+                    )
+                    task_profile = {
+                        "persona": "Autonomous Generalist",
+                        "tools": ["rlm"],
+                        "role": "execution",
+                    }
+                logger.info(
+                    "Session %s: Task profile generated: %s",
+                    session_id,
+                    task_profile.get("persona"),
+                )
+                role_val = task_profile.get("role", "WORKER")
+                role_str = (
+                    role_val.value if hasattr(role_val, "value") else str(role_val)
                 )
                 plan_summary = (
                     f"Persona: {task_profile.get('persona', 'Generalist')} | "
-                    f"Role: {task_profile.get('role', 'WORKER').value if hasattr(task_profile.get('role', 'role'), 'value') else task_profile.get('role', 'WORKER')} | "
+                    f"Role: {role_str} | "
                     f"Tools: {', '.join(task_profile.get('tools', ['All']))}"
                 )
                 self.emit_event(
@@ -978,7 +1028,8 @@ class Agent:
             )
         except (AttributeError, RuntimeError, ValueError) as e:
             logger.error("Failed to initialize Task node (DB/State error): %s", e)
-            task_id = f"{session_id}:Task:Fallback:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
+            task_lid = f"{session_id}:Task:Fallback:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
+            task_id = str(uuid.uuid4())
             self.current_thought_id = task_id
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
@@ -1015,9 +1066,11 @@ class Agent:
                 self.stop_requested = True
                 break
             step += 1
-            # Deterministic Thought ID for In-Place Updates (Deduplication)
-            # Format: SESSION_ID_PREFIX:T{turn}:S{step}
-            thought_id = f"{session_id[:8]}:T{self.current_turn}:S{step}"
+            # Deterministic Thought ID for UI/Deduplication
+            logical_id = f"{session_id[:8]}:T{self.current_turn}:S{step}"
+
+            # Global Unique ID for the specific attempt
+            thought_id = str(uuid.uuid4())
 
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
@@ -1161,9 +1214,9 @@ class Agent:
             if self.navigator and step % 3 == 0:  # Check periodically to avoid noise
                 # [Universal Traceability] Materialize Navigator Reasoning
                 # We log the history compression status as a proxy for 'exploration depth'
-                nav_id = f"{session_id}:T{self.current_turn}:S{step}:NAV"
+                nav_lid = f"{session_id}:T{self.current_turn}:S{step}:NAV"
                 self._create_system_node(
-                    nav_id,
+                    nav_lid,
                     f"Navigator: Monitoring history compression (Ratio: {getattr(self.navigator, '_last_compression_ratio', 1.0):.4f})",
                     status="navigator",
                     session_id=session_id,
@@ -1218,13 +1271,14 @@ class Agent:
                     llm_config = self.llm.config
                     if llm_config.get("provider") == "openrouter":
                         # Construct structured system message with cache control
+                        # Consolidate into a single text block with trailing cache control to maximize prefix sharing
+                        # Note: system_prompt already contains the scratchpad at the end (line 1105)
                         system_message_content = [
-                            {"type": "text", "text": system_prompt},
                             {
                                 "type": "text",
-                                "text": "\n\n[CACHE MARKER] System Instructions End.",
+                                "text": system_prompt,
                                 "cache_control": {"type": "ephemeral"},
-                            },
+                            }
                         ]
 
                         # Manually construct messages list to bypass llm.generate's simple formatting
@@ -1324,6 +1378,7 @@ class Agent:
                     self.db.create_thought_node(
                         thought_id,
                         "[SYSTEM ERROR]: LLM returned an empty response. Circuit breaker triggered.",
+                        logical_id=logical_id,
                         session_id=session_id,
                         root_session_id=final_root_id,
                         status="error",
@@ -1375,6 +1430,7 @@ class Agent:
                 self.db.create_thought_node(
                     thought_id,
                     response_text,
+                    logical_id=logical_id,
                     session_id=session_id,
                     root_session_id=final_root_id,
                     prompt_embedding=vec,
@@ -1457,9 +1513,9 @@ class Agent:
                 )
 
                 # [Universal Traceability] Materialize Sheaf Reasoning
-                shf_id = f"{session_id}:T{self.current_turn}:S{step}:SHF"
+                shf_lid = f"{session_id}:T{self.current_turn}:S{step}:SHF"
                 self._create_system_node(
-                    shf_id,
+                    shf_lid,
                     f"Sheaf Diagnosis: {sheaf_diag.get('status', 'HEALTHY')} (Energy: {sheaf_diag.get('energy', 0.0):.3f})",
                     status="sheaf",
                     session_id=session_id,
@@ -1479,9 +1535,9 @@ class Agent:
                 omcd_decision = omcd.evaluate_step(step, confidence)
 
                 # [Universal Traceability] Materialize oMCD Reasoning
-                omc_id = f"{session_id}:T{self.current_turn}:S{step}:OMC"
+                omc_lid = f"{session_id}:T{self.current_turn}:S{step}:OMC"
                 self._create_system_node(
-                    omc_id,
+                    omc_lid,
                     f"oMCD Decision: Q_stop={omcd_decision['q_stop']:.3f} (Benefit: {omcd_decision['benefit']:.3f}, Cost: {omcd_decision['cost']:.3f})",
                     status="omcd",
                     session_id=session_id,
@@ -1606,10 +1662,12 @@ class Agent:
                     )
 
                     # Inject the intervention as a new 'Thought' node (The "Superego" voice)
-                    intervention_id = f"{session_id}:T{self.current_turn}:S{step}:Intervention:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
+                    intervention_id = str(uuid.uuid4())
+                    intervention_lid = f"{logical_id}:INT"
                     self.db.create_thought_node(
                         intervention_id,
                         intervention_prompt,
+                        logical_id=intervention_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
                         parent_id=self.current_thought_id,
@@ -1744,6 +1802,7 @@ class Agent:
                 self.db.create_thought_node(
                     thought_id,
                     full_content,
+                    logical_id=logical_id,
                     session_id=session_id,
                     root_session_id=final_root_id,
                     prompt_embedding=final_vec,
@@ -1916,12 +1975,14 @@ class Agent:
 
                 if integrity_check["status"] == "RETRY":
                     self.final_result = None
-                    feedback_id = (
+                    feedback_lid = (
                         f"{session_id}:T{self.current_turn}:S{step}:EpistemicWarning"
                     )
+                    feedback_id = str(uuid.uuid4())
                     self.db.create_thought_node(
-                        feedback_id,
-                        f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {', '.join(integrity_check['flags'])}",
+                        thought_id=feedback_id,
+                        prompt=f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {', '.join(integrity_check['flags'])}",
+                        logical_id=feedback_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
                         parent_id=self.current_thought_id,
@@ -1948,12 +2009,14 @@ class Agent:
                     logger.info("🛡️ Triggering Final Synthesis Step for Code Result...")
                     self.synthesis_triggered = True
                     self.final_result = None
-                    synth_id = (
+                    synth_lid = (
                         f"{session_id}:T{self.current_turn}:S{step}:SynthesisRequired"
                     )
+                    synth_id = str(uuid.uuid4())
                     self.db.create_thought_node(
-                        synth_id,
-                        "SYSTEM: You provided code and results. You MUST now provide a COMPREHENSIVE Final Answer summarizing your findings.",
+                        thought_id=synth_id,
+                        prompt="SYSTEM: You provided code and results. You MUST now provide a COMPREHENSIVE Final Answer summarizing your findings.",
+                        logical_id=synth_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
                         parent_id=self.current_thought_id,
@@ -1980,12 +2043,14 @@ class Agent:
                 if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
                     self.final_result = None
                     axiom_critique = axiom_diag.get("critique")
-                    feedback_id = (
+                    feedback_lid = (
                         f"{session_id}:T{self.current_turn}:S{step}:AxiomViolation"
                     )
+                    feedback_id = str(uuid.uuid4())
                     self.db.create_thought_node(
-                        feedback_id,
-                        f"AXIOM VIOLATION: {axiom_critique}\nI MUST rewrite my final answer to match the governance requirements.",
+                        thought_id=feedback_id,
+                        prompt=f"AXIOM VIOLATION: {axiom_critique}\nI MUST rewrite my final answer to match the governance requirements.",
+                        logical_id=feedback_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
                         parent_id=self.current_thought_id,
@@ -2023,10 +2088,12 @@ class Agent:
                         self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
                         self._final_output_emitted = True
 
-                        val_id = f"{session_id}:T{self.current_turn}:S{step}:VALIDATED"
+                        val_lid = f"{session_id}:T{self.current_turn}:S{step}:VALIDATED"
+                        val_id = str(uuid.uuid4())
                         self.db.create_thought_node(
-                            val_id,
-                            f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
+                            thought_id=val_id,
+                            prompt=f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
+                            logical_id=val_lid,
                             parent_id=self.current_thought_id,
                             status="success",
                             session_id=session_id,
@@ -2047,10 +2114,12 @@ class Agent:
                         )
                         reasons = ", ".join(validation.get("reasons", []))
 
-                        feedback_id = f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection"
+                        feedback_lid = f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection"
+                        feedback_id = str(uuid.uuid4())
                         self.db.create_thought_node(
-                            feedback_id,
-                            f"DREAMER REJECTION: {instruction}\nREASONS: {reasons}",
+                            thought_id=feedback_id,
+                            prompt=f"DREAMER REJECTION: {instruction}\nREASONS: {reasons}",
+                            logical_id=feedback_lid,
                             session_id=session_id,
                             root_session_id=final_root_id,
                             parent_id=self.current_thought_id,
@@ -2061,16 +2130,19 @@ class Agent:
                             status="reflexion",
                             dreamer_analysis=json.dumps(validation),
                         )
+
+                        # [Self-Healing Fix] Update agent state for Hot Seat recovery
+                        self.last_dream_insight = f"{instruction}. REASONS: {reasons}"
+                        self.awaiting_validation = False
+                        self.synthesis_triggered = False
+
                         # [CAG Restoration]: Trigger Dream Cycle on failure to codify protective axioms
-                        # We run this as a background task to avoid blocking the agent's recovery attempts,
-                        # but it will analyze the session trace and 'Surprise' scores.
-                        asyncio.create_task(
-                            dreamer.dream_cycle(
-                                emit_callback=self.emit_event,
-                                session_id=session_id,
-                                context=context_scratchpad,
-                                turn_id=self.current_turn,
-                            )
+                        # We AWAIT this synchronously to ensure axioms are loaded in the NEXT turn (The Wake Cycle).
+                        await dreamer.dream_cycle(
+                            emit_callback=self.emit_event,
+                            session_id=session_id,
+                            context=context_scratchpad,
+                            turn_id=self.current_turn,
                         )
 
                         self.current_thought_id = feedback_id
@@ -2078,16 +2150,12 @@ class Agent:
                             "warning", content=f"Dreamer Rejection: {instruction}"
                         )
                         continue
-                except (
-                    AttributeError,
-                    RuntimeError,
-                    KeyError,
-                    ValueError,
-                    httpx.RequestError,
-                ) as e:
+                except Exception as e:
                     logger.error("Dreamer check failed: %s", e, exc_info=True)
-                    self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
-                    self._final_output_emitted = True
+                    self._emit_terminal_report(
+                        "DREAMER_ERROR",
+                        f"Validation system failed with internal error: {str(e)}",
+                    )
                     break
 
             # 2. Sheaf-based Stall/Loop Detection (Self-Healing)
@@ -2134,10 +2202,12 @@ class Agent:
                     )
 
                 # Create a specific 'Reflexion' node
-                reflexion_id = f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
+                reflexion_lid = f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
+                reflexion_id = str(uuid.uuid4())
                 self.db.create_thought_node(
-                    reflexion_id,
-                    reflexion_content,
+                    thought_id=reflexion_id,
+                    prompt=reflexion_content,
+                    logical_id=reflexion_lid,
                     session_id=session_id,
                     root_session_id=final_root_id,
                     prompt_embedding=vec,
@@ -2157,16 +2227,17 @@ class Agent:
         # === THE FIX FOR THE "GHOST ERROR" ===
         if self.stop_requested:
             # Stop requested by user or tool
-            self.emit_event(
-                "RLM_FINAL_OUTPUT",
-                content="Task processing stopped (Done/Stop signal received).",
+            self._emit_terminal_report(
+                "STOP_SIGNAL", "Task processing stopped (Done/Stop signal received)."
             )
             self.eval_success_count += 1  # User-initiated stop is still a success
         elif step >= max_steps:
-            self.emit_event(
-                "error",
-                content=f"AGENT LIMIT REACHED: Reached max_steps ({max_steps}). Stopping execution.",
-            )
+            reason = "MAX_STEPS_REACHED"
+            details = f"Reached maximum allowed steps ({max_steps})."
+            if getattr(self, "last_rejected_result", None):
+                details += f"\nNote: The last attempted answer was rejected by the Dreamer.\nLast error: {getattr(self, 'last_dream_insight', 'Unknown validation failure')}"
+
+            self._emit_terminal_report(reason, details)
             logger.warning(
                 "Session %s reached max steps (%s) and aborted.", session_id, max_steps
             )
@@ -2248,6 +2319,24 @@ class Agent:
 
         # Return the final result or a default message if not set
         return self.final_result or "Task processing stopped."
+
+    def _emit_terminal_report(self, reason: str, details: str):
+        """
+        Consolidated final report for all termination conditions (oMCD, Sheaf, Rejection, Limit).
+        Ensures the user gets the best available draft and an explanation.
+        """
+        content = f"--- RLM TERMINAL REPORT ---\nREASON: {reason}\nDETAILS: {details}\n"
+
+        if self.final_result:
+            content += f"\n--- VALIDATED FINAL ANSWER ---\n{self.final_result}"
+        elif getattr(self, "last_rejected_result", None):
+            content += f"\n--- UNVALIDATED DRAFT (REJECTED BY DREAMER) ---\n{self.last_rejected_result}\n"
+            content += "\n(System Note: The agent failed to produce a response that passed validation. This draft is provided for reference.)"
+        else:
+            content += "\nNO OUTPUT PRODUCED."
+
+        self.emit_event("RLM_FINAL_OUTPUT", content=content)
+        self._final_output_emitted = True
 
     def _extract_code(self, text: str) -> str:
         """Extracts python code blocks from LLM response text."""

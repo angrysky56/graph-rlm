@@ -14,12 +14,11 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
     project_structure.txt
     pyproject.toml
     pytest.ini
+    reports.txt
+    research_reports.txt
     setup_env.sh
     src_reference.md
     start.sh
-    test_pydantic_ai.py
-    test_report_data_pipeline.py
-    test_rlm_list_skills.py
     uv.lock
     falkordb_data/
     CODEAGENCY/
@@ -31,6 +30,8 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         GUARDRAILS.md
         PROGRESS.md
         SPEC.md
+    skills_tmp/
+        __init__.py
     .planning/
         PROJECT.md
         REQUIREMENTS.md
@@ -141,9 +142,15 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         Bootstrapping-Core-Self-via-AI-Feedback.md
         Designing-a-Self-Healing-RLM-Framework.md
         Enhancing-LLM-Critical-Thinking-and-Reasoning.md
+        Human-Centered-AI-Interfaces.md
         Integrating-RLM-and-Ralph-Wiggum-Loop.md
+        MCP_CODE_COMPARISON.md
+        MCP_DEVELOPER_GUIDE.md
+        MCP_FIX_SUMMARY.md
+        MCP_QUICK_REFERENCE.md
+        Mapping-Infinite-Rulial-Space.md
+        Micro-Node-Cognitive-Architecture.md
         Representation-Engineering-for-LLMs.md
-        The Developer's Guide to Human-Centered AI Interfaces with Material UI.md
         agentic_tdd_spec.md
         googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
         implementation_plan.md
@@ -323,7 +330,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                     mcp_runtime.py
                     meta_agents.py
                     monitor.py
-                    morphogenesis.py
                     navigator.py
                     navigator_config.py
                     omcd.py
@@ -334,6 +340,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                     scratchpad_builder.py
                     sheaf.py
                     state.py
+                    thimac_memory.py
                     topology.py
                     trace.py
                     services/
@@ -345,27 +352,47 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                         codes.py
                         handlers.py
                         types.py
+            tests/
+                diagnostic_dreamer.py
+                print_system_paths.py
+                test_rlm_done_logic.py
+                test_slac_framework.py
+                test_string_safety.py
+                verify_axiom_defaults.py
+                verify_dreamer_codification.py
+                verify_dreamer_success_codification.py
+                verify_kb_proxy.py
+                verify_kernel_robustness.py
+        data/
+            repe_cache.json
     tests/
-        MCP_CODE_COMPARISON.md
-        MCP_DEVELOPER_GUIDE.md
-        MCP_FIX_SUMMARY.md
-        MCP_QUICK_REFERENCE.md
         __init__.py
         check_dim.py
         conftest.py
+        debug_db_session.py
         debug_llm_response.py
         debug_paper_read.py
         debug_prompt.py
+        debug_skills_path.py
         diagnose_overlap.py
+        exam_cli.py
+        find_invalid_escapes.py
         full_prompt.txt
         full_prompt_fixed.txt
         get_axiom_code.py
         inspect_db.py
+        inspect_logging.py
         list_skills_db.py
         purge_poisonous_axiom.py
         regenerate_tools.py
         reproduce_dream_warning.py
         reproduce_filtering_failure.py
+        reproduce_metric_persistence.py
+        reproduce_scratchpad.py
+        reproduce_warning.py
+        rope_research_buffer.txt
+        test_agent_morph_integration.py
+        test_axiom_query.py
         test_axiom_relevance.py
         test_cag_basics.py
         test_cag_ingest.py
@@ -373,35 +400,75 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         test_cypher_diag.py
         test_cypher_edge.py
         test_cypher_fail.py
+        test_debug_pipeline.py
+        test_deccp_suite.py
+        test_discovery.py
         test_drop_syntax.py
         test_emergency_fix.py
+        test_epistemic_loop_break.py
+        test_execution_verification.txt
         test_import.py
         test_indexes.py
         test_integrity_upgrade.py
+        test_kernel_kb.py
+        test_llm_resilience.py
         test_mcp_reflection.py
+        test_morphogenesis.py
+        test_numpy.py
+        test_pydantic_ai.py
+        test_reflexion.py
+        test_repe_gatekeeper.py
+        test_report_data_pipeline.py
+        test_rlm_list_skills.py
+        test_scratchpad_collapse.py
         test_shadowing_fail.py
         test_skill_import_fix.py
         test_skills.py
+        test_sync.py
         test_tool_recovery.py
+        test_validation_protocol.py
         test_vec_dist.py
         test_vector_syntax.py
+        verify_agent_recovery.py
         verify_agentic_axioms.py
         verify_axiom_transparency.py
+        verify_backend.py
+        verify_chat_filtering.py
+        verify_comm_flow.py
+        verify_curiosity.py
+        verify_harness_logic.py
+        verify_healing_logic.py
         verify_honest_sheaf.py
+        verify_ipc_fix.py
+        verify_loop_fix.py
         verify_mcp_counts.py
+        verify_meta_agent_discovery.py
         verify_namespacing.py
+        verify_output.txt
         verify_prompt.py
         verify_reliability.py
         verify_repl_v2.py
+        verify_routing.py
+        verify_runtime_refactor.py
         verify_scratchpad_compression.py
+        verify_scratchpad_restore.py
+        verify_scratchpad_truncation.py
         verify_self_healing.py
+        verify_sheaf.py
+        verify_skill_import.py
+        verify_skill_output.py
         verify_stateless.py
+        verify_step_visibility.py
+        verify_theory.py
+        verify_traceability.py
+        verify_truncation_fix.py
         legacy/
             __init__.py
             test_agent.py
         unit/
             __init__.py
             test_config.py
+            test_logging_lazy.py
             test_exceptions/
                 __init__.py
                 test_base.py
@@ -410,6 +477,22 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                 test_validation.py
         integration/
             test_mcp_circuit_breaker.py
+        tests/
+            __init__.py
+            probe_index.py
+            probe_index_2.py
+            probe_vector.py
+            test_agent_isolation.py
+            test_agent_manual.py
+            test_core_isolation.py
+            test_mcp_ipc_resolution.py
+            test_normalization.py
+            test_recursive_isolation.py
+            test_repl_auto_await.py
+            test_sheaf.py
+            test_skill_proxy.py
+            test_vectors.py
+            verify_traceability.py
         mocking/
             __init__.py
             external.py

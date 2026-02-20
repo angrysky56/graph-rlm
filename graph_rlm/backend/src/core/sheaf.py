@@ -8,6 +8,7 @@ import json
 import os
 import re
 import sys
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -843,7 +844,7 @@ class SheafMonitor:
         )
 
         # 2. Spawn temporary sandbox REPL (Clean Environment)
-        repl = PythonREPL()
+        repl = PythonREPL(repl_id=f"sheaf_{uuid.uuid4().hex[:8]}")
 
         # 3. Inject allowed utilities (Including Mocks for Tool Use)
         # Tool use mocks

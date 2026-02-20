@@ -111,10 +111,12 @@ class MetaAgentController:
 
         # PERSISTENCE: Materialize collaboration start
         try:
-            start_id = f"{root_session_id}:META:START"
+            start_lid = f"{root_session_id}:META:START"
+            start_id = str(uuid.uuid4())
             self.db.create_thought_node(
                 thought_id=start_id,
                 prompt=f"META-COLLABORATION START: {task}",
+                logical_id=start_lid,
                 status="system",
                 session_id=root_session_id,
                 root_session_id=root_session_id,
@@ -410,10 +412,12 @@ OUTPUT FORMAT:
 
         # PERSISTENCE: Save fragment to Graph so Scratchpad Builder sees it
         try:
+            fragment_lid = f"{fragment.session_id}:FRAG:{len(state.fragments)}"
             thought_id = str(uuid.uuid4())
             self.db.create_thought_node(
                 thought_id=thought_id,
                 prompt=f"Meta-Agent Fragment: {fragment.summary}",
+                logical_id=fragment_lid,
                 result=f"## Analysis\n{fragment.raw_output}",
                 session_id=fragment.session_id,
                 root_session_id=root_session_id,
@@ -464,10 +468,12 @@ OUTPUT FORMAT:
 
             # PERSISTENCE: Materialize coherence achievement
             try:
-                coh_id = f"{root_session_id}:META:COHERENCE:{state.iteration}"
+                coh_lid = f"{root_session_id}:META:COHERENCE:{state.iteration}"
+                coh_id = str(uuid.uuid4())
                 self.db.create_thought_node(
                     thought_id=coh_id,
                     prompt=f"META-COHERENCE ACHIEVED: Threshold {state.coherence_threshold:.2f} met.",
+                    logical_id=coh_lid,
                     status="system",
                     session_id=root_session_id,
                     root_session_id=root_session_id,
