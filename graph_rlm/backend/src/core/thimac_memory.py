@@ -371,6 +371,10 @@ class ThimacMemory:
         result = (thought.get("result") or "").strip()
         prompt = (thought.get("prompt") or "").strip()
 
+        # Sanitize code fences and normalize whitespace
+        result = re.sub(r"```[\s\S]*?```", "", result).strip()
+        prompt = re.sub(r"```[\s\S]*?```", "", prompt).strip()
+
         if status == "success" and result and len(result) > 2:
             # For ingestion/search, combined view is best
             if operation == ThimacOperation.ARRIVE:

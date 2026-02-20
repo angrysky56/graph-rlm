@@ -413,22 +413,26 @@ class ScratchpadBuilder:
             sheaf = row.get("sheaf_score")
             omcd = row.get("omcd_score")
 
-            # Format scores safely
-            evasion_str = f"{evasion:.2f}" if evasion is not None else "--"
-            sheaf_str = f"{sheaf:.2f}" if sheaf is not None else "--"
-            omcd_str = f"{omcd:.2f}" if omcd is not None else "--"
+            # Format scores safely with descriptive labels
+            evasion_str = (
+                f"{evasion:.2f}" if isinstance(evasion, (int, float)) else "--"
+            )
+            sheaf_str = f"{sheaf:.2f}" if isinstance(sheaf, (int, float)) else "--"
+            omcd_str = f"{omcd:.2f}" if isinstance(omcd, (int, float)) else "--"
 
-            ratings = f"Ψ:{evasion_str} \| 📐:{sheaf_str} \| Ω:{omcd_str}"
+            ratings = (
+                f"Ψ(RepE):{evasion_str} \| 📐(Sheaf):{sheaf_str} \| Ω(oMCD):{omcd_str}"
+            )
 
             # --- ALERT DECORATION ---
             alerts = []
-            if sheaf is not None and sheaf > 0.7:
+            if isinstance(sheaf, (int, float)) and sheaf > 0.7:
                 alerts.append("!! LOOP !!")
-            if evasion is not None and evasion < -0.15:
+            if isinstance(evasion, (int, float)) and evasion < -0.15:
                 alerts.append("!! EVASION !!")
-            if shaky is not None and shaky < -0.15:
+            if isinstance(shaky, (int, float)) and shaky < -0.15:
                 alerts.append("!! UNCERTAIN !!")
-            if omcd is not None and omcd < 0.3:
+            if isinstance(omcd, (int, float)) and omcd < 0.3:
                 alerts.append("!! LOW CONFIG !!")
 
             if alerts:

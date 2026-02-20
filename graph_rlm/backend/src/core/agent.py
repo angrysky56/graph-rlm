@@ -806,9 +806,22 @@ class Agent:
                 # preventing pipeline hangs if the loop breaks early or Dreamer logic gets stuck.
                 if not getattr(self, "_final_output_emitted", False):
                     if self.final_result:
-                        q.put(
-                            {"type": "RLM_FINAL_OUTPUT", "content": self.final_result}
-                        )
+                        if self.awaiting_validation:
+                            # Loop broke while waiting for Dreamer
+                            q.put(
+                                {
+                                    "type": "error",
+                                    "content": "Agent loop terminated before Dreamer validation completed.",
+                                }
+                            )
+                        else:
+                            # Force it into the proper pipeline
+                            q.put(
+                                {
+                                    "type": "RLM_INITIAL_RESPONSE",
+                                    "content": self.final_result,
+                                }
+                            )
                     elif getattr(self, "last_rejected_result", None):
                         # Fallback to rejected result with a warning
                         q.put(
@@ -2752,10 +2765,10 @@ class Agent:
         # it is likely reward hacking (hallucinating output).
         if has_completion:
             # 1. Check for unfilled template placeholders or common LLM hallucinations
-            placeholders = re.findall(r"\{[a-zA-Z0-9_]+\}", thought_trace)
-            todo_markers = any(
-                m in thought_trace for m in ["[TODO]", "TODO:", "FIXME", "..."]
+            placeholders = re.findall(
+                r"\[(?:TODO|INSERT|FILL|MISSING).*?\]", thought_trace, re.IGNORECASE
             )
+            todo_markers = any(m in thought_trace for m in ["[TODO]", "TODO:", "FIXME"])
             if placeholders or todo_markers:
                 score -= 0.8
                 flags.append(

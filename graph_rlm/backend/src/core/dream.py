@@ -783,9 +783,22 @@ class Dreamer:
 import sys
 from pathlib import Path
 """
+                from .config import settings
+                from .core import KnowledgeBaseStructure
+
+                kb = KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
+
                 repl = PythonREPL(
                     repl_id=f"verify_{uuid.uuid4().hex[:8]}"
                 )  # Ephemeral REPL for verification
+                repl.namespace.update(
+                    {
+                        "sys": __import__("sys"),
+                        "os": __import__("os"),
+                        "Path": __import__("pathlib").Path,
+                        "kb": kb,
+                    }
+                )
                 stdout, stderr, _, _ = await repl.execute(preamble + "\n" + verify_code)
                 verification_result = (
                     f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
@@ -805,7 +818,9 @@ from pathlib import Path
         candidate_vec = await self.llm.get_embedding(candidate)
 
         # ── 2. RepE: Full Psychological Profile (all 4 axes) ──
-        psych_profile = repe.scan_thought(candidate_vec)
+        # Provide fallback zero vector if embedding fails (usually 384 or 768 dims)
+        safe_vec = candidate_vec if candidate_vec is not None else [0.0] * 384
+        psych_profile = repe.scan_thought(safe_vec)
         # psych_profile keys: Shakiness, Confluence, Evasion, Freedom
         # Positive = grounded / healthy on that axis
 
@@ -844,8 +859,10 @@ from pathlib import Path
         omcd_decision = omcd.evaluate_step(step=current_step, confidence=confidence)
 
         # ── 5. Deterministic checks (fast, no LLM needed) ──
-        placeholders = re.findall(r"\{[a-zA-Z0-9_]+\}", candidate)
-        has_todo = any(m in candidate for m in ["[TODO]", "TODO:", "FIXME", "..."])
+        placeholders = re.findall(
+            r"\[(?:TODO|INSERT|FILL|MISSING).*?\]", candidate, re.IGNORECASE
+        )
+        has_todo = any(m in candidate for m in ["[TODO]", "TODO:", "FIXME"])
         has_truncation = "[Output Truncated]" in context or "[...]" in context
         rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
         rlm_compliance = any(p in context for p in rlm_patterns)
