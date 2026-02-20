@@ -32,6 +32,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -53,13 +54,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def get_dataset_info(dataset_id: str | Any = None, **kwargs) -> Any:
@@ -77,6 +80,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -94,13 +98,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def list_active_datasets(**kwargs) -> Any:
@@ -112,6 +118,7 @@ Lists all currently loaded datasets and their IDs.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -127,13 +134,15 @@ Lists all currently loaded datasets and their IDs.
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def validate_dataset(dataset_id: str | Any = None, schema: dict[str, Any] | Any = None, **kwargs) -> Any:
@@ -154,6 +163,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -173,13 +183,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def clean_dataset(dataset_id: str | Any = None, operations: list[Any] | Any = None, **kwargs) -> Any:
@@ -200,6 +212,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -219,13 +232,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def get_dataset_profile(dataset_id: str | Any = None, **kwargs) -> Any:
@@ -244,6 +259,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -261,13 +277,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def generate_chart(dataset_id: str | Any = None, chart_type: str | Any = None, x: Any | None = None, y: Any | None = None, title: Any | None = None, **kwargs) -> Any:
@@ -296,6 +314,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -321,13 +340,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def scan_semantic_voids(dataset_id: str | Any = None, text_column: str | Any = None, **kwargs) -> Any:
@@ -345,6 +366,7 @@ Generates a persistence barcode and 3D manifold plot.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -364,13 +386,15 @@ Generates a persistence barcode and 3D manifold plot.
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def run_sql_query(query: str | Any = None, dataset_id: Any | None = None, **kwargs) -> Any:
@@ -390,6 +414,7 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -409,13 +434,15 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def extract_signals(dataset_id: str | Any = None, value_column: str | Any = None, id_column: Any | None = None, sort_column: Any | None = None, **kwargs) -> Any:
@@ -442,6 +469,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -465,13 +493,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def load_hf_dataset(dataset_name: str | Any = None, split: Any | None = None, config_name: Any | None = None, **kwargs) -> Any:
@@ -496,6 +526,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -517,13 +548,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def extract_tables(url: str | Any = None, **kwargs) -> Any:
@@ -544,6 +577,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -561,13 +595,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def generate_map(dataset_id: str | Any = None, lat_col: str | Any = None, lon_col: str | Any = None, **kwargs) -> Any:
@@ -592,6 +628,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -613,13 +650,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def start_explorer(dataset_id: str | Any = None, **kwargs) -> Any:
@@ -640,6 +679,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -657,13 +697,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 

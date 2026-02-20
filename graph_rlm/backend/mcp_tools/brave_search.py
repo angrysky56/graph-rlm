@@ -22,6 +22,7 @@ def brave_web_search(query: str | Any = None, count: float | None = None, offset
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -43,13 +44,15 @@ def brave_web_search(query: str | Any = None, count: float | None = None, offset
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def brave_local_search(query: str | Any = None, count: float | None = None, **kwargs) -> Any:
@@ -67,6 +70,7 @@ Use this when the query implies 'near me' or mentions specific locations. Automa
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -86,13 +90,15 @@ Use this when the query implies 'near me' or mentions specific locations. Automa
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 

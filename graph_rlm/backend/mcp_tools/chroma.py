@@ -29,6 +29,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -48,13 +49,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_create_collection(collection_name: str | Any = None, embedding_function_name: str | None = None, metadata: Any | None = None, **kwargs) -> Any:
@@ -75,6 +78,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -96,13 +100,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_peek_collection(collection_name: str | Any = None, limit: int | None = None, **kwargs) -> Any:
@@ -121,6 +127,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -140,13 +147,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_get_collection_info(collection_name: str | Any = None, **kwargs) -> Any:
@@ -163,6 +172,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -180,13 +190,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_get_collection_count(collection_name: str | Any = None, **kwargs) -> Any:
@@ -203,6 +215,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -220,13 +233,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_modify_collection(collection_name: str | Any = None, new_name: Any | None = None, new_metadata: Any | None = None, **kwargs) -> Any:
@@ -247,6 +262,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -268,13 +284,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_fork_collection(collection_name: str | Any = None, new_collection_name: str | Any = None, **kwargs) -> Any:
@@ -294,6 +312,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -313,13 +332,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_delete_collection(collection_name: str | Any = None, **kwargs) -> Any:
@@ -336,6 +357,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -353,13 +375,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_add_documents(collection_name: str | Any = None, documents: list[str] | Any = None, ids: list[str] | Any = None, metadatas: Any | None = None, **kwargs) -> Any:
@@ -382,6 +406,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -405,13 +430,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_query_documents(collection_name: str | Any = None, query_texts: list[str] | Any = None, n_results: int | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None, **kwargs) -> Any:
@@ -450,6 +477,7 @@ Args:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -477,13 +505,15 @@ Args:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_get_documents(collection_name: str | Any = None, ids: Any | None = None, where: Any | None = None, where_document: Any | None = None, include: list[str] | None = None, limit: Any | None = None, offset: Any | None = None, **kwargs) -> Any:
@@ -527,6 +557,7 @@ Returns:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -556,13 +587,15 @@ Returns:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_update_documents(collection_name: str | Any = None, ids: list[str] | Any = None, embeddings: Any | None = None, metadatas: Any | None = None, documents: Any | None = None, **kwargs) -> Any:
@@ -599,6 +632,7 @@ Raises:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -624,13 +658,15 @@ Raises:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def chroma_delete_documents(collection_name: str | Any = None, ids: list[str] | Any = None, **kwargs) -> Any:
@@ -656,6 +692,7 @@ Raises:
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -675,13 +712,15 @@ Raises:
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 

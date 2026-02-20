@@ -556,7 +556,6 @@ Summary:"""
                 relation = result.split(":")[0].strip() if ":" in result else "Error"
 
                 # Try to extract target from quoted strings first (usually the object/file)
-                import re
 
                 quotes = re.findall(r"['\"](.*?)['\"]", result)
                 if quotes:

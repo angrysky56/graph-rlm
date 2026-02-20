@@ -28,6 +28,7 @@ def mpl_mcp_plot_barchart(values: list[float] | Any = None, labels: Any | None =
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -61,13 +62,15 @@ def mpl_mcp_plot_barchart(values: list[float] | Any = None, labels: Any | None =
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def mpl_mcp_plot_scatter(x_data: list[float] | Any = None, y_data: list[float] | Any = None, labels: Any | None = None, title: str | None = None, xlabel: str | None = None, ylabel: str | None = None, color: Any | None = None, size: Any | None = None, alpha: float | None = None, marker: str | None = None, edgecolors: Any | None = None, linewidths: float | None = None, save: bool | None = None, dpi: int | None = None, figsize: Any | None = None, grid: bool | None = None, legend: bool | None = None, **kwargs) -> Any:
@@ -96,6 +99,7 @@ def mpl_mcp_plot_scatter(x_data: list[float] | Any = None, y_data: list[float] |
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -145,13 +149,15 @@ def mpl_mcp_plot_scatter(x_data: list[float] | Any = None, y_data: list[float] |
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def mpl_mcp_plot_chart(x_data: list[float] | Any = None, y_data: Any | Any = None, plot_type: str | None = None, labels: Any | None = None, title: str | None = None, xlabel: str | None = None, ylabel: str | None = None, color: Any | None = None, save: bool | None = None, dpi: int | None = None, figsize: Any | None = None, grid: bool | None = None, legend: bool | None = None, **kwargs) -> Any:
@@ -176,6 +182,7 @@ def mpl_mcp_plot_chart(x_data: list[float] | Any = None, y_data: Any | Any = Non
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -217,13 +224,15 @@ def mpl_mcp_plot_chart(x_data: list[float] | Any = None, y_data: Any | Any = Non
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def mpl_mcp_plot_stem(x_data: Any | Any = None, y_data: Any | Any = None, labels: Any | None = None, title: str | None = None, xlabel: str | None = None, ylabel: str | None = None, colors: Any | None = None, linefmt: str | None = None, markerfmt: str | None = None, basefmt: str | None = None, bottom: float | None = None, orientation: str | None = None, dpi: int | None = None, figsize: Any | None = None, grid: bool | None = None, legend: bool | None = None, **kwargs) -> Any:
@@ -251,6 +260,7 @@ def mpl_mcp_plot_stem(x_data: Any | Any = None, y_data: Any | Any = None, labels
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -298,13 +308,15 @@ def mpl_mcp_plot_stem(x_data: Any | Any = None, y_data: Any | Any = None, labels
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def mpl_mcp_plot_stack(x_data: Any | Any = None, y_data: Any | Any = None, chart_type: str | None = None, labels: Any | None = None, title: str | None = None, xlabel: str | None = None, ylabel: str | None = None, colors: Any | None = None, alpha: float | None = None, dpi: int | None = None, figsize: Any | None = None, grid: bool | None = None, legend: bool | None = None, **kwargs) -> Any:
@@ -329,6 +341,7 @@ def mpl_mcp_plot_stack(x_data: Any | Any = None, y_data: Any | Any = None, chart
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -370,13 +383,15 @@ def mpl_mcp_plot_stack(x_data: Any | Any = None, y_data: Any | Any = None, chart
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def mpl_mcp_eqn_chart(equations: Any | Any = None, x_min: float | None = None, x_max: float | None = None, num_points: int | None = None, title: str | None = None, xlabel: str | None = None, ylabel: str | None = None, grid: bool | None = None, legend: bool | None = None, figsize: list[int] | None = None, linewidth: float | None = None, linestyle: str | None = None, alpha: float | None = None, dpi: int | None = None, save: bool | None = None, **kwargs) -> Any:
@@ -403,6 +418,7 @@ def mpl_mcp_eqn_chart(equations: Any | Any = None, x_min: float | None = None, x
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -448,13 +464,15 @@ def mpl_mcp_eqn_chart(equations: Any | Any = None, x_min: float | None = None, x
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def numpy_mcp_numerical_operation(operation: str | Any = None, a: Any | None = None, b: Any | None = None, shape: Any | None = None, new_shape: Any | None = None, axis: int | None = None, q: Any | None = None, start: Any | None = None, stop: Any | None = None, step: Any | None = None, num: Any | None = None, fill_value: Any | None = None, **kwargs) -> Any:
@@ -478,6 +496,7 @@ def numpy_mcp_numerical_operation(operation: str | Any = None, a: Any | None = N
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -517,13 +536,15 @@ def numpy_mcp_numerical_operation(operation: str | Any = None, a: Any | None = N
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def numpy_mcp_matlib_operation(operation: str | Any = None, data: Any | None = None, shape: Any | None = None, m: Any | None = None, n: Any | None = None, k: int | None = None, start: Any | None = None, stop: Any | None = None, step: Any | None = None, num: Any | None = None, axis: int | None = None, **kwargs) -> Any:
@@ -546,6 +567,7 @@ def numpy_mcp_matlib_operation(operation: str | Any = None, data: Any | None = N
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -583,13 +605,15 @@ def numpy_mcp_matlib_operation(operation: str | Any = None, data: Any | None = N
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def sympy_mcp_algebra_operation(operation: str | Any = None, expr: str | Any = None, syms: Any | None = None, rational: bool | None = None, ratio: float | None = None, measure: Any | None = None, deep: bool | None = None, modulus: Any | None = None, power_base: bool | None = None, power_exp: bool | None = None, mul: bool | None = None, log: bool | None = None, multinomial: bool | None = None, basic: bool | None = None, frac: bool | None = None, sign: bool | None = None, evaluate: bool | None = None, exact: bool | None = None, **kwargs) -> Any:
@@ -619,6 +643,7 @@ def sympy_mcp_algebra_operation(operation: str | Any = None, expr: str | Any = N
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -670,13 +695,15 @@ def sympy_mcp_algebra_operation(operation: str | Any = None, expr: str | Any = N
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def sympy_mcp_calculus_operation(operation: str | Any = None, expr: str | Any = None, sym: Any | None = None, n: int | None = None, lower: Any | None = None, upper: Any | None = None, point: Any | None = None, direction: str | None = None, series_n: int | None = None, **kwargs) -> Any:
@@ -697,6 +724,7 @@ def sympy_mcp_calculus_operation(operation: str | Any = None, expr: str | Any = 
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -730,13 +758,15 @@ def sympy_mcp_calculus_operation(operation: str | Any = None, expr: str | Any = 
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def sympy_mcp_equation_operation(operation: str | Any = None, equations: Any | Any = None, symbols: Any | None = None, domain: Any | None = None, check: bool | None = None, simplify: bool | None = None, rational: Any | None = None, minimal: bool | None = None, force: bool | None = None, implicit: bool | None = None, **kwargs) -> Any:
@@ -758,6 +788,7 @@ def sympy_mcp_equation_operation(operation: str | Any = None, equations: Any | A
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -793,13 +824,15 @@ def sympy_mcp_equation_operation(operation: str | Any = None, equations: Any | A
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 def sympy_mcp_matrix_operation(operation: str | Any = None, data: Any | Any = None, rational: bool | None = None, nrows: Any | None = None, ncols: Any | None = None, simplify: bool | None = None, **kwargs) -> Any:
@@ -817,6 +850,7 @@ def sympy_mcp_matrix_operation(operation: str | Any = None, data: Any | Any = No
         Tool execution result
     """
     from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool
+    from graph_rlm.backend.src.mcp_integration.utils import normalize_mcp_result
     import asyncio
 
     # Build parameters dict
@@ -844,13 +878,15 @@ def sympy_mcp_matrix_operation(operation: str | Any = None, data: Any | Any = No
     try:
         loop = asyncio.get_running_loop()
         if loop.is_running():
-            # If we are in an async context, return the coroutine
-            return _async_call()
+            # If we are in an async context, return a wrapper that normalizes the result
+            async def _normalized_async_call():
+                return normalize_mcp_result(await _async_call())
+            return _normalized_async_call()
     except RuntimeError:
         pass
 
     # If we are in a sync context (e.g. standard REPL), run to completion
-    return asyncio.run(_async_call())
+    return normalize_mcp_result(asyncio.run(_async_call()))
 
 
 

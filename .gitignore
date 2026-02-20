@@ -59,7 +59,7 @@ coverage/
 knowledge_base/
 graph_rlm/backend/axioms_dir/_disabled/
 graph_rlm/backend/axioms_dir/
-skills/
+graph_rlm/backend/skills/
 test_skills_env/
 graph_rlm/backend/mcp_tools/
 

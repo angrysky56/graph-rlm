@@ -12,7 +12,7 @@ To regenerate these files (e.g., after adding/updating servers):
 
 ```python
 ```python
-from graph_rlm.backend.src.mcp_integration.generator import ToolGenerator, generate_from_config
+from .generator import ToolGenerator, generate_from_config
 # OR
 # from graph_rlm.backend.src.mcp_integration.discovery import discover_all_servers
 

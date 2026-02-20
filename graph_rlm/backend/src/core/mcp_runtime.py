@@ -85,6 +85,11 @@ class MCPServerNamespace:
         self._ensure_loaded()
         if name in self._tools:
             return self._tools[name]
+
+        # Resilience: Handle agent hallucinations for 'analyze'
+        if name == "analyze" and "advanced_reasoning" in self._tools:
+            return self._tools["advanced_reasoning"]
+
         raise AttributeError(f"MCP Server '{self._alias}' has no tool '{name}'")
 
     def __dir__(self):

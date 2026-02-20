@@ -12,8 +12,8 @@ Usage:
 from typing import Any
 from graph_rlm.backend.src.mcp_integration.runtime import call_mcp_tool as call_tool
 
-# Public API
-__all__ = ["call_tool", "run_skill", "list_servers"]
+# Explicitly mark exports to satisfy linters
+call_tool = call_tool
 
 def run_skill(name: str, args: dict | None = None) -> Any:
     """
@@ -28,25 +28,7 @@ def run_skill(name: str, args: dict | None = None) -> Any:
     """
     import asyncio
     from graph_rlm.backend.src.mcp_integration.skill_harness import execute_skill
-
-    try:
-        asyncio.get_running_loop()
-        has_running_loop = True
-    except RuntimeError:
-        has_running_loop = False
-
-    if has_running_loop:
-        # If we are here, there's a loop running in this thread.
-        # To avoid "cannot be called from a running event loop",
-        # we run in a separate thread.
-        from concurrent.futures import ThreadPoolExecutor
-
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(asyncio.run, execute_skill(name, args or {}))
-            return future.result()
-    else:
-        # No loop in this thread, safe to use asyncio.run directly
-        return asyncio.run(execute_skill(name, args or {}))
+    return asyncio.run(execute_skill(name, args or {}))
 
 def list_servers() -> list[str]:
     """Get list of all available MCP servers."""

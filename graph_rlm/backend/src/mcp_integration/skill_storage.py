@@ -157,9 +157,13 @@ class SkillsManager:
 
             # Generate embedding for semantic search
             text_to_embed = f"{name}: {description}" if description else name
-            # Properly await the async embedding call
             try:
                 vec = await llm.get_embedding(text_to_embed)
+                if vec is None:
+                    logger.warning(
+                        "Embedding service returned None for skill %s. Semantic search will be unavailable.",
+                        name,
+                    )
             except Exception as e:  # pylint: disable=broad-except
                 logger.warning("Failed to generate embedding for skill %s: %s", name, e)
                 vec = None
@@ -388,6 +392,10 @@ class SkillsManager:
         try:
             text_to_embed = f"{name}: {description}" if description else name
             vec = await llm.get_embedding(text_to_embed)
+            if vec is None:
+                logger.warning(
+                    "Embedding service returned None for saved skill %s.", name
+                )
         except Exception as e:  # pylint: disable=broad-except
             logger.warning("Failed to generate embedding for skill %s: %s", name, e)
             vec = None
@@ -628,26 +636,32 @@ class _ManagerState:
 _state = _ManagerState()
 
 
+def _resolve_system_path(relative_to_backend: str) -> Path:
+    """
+    Resolves a path relative to graph_rlm/backend/.
+    Ensures consistent resolution regardless of whether running from source or installed.
+    """
+    file_path = Path(__file__).absolute()
+    if "graph_rlm" in str(file_path):
+        # We are inside the package structure
+        # .../graph_rlm/backend/src/mcp_integration/skill_storage.py
+        # Go up 3 levels to get to graph_rlm/backend/
+        backend_root = file_path.parent.parent.parent
+    else:
+        # Fallback to current working directory or relative to src
+        backend_root = file_path.parent.parent.parent
+
+    target_dir = backend_root / relative_to_backend
+    target_dir.mkdir(parents=True, exist_ok=True)
+    return target_dir
+
+
 def get_skills_manager() -> SkillsManager:
     """
     Get or create the global skills manager instance.
     """
     if _state.skills_manager is None:
-        # Resolve skills directory relative to repo root
-        if "graph_rlm" in str(Path(__file__).absolute()):
-            # If we are inside the package, go up to repo root
-            # mcp_integration -> src -> backend -> graph_rlm -> repo_root
-            repo_root = Path(__file__).parent.parent.parent.parent.parent
-            skills_dir = repo_root / "graph_rlm" / "backend" / "skills"
-        else:
-            # Fallback
-            repo_root = Path.cwd()
-            skills_dir = repo_root / "skills"
-
-        if not skills_dir.exists():
-            # Try creating it if we are sure of the path, or fallback
-            skills_dir.mkdir(parents=True, exist_ok=True)
-
+        skills_dir = _resolve_system_path("skills")
         _state.skills_manager = SkillsManager(skills_dir)
 
     return _state.skills_manager
@@ -754,6 +768,7 @@ class AxiomsManager:
                 tags.append("system_utility")
 
             # Extract axiom_type from docstring
+            # Extract axiom_type from docstring
             # Heuristic: "Axiom Type: solver" or "Type: advisor"
             axiom_type = "validator"
             type_match = re.search(
@@ -761,6 +776,19 @@ class AxiomsManager:
             )
             if type_match:
                 axiom_type = type_match.group(1).lower()
+
+            # Generate embedding for semantic search
+            text_to_embed = f"{name}: {description}" if description else name
+            try:
+                vec = await llm.get_embedding(text_to_embed)
+                if vec is None:
+                    logger.warning(
+                        "Embedding service returned None for axiom %s. Semantic search will be unavailable.",
+                        name,
+                    )
+            except Exception as e:  # pylint: disable=broad-except
+                logger.warning("Failed to generate embedding for axiom %s: %s", name, e)
+                vec = None
 
             # Generate embedding for semantic search
             text_to_embed = f"{name}: {description}" if description else name
@@ -838,10 +866,14 @@ class AxiomsManager:
         except (SyntaxError, SyntaxWarning) as e:
             raise ValueError(f"Invalid Python syntax or warning: {e}") from e
 
-        # Generate embedding
+        # 2. Generate embedding
         try:
             text_to_embed = f"{name}: {description}" if description else name
             vec = await llm.get_embedding(text_to_embed)
+            if vec is None:
+                logger.warning(
+                    "Embedding service returned None for saved axiom %s.", name
+                )
         except Exception as e:  # pylint: disable=broad-except
             logger.warning("Failed to generate embedding for axiom %s: %s", name, e)
             vec = None
@@ -1035,14 +1067,7 @@ class AxiomsManager:
 def get_axioms_manager() -> AxiomsManager:
     """Get or create the global axioms manager instance."""
     if _state.axioms_manager is None:
-        if "graph_rlm" in str(Path(__file__).absolute()):
-            repo_root = Path(__file__).parent.parent.parent.parent.parent
-            axioms_dir = repo_root / "graph_rlm" / "backend" / "axioms_dir"
-        else:
-            # Fallback
-            backend_root = Path(__file__).parent.parent.parent
-            axioms_dir = backend_root / "axioms_dir"
-
+        axioms_dir = _resolve_system_path("axioms_dir")
         _state.axioms_manager = AxiomsManager(axioms_dir)
 
     return _state.axioms_manager

@@ -586,7 +586,7 @@ class LLMService:
             trace_action("LLM_STRUCTURED", "ERROR", result=str(e), tag="ERROR")
             raise
 
-    async def get_embedding(self, text: str) -> List[float]:
+    async def get_embedding(self, text: str) -> Optional[List[float]]:
         """
         Get embeddings. Supports Ollama (nomic/llama3) and OpenAI/OpenRouter formats.
         """
@@ -637,7 +637,7 @@ class LLMService:
                 logger.error(
                     "Embedding Error for model %s: %s", model, e, exc_info=True
                 )
-                return []
+                return None
 
     def compute_cosine_similarity(self, v1: List[float], v2: List[float]) -> float:
         """Compute cosine similarity between two vectors."""

@@ -28,7 +28,7 @@ from graph_rlm.backend.src.core.db import db
 from graph_rlm.backend.src.core.llm import llm
 
 from .client import call_mcp_tool, cleanup_global_client_async
-from .skill_storage import get_skills_manager
+from .skill_storage import get_axioms_manager, get_skills_manager
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -282,49 +282,64 @@ class RLMProxy:
 async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any:
     """
     Internal execution logic (runs INSIDE the venv).
-    Imports and runs the skill function.
+    Imports and runs the skill/axiom function.
     """
-    # Get skill code
-    manager = get_skills_manager()
-    skill = manager.get_skill(skill_name)
+    # 1. Try to find in Skills DB
+    skills_mgr = get_skills_manager()
+    skill = skills_mgr.get_skill(skill_name)
+
+    # 2. Try to find in Axioms DB
+    axioms_mgr = get_axioms_manager()
+    if not skill:
+        skill = axioms_mgr.get_axiom(skill_name)
+        if skill:
+            logger.info("Axiom found in DB: %s", skill_name)
 
     if skill:
         # DB path - ensure file exists
-        # Only call get_import_statement if it's a python skill to verify file on disk
         if skill.get("type", "python") == "python":
-            manager.get_import_statement(skill_name)
+            # Just verify it's registered
+            pass
 
-        module_name = f"skills.{skill_name}"
+        # Distinguish between skills and axioms in module path
+        if "axiom_" in skill_name or skill.get("axiom_type"):
+            module_name = f"axioms_dir.{skill_name}"
+        else:
+            module_name = f"skills.{skill_name}"
+
         function_name = skill["function_name"]
     else:
-        # File fallback path - check new location
-        # Use BACKEND_ROOT for skills location
+        # 3. File fallback path - check skill/axiom directories
         skills_root = BACKEND_ROOT / "skills"
-        skill_file = skills_root / f"{skill_name}.py"
+        axioms_root = BACKEND_ROOT / "axioms_dir"
 
-        if not skill_file.exists():
+        skill_file = skills_root / f"{skill_name}.py"
+        axiom_file = axioms_root / f"{skill_name}.py"
+
+        if skill_file.exists():
+            logger.info("Skill found in file: %s", skill_file)
+            module_name = f"skills.{skill_name}"
+            function_name = None
+        elif axiom_file.exists():
+            logger.info("Axiom found in file: %s", axiom_file)
+            module_name = f"axioms_dir.{skill_name}"
+            function_name = None
+        else:
             # Check for package (OpenCode style)
             skill_dir = skills_root / skill_name
             if skill_dir.exists():
-                # For now, simplistic assumption: if it's a dir, try importing the pkg
-                # If it needs a specific entry point, the metadata should have it.
-                # Without metadata, we default to "main" or similar heuristic in module scan.
                 module_name = f"skills.{skill_name}"
                 function_name = None
             else:
                 raise ValueError(
-                    f"Skill '{skill_name}' not found in DB or skills/ directory"
+                    f"Skill/Axiom '{skill_name}' not found in DB or local directories"
                 )
-        else:
-            logger.info("Skill found in file: %s", skill_file)
-            module_name = f"skills.{skill_name}"
-            # Let module scan find the function
-            function_name = None
 
     # Verify importability before attempting import
-    # This acts as a programmatic check to ensure RLM can actually see the module
-    # Pass absolute path to verify_skill_importable
-    if not verify_skill_importable(skill_name, str(BACKEND_ROOT / "skills")):
+    # Determine the search root based on the module name prefix
+    search_dir = BACKEND_ROOT / module_name.split(".")[0]
+
+    if not verify_skill_importable(skill_name, str(search_dir)):
         # Check if it is an instructional skill (SKILL.md only)
         # Check if it is an instructional skill (SKILL.md only)
         # We check the directory for SKILL.md
