@@ -550,6 +550,39 @@ class Agent:
             logger.error("Scratchpad refresh failed: %s", e)
             return f"Error: Scratchpad unavailable ({e})"
 
+    def _sync_thimac(
+        self,
+        thought_id: str,
+        prompt: str,
+        status: str,
+        result: Optional[str],
+        step: int,
+        repl_id: Optional[str] = None,
+    ):
+        """Helper to ingest a thought node into Thimac memory for ontology tracking."""
+        try:
+            thimac_thought_data = {
+                "id": thought_id,
+                "prompt": prompt,
+                "status": status,
+                "result": result,
+                "created_at": int(
+                    datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
+                ),
+                "turn_id": self.current_turn,
+                "step_id": step,
+                "repl_id": repl_id,
+                "execution_summary": None,
+            }
+            self.morph_memory.ingest_thought(thimac_thought_data)
+        except (AttributeError, ValueError, TypeError, KeyError) as e:
+            logger.error(
+                "Thimac ingestion failed for thought %s: %s",
+                thought_id,
+                e,
+                exc_info=True,
+            )
+
     def _create_system_node(
         self,
         logical_id: str,
@@ -1906,29 +1939,14 @@ class Agent:
 
             # --- THIMAC MEMORY INGESTION ---
             # Feed the committed thought into Thimac for Existence/Subsistence tracking
-            try:
-                thimac_thought_data = {
-                    "id": thought_id,
-                    "prompt": full_content,
-                    "status": thought_status,
-                    "result": output if output else None,
-                    "created_at": int(
-                        datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
-                    ),
-                    "turn_id": self.current_turn,
-                    "step_id": step,
-                    "repl_id": repl_id,
-                    "execution_summary": None,  # Thimac extracts summary from prompt/result
-                }
-                self.morph_memory.ingest_thought(thimac_thought_data)
-            except (AttributeError, ValueError, TypeError, KeyError) as thimac_err:
-                logger.error(
-                    "Thimac ingestion failed for session %s, thought %s: %s",
-                    session_id,
-                    thought_id,
-                    thimac_err,
-                    exc_info=True,
-                )
+            self._sync_thimac(
+                thought_id=thought_id,
+                prompt=full_content,
+                status=thought_status,
+                result=output,
+                step=step,
+                repl_id=repl_id,
+            )
 
             # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
             # If the Sheaf detected fragmented reasoning (h0_rank > 1),
@@ -2113,12 +2131,15 @@ class Agent:
                             "instruction", "Review validation failure."
                         )
                         reasons = ", ".join(validation.get("reasons", []))
+                        feedback_prompt = (
+                            f"DREAMER REJECTION: {instruction}\nREASONS: {reasons}"
+                        )
 
                         feedback_lid = f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection"
                         feedback_id = str(uuid.uuid4())
                         self.db.create_thought_node(
                             thought_id=feedback_id,
-                            prompt=f"DREAMER REJECTION: {instruction}\nREASONS: {reasons}",
+                            prompt=feedback_prompt,
                             logical_id=feedback_lid,
                             session_id=session_id,
                             root_session_id=final_root_id,
@@ -2129,6 +2150,16 @@ class Agent:
                             repl_id=repl_id,
                             status="reflexion",
                             dreamer_analysis=json.dumps(validation),
+                        )
+
+                        # Sync rejection to Thimac
+                        self._sync_thimac(
+                            thought_id=feedback_id,
+                            prompt=feedback_prompt,
+                            status="reflexion",
+                            result=None,
+                            step=step,
+                            repl_id=repl_id,
                         )
 
                         # [Self-Healing Fix] Update agent state for Hot Seat recovery
@@ -2215,6 +2246,16 @@ class Agent:
                     round_id=current_round_id,
                     turn_id=self.current_turn,
                     step_id=step,
+                    repl_id=repl_id,
+                )
+
+                # Sync reflection to Thimac
+                self._sync_thimac(
+                    thought_id=reflexion_id,
+                    prompt=reflexion_content,
+                    status="success",  # We treat system reflection as successful grounding
+                    result=None,
+                    step=step,
                     repl_id=repl_id,
                 )
 

@@ -12,6 +12,8 @@ but NOT included in immediate context to prevent bloat.
 """
 
 import asyncio
+import json
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -46,57 +48,17 @@ class ScratchpadBuilder:
         """
         Build a complete scratchpad for the agent.
 
-        Uses round-based architecture:
-        - Previous rounds: Compressed summaries (Block Format)
-        - Current round: Full detail of progress (System TUI Table) + Observability
-        - Thimac Gestalt: Existence/Subsistence overview
+        Uses round-based architecture optimized for prefix caching:
+        - Static/Append-only sections at the top.
+        - Dynamic session state / grounding at the bottom.
         """
         lines = []
 
-        # === Header with current datetime ===
-        now = datetime.now(timezone.utc)
-
-        # Count completed rounds for round number display
+        # Count completed rounds
         completed_rounds = self.db.get_completed_rounds(root_session_id)
         current_round_num = len(completed_rounds) + 1
 
-        lines.append("## Agent Session State (System TUI)")
-        lines.append(f"- **Time**: {now.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} UTC")
-        header = f"Session: {session_id[:8]}... | Round: {current_round_num} | Step: {current_step}/{max_steps}"
-        if current_repl_id:
-            header += f" | Active REPL: {current_repl_id}"
-
-        # Fetch Last Successful REPL for grounding
-        q_last_success = """
-        MATCH (n:Thought)
-        WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
-        AND n.status IN ['completed', 'success']
-        AND n.repl_id IS NOT NULL
-        RETURN n.repl_id
-        ORDER BY n.created_at DESC LIMIT 1
-        """
-        last_repl_res = self.db.query(
-            q_last_success, {"rsid": root_session_id, "sid": session_id}
-        )
-        if last_repl_res:
-            last_repl = (
-                last_repl_res[0].get("n.repl_id") or last_repl_res[0].get("repl_id")
-                if isinstance(last_repl_res[0], dict)
-                else last_repl_res[0][0]
-            )
-            header += f" | Last Successful REPL: {last_repl}"
-
-        header += "\n" + "=" * 60 + "\n"
-        lines.append(header)
-        lines.append("")
-
-        # === Thimac Memory Gestalt (Primary Anchor) ===
-        if morph_gestalt:
-            lines.append("## Thimac Gestalt (Memory Anchor)")
-            lines.append(morph_gestalt)
-            lines.append("")
-
-        # === Previous Rounds (Variable Length Summaries) ===
+        # === 1. Previous Rounds (Variable Length Summaries) — STATIC ===
         if completed_rounds:
             lines.append("## Previous Rounds (Compressed Context)")
 
@@ -137,7 +99,7 @@ class ScratchpadBuilder:
                 lines.append(f"**REPLs**: `{repls_str}`")
                 lines.append("")
 
-        # === Current Round Progress (The Trace) ===
+        # === 2. Current Round Progress (The Trace) — APPEND-ONLY ===
         progress = await self._build_current_round_progress(
             session_id, root_session_id, current_round_id
         )
@@ -145,14 +107,15 @@ class ScratchpadBuilder:
         lines.append(progress)
         lines.append("")
 
-        # === Logical State Audit (Failures & Resolutions) ===
-        audit_section = self._build_logical_audit(session_id, root_session_id)
-        if audit_section:
-            lines.append("## Logical State Audit (Knots)")
-            lines.append(audit_section)
+        # === 3. Thimac Memory Gestalt (Grounding Anchor) — SEMI-DYNAMIC ===
+        if morph_gestalt:
+            lines.append("## 🧠 THIMAC GESTALT (State Anchor)")
+            lines.append("> [!] Ontological State of the Session Memory")
+            lines.append(morph_gestalt)
+            lines.append("-" * 40)
             lines.append("")
 
-        # === Missing Requirements (Cognitive Gap) ===
+        # === 4. Missing Requirements (Cognitive Gap) — DYNAMIC ===
         if morph_gestalt:
             missing = self._build_missing_requirements(task, morph_gestalt)
             if missing:
@@ -160,21 +123,49 @@ class ScratchpadBuilder:
                 lines.append(missing)
                 lines.append("")
 
-        # === Recall Instructions ===
-        lines.append("## Data Commands")
-        lines.append(
-            "- `await rlm.recall('ID')`: Retrieve full node content (Code/Result)"
+        # === 7. Grounding Header (Highly Dynamic) — MOVED TO BOTTOM ===
+        now = datetime.now(timezone.utc)
+        header_lines = []
+        header_lines.append("## Agent Session State (System TUI)")
+        header_lines.append(
+            f"- **Time**: {now.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} UTC"
         )
-        lines.append(
-            "- `await rlm.search('query')`: Semantic search across FULL history (including truncated steps)"
+
+        state_header = f"Session: {session_id[:8]}... | Round: {current_round_num} | Step: {current_step}/{max_steps}"
+        if current_repl_id:
+            state_header += f" | Active REPL: {current_repl_id}"
+
+        # Fetch Last Successful REPL for grounding
+        q_last_success = """
+        MATCH (n:Thought)
+        WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
+        AND n.status IN ['completed', 'success']
+        AND n.repl_id IS NOT NULL
+        RETURN n.repl_id
+        ORDER BY n.created_at DESC LIMIT 1
+        """
+        last_repl_res = self.db.query(
+            q_last_success, {"rsid": root_session_id, "sid": session_id}
         )
+        if last_repl_res:
+            last_repl = (
+                last_repl_res[0].get("n.repl_id") or last_repl_res[0].get("repl_id")
+                if isinstance(last_repl_res[0], dict)
+                else last_repl_res[0][0]
+            )
+            state_header += f" | Last Successful REPL: {last_repl}"
+
+        header_lines.append(state_header)
+        header_lines.append("=" * 60)
+
+        lines.extend(header_lines)
 
         return "\n".join(lines)
 
     async def _summarize_content(self, text: str, label: str) -> str:
         """
-        Summarize content using the LLM if it exceeds the threshold.
-        Returns detailed summary or raw text.
+        Summarize content using the LLM with the "Chain of Density" technique.
+        Generates increasingly entity-dense summaries and returns the final iteration.
         """
         if not text:
             return "(empty)"
@@ -187,19 +178,54 @@ class ScratchpadBuilder:
             summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
 
             prompt = (
-                f"You are a summarizer for a stateless agent's memory. "
-                f"Summarize the following {label}.\n"
-                "Retain ALL critical constraints, code snippets, specific values, and errors.\n"
-                "Remove fluff but maximize informational density.\n"
-                f"---\n{text[:8000]}\n---"
+                f"You will generate increasingly concise, entity-dense summaries of the following {label}.\n\n"
+                f"INPUT: \n---\n{text[:8000]}\n---\n\n"
+                "Repeat the following 2 steps 4 times.\n"
+                "Step 1. Identify 1-3 informative Entities ('; ' delimited) from the Input which are missing from the previously generated summary.\n"
+                "Step 2. Write a new, denser summary that covers every entity and detail from the previous summary plus the new Missing Entities.\n\n"
+                "Guidelines:\n"
+                "- The first summary should be comprehensive but broadly written (4-5 sentences, roughly 70-90 words).\n"
+                "- Make every word count: iteratively rewrite to improve flow and make space for additional entities.\n"
+                "- Compress the text by fusing ideas and removing redundant phrases.\n"
+                "- READABILITY: The summaries must remain highly readable and grammatically coherent.\n"
+                "- LENGTH: Keep the length strictly between 70 and 90 words for every summary.\n\n"
+                'Answer in JSON. The JSON should be a list (length 4) of dictionaries whose keys are "Missing_Entities" and "Denser_Summary".'
             )
 
-            summary = await protected_llm_generate(
+            response = await protected_llm_generate(
                 prompt,
                 model=summary_model,
                 correlation_id=get_correlation_id() or generate_correlation_id(),
             )
-            return summary.strip()
+
+            # Extract the densest summary from the JSON response
+            try:
+                # Handle potential markdown code blocks in the response
+                json_str = response.strip()
+                if json_str.startswith("```"):
+                    # Use regex to find the content inside triple backticks
+                    match = re.search(r"```(?:json)?\n(.*?)\n```", json_str, re.DOTALL)
+                    if match:
+                        json_str = match.group(1)
+
+                data = json.loads(json_str)
+                if isinstance(data, list) and len(data) > 0:
+                    # Return the last (densest) summary
+                    final_summary = data[-1].get("Denser_Summary", "")
+                    if final_summary:
+                        return final_summary.strip()
+
+            except (json.JSONDecodeError, KeyError, IndexError, TypeError) as je:
+                logger.debug(
+                    "JSON parsing of CoD summary failed: %s. Falling back to raw response.",
+                    je,
+                )
+                # Fallback: if it's not JSON but looks like a summary, use it
+                if len(response) > 50 and "{" not in response:
+                    return response.strip()
+
+            return response.strip()
+
         except (httpx.RequestError, ValueError, RuntimeError) as e:
             logger.warning("Summary generation failed: %s", e)
             return text[:500] + "... [Truncated due to summary error]"
@@ -303,9 +329,9 @@ class ScratchpadBuilder:
         # Build Table with Row Collapsing (Deduplication)
         lines = []
         lines.append(
-            "| Time | REPL | T.S | St | Summary (Auto-Generated) | Recall ID |"
+            "| Time | REPL | T.S | St | Ratings (Ψ,📐,Ω) | Summary (Action & Outcome) | Recall ID |"
         )
-        lines.append("|---|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|---|")
 
         skip_until = -1
         for idx, row in enumerate(windowed_data):
@@ -375,57 +401,56 @@ class ScratchpadBuilder:
             # Summary
             summary = summaries[idx]
 
-            # --- OBSERVABILITY ALERTS ---
-            alerts = []
+            # --- LOGICAL KNOT AUDIT (Triplets) ---
+            if row.get("status") in ["failed", "error"]:
+                triplet = self._extract_failure_triplet(row)
+                if triplet:
+                    summary = f"**{summary}**<br/>`{triplet}`"
 
-            # Sheaf Loop Detection
-            sheaf = row.get("sheaf_score")
-            if sheaf is not None and sheaf > 0.7:
-                alerts.append(f"> [!] SHEAF: Loop Detected ({sheaf:.2f})")
-
-            # Spectral Energy (Drift)
-            energy = row.get("spectral_energy")
-            if energy is not None and energy > 0.5:
-                alerts.append(f"> [!] DRIFT: High Deviation ({energy:.2f})")
-
-            # RepE Psychological Alerts
+            # --- OBSERVABILITY RATINGS (Ψ,📐,Ω) ---
             shaky = row.get("repe_shakiness")
             evasion = row.get("repe_evasion")
-            if shaky is not None and shaky < -0.15:
-                alerts.append(f"> [Ψ] SHAKINESS: {shaky:.2f} (Uncertain)")
-            if evasion is not None and evasion < -0.15:
-                alerts.append(f"> [Ψ] EVASION: {evasion:.2f} (Dodging)")
+            sheaf = row.get("sheaf_score")
+            omcd = row.get("omcd_score")
 
-            # oMCD Stopping
-            omcd_q = row.get("omcd_score")
-            # Only show explicit stop signals or very low confidence
-            if omcd_q is not None and omcd_q < 0.3:
-                alerts.append(f"> [Ω] LOW STOP CONFIDENCE: {omcd_q:.2f}")
+            # Format scores safely
+            evasion_str = f"{evasion:.2f}" if evasion is not None else "--"
+            sheaf_str = f"{sheaf:.2f}" if sheaf is not None else "--"
+            omcd_str = f"{omcd:.2f}" if omcd is not None else "--"
+
+            ratings = f"Ψ:{evasion_str} \| 📐:{sheaf_str} \| Ω:{omcd_str}"
+
+            # --- ALERT DECORATION ---
+            alerts = []
+            if sheaf is not None and sheaf > 0.7:
+                alerts.append("!! LOOP !!")
+            if evasion is not None and evasion < -0.15:
+                alerts.append("!! EVASION !!")
+            if shaky is not None and shaky < -0.15:
+                alerts.append("!! UNCERTAIN !!")
+            if omcd is not None and omcd < 0.3:
+                alerts.append("!! LOW CONFIG !!")
 
             if alerts:
-                # Add line break and alerts to summary column
-                # Markdown tables support <br/> for line breaks
-                alert_str = "<br/>".join(alerts)
-                summary = f"{summary}<br/>**{alert_str}**"
+                ratings = f"**{ratings}**<br/>" + " ".join(alerts)
 
             # Recall
             tid = row.get("id")
             recall_link = f"`recall('{tid}')`"
 
             lines.append(
-                f"| {ts_str} | `{repl}` | {ts_display} | {st} | {summary} | {recall_link} |"
+                f"| {ts_str} | `{repl}` | {ts_display} | {st} | {ratings} | {summary} | {recall_link} |"
             )
 
         return "\n".join(lines)
 
     async def _generate_step_summary(self, row: Dict) -> str:
         """
-        Use SUMMARY_MODEL to generate a 60-char summary of the step.
+        Use SUMMARY_MODEL to generate an entity-dense summary of the step.
         """
         prompt = row.get("prompt") or ""
         status = row.get("status")
 
-        # [Preserved existing _generate_step_summary logic, just ensuring it handles new fields if needed]
         if status in [
             "navigator",
             "omcd",
@@ -435,11 +460,11 @@ class ScratchpadBuilder:
             "system",
             "fragment",
         ]:
-            return prompt.strip()[:80]
+            return prompt.strip()[:100]
 
         # Use execution_summary if available from DB (cheaper)
         if row.get("execution_summary"):
-            return str(row.get("execution_summary"))[:80]
+            return str(row.get("execution_summary"))[:100]
 
         prompt = row.get("prompt") or ""
         result = row.get("result") or ""
@@ -447,13 +472,14 @@ class ScratchpadBuilder:
 
         # Fast path for very short items
         if len(prompt) < 60 and len(result) < 60:
-            return prompt.strip()[:60]
+            return prompt.strip()[:80]
 
         try:
             summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
 
-            llm_prompt = f"""Summarize this agent action in ONE line (max 60 chars).
-Focus on WHAT was done and the OUTCOME.
+            llm_prompt = f"""Summarize this agent step professionally (max 100 chars).
+Focus on specific names, values, and the concrete outcome.
+BE DENSE: Avoid fillers like 'The agent...'.
 ACTION: {prompt[:1000]}
 RESULT: {result[:1000]}
 STATUS: {status}
@@ -465,10 +491,10 @@ Summary:"""
                 model=summary_model,
                 correlation_id=get_correlation_id() or generate_correlation_id(),
             )
-            return summary.strip()[:80].replace("\n", " ")
+            return summary.strip()[:120].replace("\n", " ")
         except (httpx.RequestError, ValueError, RuntimeError):
             # Fallback
-            return prompt.strip()[:80].replace("\n", " ")
+            return prompt.strip()[:100].replace("\n", " ")
 
     def _get_sub_repls(
         self, root_session_id: str, current_session_id: str
@@ -515,76 +541,34 @@ Summary:"""
             logger.error("Failed to get sub-REPLs: %s", e)
             return []
 
-    def _build_logical_audit(self, session_id: str, root_session_id: str) -> str:
+    def _extract_failure_triplet(self, row: Dict) -> str:
         """
-        Builds a summary of Active vs Resolved failure knots.
+        Extract a (Subject, Relation, Object) triplet from a failing thought.
         """
         try:
-            q_active = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $rsid OR n.session_id = $sid)
-            AND (n.status = 'failed' OR n.status = 'error')
-            RETURN n.id, n.prompt, n.result
-            ORDER BY n.created_at DESC LIMIT 3
-            """
-            active_res = self.db.query(
-                q_active, {"rsid": root_session_id, "sid": session_id}
-            )
+            result = (row.get("result") or "").lower()
 
-            lines = []
-            if active_res:
-                lines.append("### 🏛️ Structural Skeleton (Knot Audit)")
-                for row in active_res:
-                    if isinstance(row, dict):
-                        rid = row.get("n.id") or row.get("id")
-                        prompt = (
-                            row.get("n.prompt") or row.get("prompt") or ""
-                        ).lower()
-                        result = (
-                            row.get("n.result") or row.get("result") or ""
-                        ).lower()
-                        status = row.get("status") or "failed"
-                    else:
-                        rid = row[0]
-                        prompt = (row[1] or "").lower()
-                        result = (row[2] or "").lower()
-                        status = "failed"
+            subject = "Agent"
+            relation = "Failure"
+            target = "Goal"
 
-                    # (S, R, O) Triplet Extraction (Heuristic)
-                    # S = Subject (What was being accessed)
-                    # R = Relation (The failure type/action)
-                    # O = Object (The target component)
+            if "error" in result:
+                relation = result.split(":")[0].strip() if ":" in result else "Error"
 
-                    subject = "Agent"
-                    relation = "Failure"
-                    target = "Goal"
+                # Try to extract target from quoted strings first (usually the object/file)
+                import re
 
-                    if "error" in result:
-                        relation = (
-                            result.split(":")[0].strip() if ":" in result else "Error"
-                        )
-                        # Extract probable subject/object from error message
-                        words = result.split()
-                        if len(words) > 2:
-                            target = words[-1].strip("'\"")
+                quotes = re.findall(r"['\"](.*?)['\"]", result)
+                if quotes:
+                    target = quotes[0]
+                else:
+                    # Fallback to last word
+                    words = result.split()
+                    if len(words) > 2:
+                        target = words[-1].strip("'\".,")
 
-                    rid_display = rid[:8] if rid else "unknown"
-                    lines.append(
-                        f"- **{status.upper()}** [{rid_display}]: `{subject}` -> `{relation}` -> `{target}`"
-                    )
-                    # Add H1 Obstruction Warning if energy is high
-                    from .sheaf import sheaf
-
-                    h1_score = sheaf.calculate_h1_obstruction(
-                        [{"prompt": prompt, "result": result, "status": status}]
-                    )
-                    if h1_score > 0.5:
-                        lines.append(
-                            f"  > [!WARNING] High H1 Cohomology Obstruction ({h1_score:.2f}) detected."
-                        )
-
-            return "\n".join(lines)
-        except (AttributeError, RuntimeError, ValueError):
+            return f"{subject} -> {relation} -> {target}"
+        except (AttributeError, IndexError, ValueError):
             return ""
 
     def _build_missing_requirements(self, task: str, gestalt: str) -> str:

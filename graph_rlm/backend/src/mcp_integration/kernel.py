@@ -165,13 +165,18 @@ class KBProxy:
         """Knowledge base root path."""
         return self._kb_root
 
+    @property
+    def root_dir(self):
+        """Knowledge base root path alias."""
+        return self._kb_root
+
     def __getitem__(self, key: str) -> str:
         """Allow dictionary-like access to knowledge base paths."""
         if hasattr(self, key):
             val = getattr(self, key)
             if isinstance(val, str):
                 return val
-        if key == "root":
+        if key == "root" or key == "root_dir":
             return self._kb_root
         raise KeyError(f"KBProxy has no attribute or path: {key}")
 
@@ -187,6 +192,7 @@ class KBProxy:
             "src_dir",
             "workspace_dir",
             "root",
+            "root_dir",
         ]
 
 

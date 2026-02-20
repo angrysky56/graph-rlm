@@ -70,10 +70,22 @@ class LLMService:
     async def aclose(self):
         """
         Gracefully closes all persistent httpx clients across all loops.
+        Handles cases where an event loop might already be closed.
         """
-        for client, _ in self._loop_resources.values():
-            await client.aclose()
-        self._loop_resources.clear()
+        to_remove = []
+        for loop, (client, _) in self._loop_resources.items():
+            try:
+                if not loop.is_closed():
+                    await client.aclose()
+                else:
+                    logger.debug("Skipping aclose for closed loop %s", loop)
+            except (RuntimeError, Exception) as e:
+                logger.warning("Error closing client for loop %s: %s", loop, e)
+            finally:
+                to_remove.append(loop)
+
+        for loop in to_remove:
+            self._loop_resources.pop(loop, None)
 
     async def refresh(self):
         """
