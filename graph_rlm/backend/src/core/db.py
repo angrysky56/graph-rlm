@@ -92,6 +92,10 @@ class GraphClient:
         spectral_energy: Optional[float] = None,
         h0_rank: Optional[int] = None,
         repe_profile: Optional[Dict[str, float]] = None,
+        repe_shakiness: Optional[float] = None,
+        repe_evasion: Optional[float] = None,
+        repe_confluence: Optional[float] = None,
+        repe_freedom: Optional[float] = None,
         omcd_score: Optional[float] = None,
         validate: bool = True,
     ):
@@ -121,6 +125,11 @@ class GraphClient:
             sheaf_score: Local Consistency (1.0 = perfect)
             spectral_energy: Topological Stress
             h0_rank: Number of connected components
+            repe_shakiness: Shakiness score (Performance vs Grounding)
+            repe_evasion: Evasion score (Avoidance vs Agency)
+            repe_confluence: Confluence score (Sycophancy vs Integrity)
+            repe_freedom: Freedom score (Entropy vs Restriction)
+            omcd_score: Confidence score from oMCD
             validate: Whether to run guardrail validation (skip for updates)
         """
         # If root_session_id is not provided, default to the session_id (implies this IS the root)
@@ -256,6 +265,22 @@ class GraphClient:
         if h0_rank is not None:
             params["h0_rank"] = h0_rank
             cypher += ", t.h0_rank = $h0_rank"
+
+        if repe_shakiness is not None:
+            params["repe_shakiness"] = float(repe_shakiness)
+            cypher += ", t.repe_shakiness = $repe_shakiness"
+
+        if repe_evasion is not None:
+            params["repe_evasion"] = float(repe_evasion)
+            cypher += ", t.repe_evasion = $repe_evasion"
+
+        if repe_confluence is not None:
+            params["repe_confluence"] = float(repe_confluence)
+            cypher += ", t.repe_confluence = $repe_confluence"
+
+        if repe_freedom is not None:
+            params["repe_freedom"] = float(repe_freedom)
+            cypher += ", t.repe_freedom = $repe_freedom"
 
         if repe_profile:
             # Store RepE profile as individual properties for easier querying

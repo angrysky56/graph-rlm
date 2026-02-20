@@ -257,6 +257,8 @@ class ScratchpadBuilder:
                    n.execution_summary as execution_summary,
                    n.repe_shakiness as repe_shakiness,
                    n.repe_evasion as repe_evasion,
+                   n.repe_confluence as repe_confluence,
+                   n.repe_freedom as repe_freedom,
                    n.omcd_score as omcd_score
             ORDER BY n.turn_id ASC, n.step_id ASC, n.created_at ASC
             LIMIT 2000
@@ -308,7 +310,11 @@ class ScratchpadBuilder:
                 if len(row) > 13:
                     base_data["repe_evasion"] = row[13]
                 if len(row) > 14:
-                    base_data["omcd_score"] = row[14]
+                    base_data["repe_confluence"] = row[14]
+                if len(row) > 15:
+                    base_data["repe_freedom"] = row[15]
+                if len(row) > 16:
+                    base_data["omcd_score"] = row[16]
 
                 processed_data.append(base_data)
 
@@ -410,19 +416,22 @@ class ScratchpadBuilder:
             # --- OBSERVABILITY RATINGS (Ψ,📐,Ω) ---
             shaky = row.get("repe_shakiness")
             evasion = row.get("repe_evasion")
+            confluence = row.get("repe_confluence")
+            freedom = row.get("repe_freedom")
             sheaf = row.get("sheaf_score")
             omcd = row.get("omcd_score")
 
             # Format scores safely with descriptive labels
-            evasion_str = (
-                f"{evasion:.2f}" if isinstance(evasion, (int, float)) else "--"
+            def fmt(v):
+                return f"{v:.1f}" if isinstance(v, (int, float)) else "-"
+
+            repe_str = (
+                f"S:{fmt(shaky)} C:{fmt(confluence)} E:{fmt(evasion)} F:{fmt(freedom)}"
             )
             sheaf_str = f"{sheaf:.2f}" if isinstance(sheaf, (int, float)) else "--"
             omcd_str = f"{omcd:.2f}" if isinstance(omcd, (int, float)) else "--"
 
-            ratings = (
-                f"Ψ(RepE):{evasion_str} \| 📐(Sheaf):{sheaf_str} \| Ω(oMCD):{omcd_str}"
-            )
+            ratings = f"Ψ({repe_str}) \| 📐(Sheaf):{sheaf_str} \| Ω(oMCD):{omcd_str}"
 
             # --- ALERT DECORATION ---
             alerts = []
@@ -468,7 +477,13 @@ class ScratchpadBuilder:
 
         # Use execution_summary if available from DB (cheaper)
         if row.get("execution_summary"):
-            return str(row.get("execution_summary"))[:100]
+            summary = str(row.get("execution_summary"))
+            if len(summary) > 80 and "/" in summary:
+                parts = summary.split("/")
+                if len(parts) > 3:
+                    # Keep the root and the filename, compress the middle
+                    summary = f"{parts[0]}/.../{parts[-2]}/{parts[-1]}"
+            return summary[:120].replace("\n", " ")
 
         prompt = row.get("prompt") or ""
         result = row.get("result") or ""
@@ -592,8 +607,10 @@ Summary:"""
         # 3. Dynamic Identification Grounding (The "Grounding Check" refinement)
         # Extract potential identifiers: backticked text, capitalized words, file paths
         identifiers = set(re.findall(r"[`']([a-zA-Z0-9_.-]+)[`']", task))
-        # Add capitalized words that look like classes/modules (snake_case or CamelCase)
-        identifiers.update(set(re.findall(r"\b([A-Z][a-zA-Z0-9_]+)\b", task)))
+        # Replace with strict CamelCase / PascalCase only:
+        identifiers.update(
+            set(re.findall(r"\b([A-Z][a-z]+[A-Z][a-zA-Z0-9_]*)\b", task))
+        )
 
         missing_ids = []
         for ident in identifiers:

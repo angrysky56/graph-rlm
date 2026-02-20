@@ -386,15 +386,25 @@ class ThimacMemory:
             # Use "[Out] ..." to signify it's a result
             return f"[Out] {first_line}" if len(first_line) < 40 else first_line
 
-        # 4. Fall back to prompt (The "Machine" activity)
+        # 4. Handle Negative / Failed States
+        if status in ["failed", "error", "rejected"]:
+            # Try to extract the actual error message or Dreamer rejection
+            combined = prompt + " " + result
+            err_match = re.search(
+                r"(Error:.*?|Exception:.*?|DREAMER REJECTION:.*?)(?=\n|$)", combined
+            )
+            if err_match:
+                return err_match.group(1)[:100]
+            return f"[{status.upper()}] Action failed or rejected."
+
+        # 5. Fall back to prompt (The "Machine" activity)
         if prompt:
-            # Look for the first line that isn't a comment or blank
             for line in prompt.split("\n"):
                 clean = line.strip()
                 if clean and not clean.startswith("#"):
                     return clean[:80]
 
-        # 5. Symbolic fallback based on status/operation if all else fails
+        # 6. Symbolic fallback based on status/operation if all else fails
         if status == "success":
             return "Grounding Turn"
         return f"{status.title()} Event"

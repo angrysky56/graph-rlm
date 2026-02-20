@@ -1252,6 +1252,9 @@ class Agent:
 
             system_prompt = (
                 f"{await build_system_prompt(skills_manager=self.skills_manager, agent_profile=task_profile)}\n\n"
+                f"--- FILE OPERATIONS & GROUNDING ---\n"
+                f"CRITICAL: If your action creates or modifies a file, you MUST print the absolute path "
+                f"and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations.\n\n"
                 f"{await self._refresh_scratchpad(session_id=session_id, root_session_id=final_root_id, task=prompt, current_step=step, max_steps=max_steps, current_round_id=current_round_id, morph_gestalt=morph_gestalt)}{hot_seat_warning}"
             )
 
@@ -1894,7 +1897,18 @@ class Agent:
                         if sheaf_diag
                         else None
                     ),
-                    repe_profile=psych_profile if psych_profile else None,
+                    repe_shakiness=(
+                        psych_profile.get("Shakiness") if psych_profile else None
+                    ),
+                    repe_evasion=(
+                        psych_profile.get("Evasion") if psych_profile else None
+                    ),
+                    repe_confluence=(
+                        psych_profile.get("Confluence") if psych_profile else None
+                    ),
+                    repe_freedom=(
+                        psych_profile.get("Freedom") if psych_profile else None
+                    ),
                     omcd_score=omcd_decision.get("q_stop") if omcd_decision else None,
                 )
 
