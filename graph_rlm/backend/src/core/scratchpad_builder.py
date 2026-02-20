@@ -573,17 +573,33 @@ Summary:"""
     def _build_missing_requirements(self, task: str, gestalt: str) -> str:
         """
         Heuristic contrast between task and Thimac existence state.
+        Uses entity extraction to detect missing grounding for specific identifiers.
         """
-        # Simple scarcity detection
+        # 1. Simple scarcity detection
         if "EXISTENCE: No materialized results" in gestalt:
             return "> [!] SCARCITY ALERT: No concrete evidence materialized yet. You are likely stuck in a subsistence loop."
 
+        # 2. Implementation gap detection
         if ("CREATE" not in gestalt and "RELEASE" not in gestalt) and (
             "implement" in task.lower() or "fix" in task.lower()
         ):
             return "> [!] MISSING ACTION: Task requires implementation, but no CREATE/RELEASE operations detected in history."
 
-        return "> [i] Grounding Check: Ensure current research relates to the specific identifiers in the User Task."
+        # 3. Dynamic Identification Grounding (The "Grounding Check" refinement)
+        # Extract potential identifiers: backticked text, capitalized words, file paths
+        identifiers = set(re.findall(r"[`']([a-zA-Z0-9_.-]+)[`']", task))
+        # Add capitalized words that look like classes/modules (snake_case or CamelCase)
+        identifiers.update(set(re.findall(r"\b([A-Z][a-zA-Z0-9_]+)\b", task)))
+
+        missing_ids = []
+        for ident in identifiers:
+            if ident.lower() not in gestalt.lower():
+                missing_ids.append(f"`{ident}`")
+
+        if missing_ids:
+            return f"> [i] Grounding Check: Researching {', '.join(missing_ids)} but no materialized existence found for these identifiers in the current session."
+
+        return "> [✓] Grounding Pulse: Current research activity is aligned with the session's materialized knowledge state."
 
 
 # Singleton instance
