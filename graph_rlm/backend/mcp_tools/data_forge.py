@@ -36,13 +36,23 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if file_path is not None:
         mcp_args["file_path"] = file_path
     if alias is not None:
         mcp_args["alias"] = alias
     if engine is not None:
         mcp_args["engine"] = engine
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -84,9 +94,19 @@ Args:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -122,7 +142,17 @@ Lists all currently loaded datasets and their IDs.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -167,11 +197,21 @@ Args:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if schema is not None:
         mcp_args["schema"] = schema
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -216,11 +256,21 @@ Args:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if operations is not None:
         mcp_args["operations"] = operations
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -263,9 +313,19 @@ Args:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -318,7 +378,9 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if chart_type is not None:
@@ -329,6 +391,14 @@ Returns:
         mcp_args["y"] = y
     if title is not None:
         mcp_args["title"] = title
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -370,11 +440,21 @@ Generates a persistence barcode and 3D manifold plot.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if text_column is not None:
         mcp_args["text_column"] = text_column
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -418,11 +498,21 @@ If you provide a 'dataset_id' argument, you can refer to it as table 'this'.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if query is not None:
         mcp_args["query"] = query
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -473,7 +563,9 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if value_column is not None:
@@ -482,6 +574,14 @@ Returns:
         mcp_args["id_column"] = id_column
     if sort_column is not None:
         mcp_args["sort_column"] = sort_column
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -530,13 +630,23 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_name is not None:
         mcp_args["dataset_name"] = dataset_name
     if split is not None:
         mcp_args["split"] = split
     if config_name is not None:
         mcp_args["config_name"] = config_name
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -581,9 +691,19 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if url is not None:
         mcp_args["url"] = url
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -632,13 +752,23 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
     if lat_col is not None:
         mcp_args["lat_col"] = lat_col
     if lon_col is not None:
         mcp_args["lon_col"] = lon_col
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -683,9 +813,19 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if dataset_id is not None:
         mcp_args["dataset_id"] = dataset_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

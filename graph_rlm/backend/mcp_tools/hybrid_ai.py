@@ -38,13 +38,23 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if weights is not None:
         mcp_args["weights"] = weights
     if threshold is not None:
         mcp_args["threshold"] = threshold
     if name is not None:
         mcp_args["name"] = name
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -96,13 +106,23 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if inputs is not None:
         mcp_args["inputs"] = inputs
     if weights is not None:
         mcp_args["weights"] = weights
     if threshold is not None:
         mcp_args["threshold"] = threshold
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -152,11 +172,21 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if gate_type is not None:
         mcp_args["gate_type"] = gate_type
     if inputs is not None:
         mcp_args["inputs"] = inputs
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -216,7 +246,9 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if rule_name is not None:
         mcp_args["rule_name"] = rule_name
     if weights is not None:
@@ -225,6 +257,14 @@ Example:
         mcp_args["threshold"] = threshold
     if description is not None:
         mcp_args["description"] = description
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -277,11 +317,21 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if rule_name is not None:
         mcp_args["rule_name"] = rule_name
     if inputs is not None:
         mcp_args["inputs"] = inputs
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -321,7 +371,17 @@ Returns:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -355,7 +415,17 @@ def clear_decision_log(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -416,13 +486,23 @@ Example:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if nn_outputs is not None:
         mcp_args["nn_outputs"] = nn_outputs
     if decision_rule is not None:
         mcp_args["decision_rule"] = decision_rule
     if threshold is not None:
         mcp_args["threshold"] = threshold
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

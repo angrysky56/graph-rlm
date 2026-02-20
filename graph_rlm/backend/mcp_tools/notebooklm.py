@@ -112,7 +112,9 @@ A4: [Complete example with full context]
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if question is not None:
         mcp_args["question"] = question
     if session_id is not None:
@@ -125,6 +127,14 @@ A4: [Complete example with full context]
         mcp_args["show_browser"] = show_browser
     if browser_options is not None:
         mcp_args["browser_options"] = browser_options
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -202,7 +212,9 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if url is not None:
         mcp_args["url"] = url
     if name is not None:
@@ -217,6 +229,14 @@ Visit https://notebooklm.google/ → Login (free: 100 notebooks, 50 sources each
         mcp_args["use_cases"] = use_cases
     if tags is not None:
         mcp_args["tags"] = tags
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -250,7 +270,17 @@ def list_notebooks(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -287,9 +317,19 @@ def get_notebook(id: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -340,9 +380,19 @@ You: "Switching to React notebook..." (call select_notebook)
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -402,7 +452,9 @@ Tip: You may update multiple fields at once if requested.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
     if name is not None:
@@ -419,6 +471,14 @@ Tip: You may update multiple fields at once if requested.
         mcp_args["tags"] = tags
     if url is not None:
         mcp_args["url"] = url
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -468,9 +528,19 @@ User: "Yes" → call remove_notebook
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -507,9 +577,19 @@ def search_notebooks(query: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if query is not None:
         mcp_args["query"] = query
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -543,7 +623,17 @@ def get_library_stats(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -577,7 +667,17 @@ def list_sessions(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -614,9 +714,19 @@ def close_session(session_id: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if session_id is not None:
         mcp_args["session_id"] = session_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -653,9 +763,19 @@ def reset_session(session_id: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if session_id is not None:
         mcp_args["session_id"] = session_id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -692,7 +812,17 @@ Consider running cleanup_data(preserve_library=true) + setup_auth for fresh star
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -737,11 +867,21 @@ This helps resolve conflicts from old browser sessions and installation data.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if show_browser is not None:
         mcp_args["show_browser"] = show_browser
     if browser_options is not None:
         mcp_args["browser_options"] = browser_options
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -797,11 +937,21 @@ This removes old installation data and browser sessions that can cause conflicts
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if show_browser is not None:
         mcp_args["show_browser"] = show_browser
     if browser_options is not None:
         mcp_args["browser_options"] = browser_options
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -863,11 +1013,21 @@ Use cases: Clean reinstall, troubleshooting auth issues, removing all traces bef
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if confirm is not None:
         mcp_args["confirm"] = confirm
     if preserve_library is not None:
         mcp_args["preserve_library"] = preserve_library
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

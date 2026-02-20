@@ -32,7 +32,9 @@ def mpl_mcp_plot_barchart(values: list[float] | Any = None, labels: Any | None =
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if values is not None:
         mcp_args["values"] = values
     if labels is not None:
@@ -51,6 +53,14 @@ def mpl_mcp_plot_barchart(values: list[float] | Any = None, labels: Any | None =
         mcp_args["dpi"] = dpi
     if orientation is not None:
         mcp_args["orientation"] = orientation
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -103,7 +113,9 @@ def mpl_mcp_plot_scatter(x_data: list[float] | Any = None, y_data: list[float] |
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if x_data is not None:
         mcp_args["x_data"] = x_data
     if y_data is not None:
@@ -138,6 +150,14 @@ def mpl_mcp_plot_scatter(x_data: list[float] | Any = None, y_data: list[float] |
         mcp_args["grid"] = grid
     if legend is not None:
         mcp_args["legend"] = legend
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -186,7 +206,9 @@ def mpl_mcp_plot_chart(x_data: list[float] | Any = None, y_data: Any | Any = Non
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if x_data is not None:
         mcp_args["x_data"] = x_data
     if y_data is not None:
@@ -213,6 +235,14 @@ def mpl_mcp_plot_chart(x_data: list[float] | Any = None, y_data: Any | Any = Non
         mcp_args["grid"] = grid
     if legend is not None:
         mcp_args["legend"] = legend
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -264,7 +294,9 @@ def mpl_mcp_plot_stem(x_data: Any | Any = None, y_data: Any | Any = None, labels
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if x_data is not None:
         mcp_args["x_data"] = x_data
     if y_data is not None:
@@ -297,6 +329,14 @@ def mpl_mcp_plot_stem(x_data: Any | Any = None, y_data: Any | Any = None, labels
         mcp_args["grid"] = grid
     if legend is not None:
         mcp_args["legend"] = legend
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -345,7 +385,9 @@ def mpl_mcp_plot_stack(x_data: Any | Any = None, y_data: Any | Any = None, chart
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if x_data is not None:
         mcp_args["x_data"] = x_data
     if y_data is not None:
@@ -372,6 +414,14 @@ def mpl_mcp_plot_stack(x_data: Any | Any = None, y_data: Any | Any = None, chart
         mcp_args["grid"] = grid
     if legend is not None:
         mcp_args["legend"] = legend
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -422,7 +472,9 @@ def mpl_mcp_eqn_chart(equations: Any | Any = None, x_min: float | None = None, x
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if equations is not None:
         mcp_args["equations"] = equations
     if x_min is not None:
@@ -453,6 +505,14 @@ def mpl_mcp_eqn_chart(equations: Any | Any = None, x_min: float | None = None, x
         mcp_args["dpi"] = dpi
     if save is not None:
         mcp_args["save"] = save
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -500,7 +560,9 @@ def numpy_mcp_numerical_operation(operation: str | Any = None, a: Any | None = N
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if a is not None:
@@ -525,6 +587,14 @@ def numpy_mcp_numerical_operation(operation: str | Any = None, a: Any | None = N
         mcp_args["num"] = num
     if fill_value is not None:
         mcp_args["fill_value"] = fill_value
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -571,7 +641,9 @@ def numpy_mcp_matlib_operation(operation: str | Any = None, data: Any | None = N
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if data is not None:
@@ -594,6 +666,14 @@ def numpy_mcp_matlib_operation(operation: str | Any = None, data: Any | None = N
         mcp_args["num"] = num
     if axis is not None:
         mcp_args["axis"] = axis
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -647,7 +727,9 @@ def sympy_mcp_algebra_operation(operation: str | Any = None, expr: str | Any = N
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if expr is not None:
@@ -684,6 +766,14 @@ def sympy_mcp_algebra_operation(operation: str | Any = None, expr: str | Any = N
         mcp_args["evaluate"] = evaluate
     if exact is not None:
         mcp_args["exact"] = exact
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -728,7 +818,9 @@ def sympy_mcp_calculus_operation(operation: str | Any = None, expr: str | Any = 
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if expr is not None:
@@ -747,6 +839,14 @@ def sympy_mcp_calculus_operation(operation: str | Any = None, expr: str | Any = 
         mcp_args["direction"] = direction
     if series_n is not None:
         mcp_args["series_n"] = series_n
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -792,7 +892,9 @@ def sympy_mcp_equation_operation(operation: str | Any = None, equations: Any | A
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if equations is not None:
@@ -813,6 +915,14 @@ def sympy_mcp_equation_operation(operation: str | Any = None, equations: Any | A
         mcp_args["force"] = force
     if implicit is not None:
         mcp_args["implicit"] = implicit
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -854,7 +964,9 @@ def sympy_mcp_matrix_operation(operation: str | Any = None, data: Any | Any = No
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if operation is not None:
         mcp_args["operation"] = operation
     if data is not None:
@@ -867,6 +979,14 @@ def sympy_mcp_matrix_operation(operation: str | Any = None, data: Any | Any = No
         mcp_args["ncols"] = ncols
     if simplify is not None:
         mcp_args["simplify"] = simplify
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

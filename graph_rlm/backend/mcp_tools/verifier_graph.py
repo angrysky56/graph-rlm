@@ -41,8 +41,14 @@ Constraints enforced:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
-    # Resilience: Handle aliases for 'thoughtType'
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'thought_type': 'thoughtType',
+        'parent_ids': 'parentIds',
+        'edge_types': 'edgeTypes',
+    }
+    # Resilience: Handle 'thoughtType' aliases
     actual_thoughtType = thoughtType or kwargs.get('type') or kwargs.get('node_type') or kwargs.get('thought_type')
     if actual_thoughtType is not None:
         mcp_args["thoughtType"] = actual_thoughtType
@@ -52,6 +58,14 @@ Constraints enforced:
         mcp_args["parentIds"] = parentIds
     if edgeTypes is not None:
         mcp_args["edgeTypes"] = edgeTypes
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -89,11 +103,24 @@ def get_context(nodeId: str | Any = None, maxDepth: float | None = None, **kwarg
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'node_id': 'nodeId',
+        'max_depth': 'maxDepth',
+    }
     if nodeId is not None:
         mcp_args["nodeId"] = nodeId
     if maxDepth is not None:
         mcp_args["maxDepth"] = maxDepth
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -130,9 +157,21 @@ def get_reasoning_chain(claimId: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'claim_id': 'claimId',
+    }
     if claimId is not None:
         mcp_args["claimId"] = claimId
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -170,11 +209,23 @@ def query_graph(query: str | Any = None, nodeType: str | None = None, **kwargs) 
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'node_type': 'nodeType',
+    }
     if query is not None:
         mcp_args["query"] = query
     if nodeType is not None:
         mcp_args["nodeType"] = nodeType
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -208,7 +259,17 @@ def get_graph_state(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -245,9 +306,21 @@ def get_node(nodeId: str | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'node_id': 'nodeId',
+    }
     if nodeId is not None:
         mcp_args["nodeId"] = nodeId
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -281,7 +354,17 @@ def clear_graph(**kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

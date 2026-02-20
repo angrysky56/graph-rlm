@@ -46,11 +46,23 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'library_name': 'libraryName',
+    }
     if query is not None:
         mcp_args["query"] = query
     if libraryName is not None:
         mcp_args["libraryName"] = libraryName
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -92,11 +104,23 @@ IMPORTANT: Do not call this tool more than 3 times per question. If you cannot f
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'library_id': 'libraryId',
+    }
     if libraryId is not None:
         mcp_args["libraryId"] = libraryId
     if query is not None:
         mcp_args["query"] = query
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

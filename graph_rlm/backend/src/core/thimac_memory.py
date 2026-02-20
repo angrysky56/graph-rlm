@@ -1,6 +1,4 @@
 """
-Thimac Memory System — Session State via Existence/Subsistence Ontology.
-
 Based on Al-Fedaghi's "Thinging Machines" (TM) framework.
 Replaces the NCA-based MorphologicalMemory with a semantically meaningful
 session state tracker using the two-level ontology:
@@ -8,31 +6,33 @@ session state tracker using the two-level ontology:
     EXISTENCE  — concrete, materialized results (sensed events)
     SUBSISTENCE — potential reality, knowledge, plans (footprints of events)
 
-Five Thimac operations classify every agent action:
-    CREATE   — file write, code generation, resource allocation
-    PROCESS  — code execution, analysis, computation
-    RECEIVE  — input ingestion, API response, data retrieval
-    TRANSFER — data movement, IPC, MCP calls, sub-REPL delegation
-    RELEASE  — output delivery, final response, file save confirmation
+Five Thimac operations (Stages) classify every agent action:
+    ARRIVE   — input signal, data ingestion, turn initialization
+    ACCEPT   — validation success, grounding confirmation, state locking
+    PROCESS  — transformation, computation, reasoning, analysis
+    RELEASE  — output generation, file writing, final response
+    TRANSFER — movement to other machines, MCP calls, sub-REPL delegation
 """
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional
 
 logger = logging.getLogger("graph_rlm.thimac")
 
 
 class ThimacOperation(str, Enum):
-    """Five fundamental Thimac operations."""
+    """Five official Thinging Machine stages."""
 
-    CREATE = "CREATE"
+    ARRIVE = "ARRIVE"
+    ACCEPT = "ACCEPT"
     PROCESS = "PROCESS"
-    RECEIVE = "RECEIVE"
-    TRANSFER = "TRANSFER"
     RELEASE = "RELEASE"
+    TRANSFER = "TRANSFER"
 
 
 class ThimacLevel(str, Enum):
@@ -55,6 +55,7 @@ class ThimacEvent:
     turn_id: Optional[int] = None
     step_id: Optional[int] = None
     repl_id: Optional[str] = None
+    logical_id: Optional[str] = None
 
 
 class ThimacMemory:
@@ -77,7 +78,21 @@ class ThimacMemory:
         # --- STATE TRACKING ---
         self.known_skills: List[str] = []
         self.known_files: List[str] = []
-        self.knowledge_horizon: List[str] = []  # Results of last 3 RECEIVE/Search ops
+        self.knowledge_horizon: List[str] = []  # Results of last 3 ARRIVE/Accept ops
+        self._repo_root: Optional[Path] = None
+
+    def _get_repo_root(self) -> Path:
+        """Dynamic resolution of repo root to avoid hardcoding."""
+        if self._repo_root:
+            return self._repo_root
+
+        file_path = Path(__file__).absolute()
+        if "graph_rlm" in str(file_path):
+            # .../graph_rlm/backend/src/core/thimac_memory.py
+            self._repo_root = file_path.parent.parent.parent.parent.parent
+        else:
+            self._repo_root = Path.cwd()
+        return self._repo_root
 
     # ------------------------------------------------------------------
     # Public API (matches MorphologicalMemory interface for drop-in use)
@@ -110,6 +125,7 @@ class ThimacMemory:
             turn_id=thought.get("turn_id"),
             step_id=thought.get("step_id"),
             repl_id=thought.get("repl_id"),
+            logical_id=thought.get("logical_id"),
         )
 
         self._all_events.append(event)
@@ -132,44 +148,59 @@ class ThimacMemory:
 
     def _update_state_tracking(self, event: ThimacEvent, thought: Dict) -> None:
         """Analyze successful results to update the Known State."""
-        result = (thought.get("result") or "").lower()
-        prompt = (thought.get("prompt") or "").lower()
+        result = thought.get("result") or ""
+        prompt = thought.get("prompt") or ""
+        prompt_lower = prompt.lower()
+        repo_root = str(self._get_repo_root())
 
         # 1. Update Known Skills
-        if "agentskills" in prompt or "list_skills" in prompt:
-            # Simple heuristic: look for skill names (often in backticks or quotes)
-            import re
-
+        if "agentskills" in prompt_lower or "list_skills" in prompt_lower:
             skills = re.findall(r"['`]([a-zA-Z0-9_]+)['`]", result)
             for skill in skills:
                 if skill not in self.known_skills and len(skill) > 3:
                     self.known_skills.append(skill)
 
         # 2. Update Known Files
-        if any(k in prompt for k in ["create_file", "write", "save", "open("]):
-            import re
-
-            # Look for absolute paths or typical workspace paths
+        if any(k in prompt_lower for k in ["create_file", "write", "save", "open("]):
+            # Use dynamic repo root for grounding instead of hardcoded home
+            # Extract paths from original casing for Linux compatibility
             paths = re.findall(r"(/[a-zA-Z0-9._/-]+)", prompt + " " + result)
             for path in paths:
-                if "/home/ty/" in path and path not in self.known_files:
+                if (
+                    repo_root in path or "/tmp/" in path
+                ) and path not in self.known_files:
                     self.known_files.append(path)
 
-        # 3. Update Knowledge Horizon (Last 3 RECEIVE/Search ops)
-        if event.operation == ThimacOperation.RECEIVE:
-            self.knowledge_horizon.append(event.summary)
+        # 3. Update Knowledge Horizon (Last 3 Arrival/Acceptance)
+        if event.operation in [ThimacOperation.ARRIVE, ThimacOperation.ACCEPT]:
+            self.knowledge_horizon.append(f"{event.operation.value}: {event.summary}")
             if len(self.knowledge_horizon) > 3:
                 self.knowledge_horizon.pop(0)
 
     def get_gestalt_string(self) -> str:
         """
         Human-readable session overview using the two-level ontology.
-        Enhanced with Current Known State and Knowledge Horizon.
+        Enhanced with Stability Anchor and Lupascian Logic.
         """
         if not self._all_events:
             return "No session events tracked yet."
 
         lines = []
+
+        # --- Stability Anchor: Bernshteyn-LLL Bound ---
+        # p(d+1)^8 <= 2^-15
+        # We estimate p (error prob) and d (dependency/complexity) from session stats
+        total = len(self._all_events)
+        failed = sum(1 for e in self._all_events if e.status != "success")
+        p = (failed / total) if total > 0 else 0
+        d = min(10, total // 5)  # Heuristic complexity
+        bound = p * ((d + 1) ** 8)
+        threshold = 2**-15
+        stability = "STABLE" if bound <= threshold else "CHAOTIC"
+
+        lines.append(f"### 🌐 Cog-State: {stability}")
+        lines.append(f"**Math Anchor**: $p(d+1)^8 = {bound:.6f} \\le 2^{{-15}}$")
+        lines.append("")
 
         # --- STATE TRACKING: Known Environment ---
         lines.append("### 🧠 Current Known State")
@@ -179,23 +210,30 @@ class ThimacMemory:
         lines.append(f"- **Known Skills**: [{skills_str}]")
 
         last_file = self.known_files[-1] if self.known_files else "None"
-        lines.append(f"- **Last File Written**: `{last_file}`")
+        lines.append(f"- **Last File Action**: `{last_file}`")
 
         horizon = (
             " | ".join(self.knowledge_horizon) if self.knowledge_horizon else "Clear"
         )
-        lines.append(f"- **Knowledge Horizon**: {horizon}")
+        lines.append(f"- **Arrival Horizon**: {horizon}")
 
-        # Add a summary of active subsistence machine operations (potential next steps)
+        # Lupascian Logic: Negative Events (Formal absence as state)
         if self.subsistence:
-            pending_ops = [s.operation.value for s in self.subsistence[-5:]]
-            lines.append(f"- **Pending Potentials**: {', '.join(pending_ops)}")
+            neg_events = [
+                s.summary
+                for s in self.subsistence
+                if s.status in ["failed", "rejected"]
+            ][-3:]
+            if neg_events:
+                lines.append(
+                    f"- **Negative States (Lupascian)**: {', '.join(neg_events)}"
+                )
 
         lines.append("")
 
         # --- EXISTENCE: What has actually materialized ---
         if self.existence:
-            lines.append(f"**Existence** ({len(self.existence)} active results):")
+            lines.append("**Existence** (Materialized Results):")
             for e in self.existence[-3:]:
                 ts_str = self._format_ts(e.timestamp)
                 lines.append(f"  {e.operation.value}: {e.summary} [{ts_str}]")
@@ -204,7 +242,7 @@ class ThimacMemory:
 
         # --- SUBSISTENCE: Knowledge / potential ---
         if self.subsistence:
-            lines.append(f"**Subsistence** ({len(self.subsistence)} potential states):")
+            lines.append("**Subsistence** (Potential/Footprints):")
             for s in self.subsistence[-3:]:
                 ts_str = self._format_ts(s.timestamp)
                 lines.append(f"  {s.operation.value}: {s.summary} [{ts_str}]")
@@ -212,12 +250,11 @@ class ThimacMemory:
             lines.append("**Subsistence**: No knowledge state captured yet.")
 
         # --- Counts ---
-        total = len(self._all_events)
         exist_pct = (len(self.existence) / total * 100) if total else 0
         lines.append(
             f"\n*{total} total events | "
-            f"{exist_pct:.0f}% materialized | "
-            f"{100 - exist_pct:.0f}% potential*"
+            f"{exist_pct:.0f}% existence | "
+            f"{100 - exist_pct:.0f}% subsistence*"
         )
 
         return "\n".join(lines)
@@ -234,71 +271,57 @@ class ThimacMemory:
 
     def _classify_operation(self, thought: Dict) -> ThimacOperation:
         """
-        Classify the thought's primary Thimac operation based on its content.
+        Classify the thought into the 5 stages of the Thinging Machine.
         """
         prompt = (thought.get("prompt") or "").lower()
         result = (thought.get("result") or "").lower()
+        status = (thought.get("status") or "").lower()
         combined = prompt + " " + result
 
-        # RELEASE: Final output delivery
+        # 1. TRANSFER: Movement to other machines (Delegation/MCP)
         if any(
             k in combined
-            for k in ["rlm_final_output", "final_response", "task completed"]
-        ):
-            return ThimacOperation.RELEASE
-
-        # CREATE: File/resource creation
-        if any(
-            k in combined
-            for k in [
-                "open(",
-                "write(",
-                "makedirs",
-                "mkdir",
-                "save(",
-                "create_file",
-                "with open",
-            ]
-        ):
-            return ThimacOperation.CREATE
-
-        # TRANSFER: Data movement / delegation
-        if any(
-            k in combined
-            for k in [
-                "sub_repl",
-                "transfer",
-                "delegate",
-                "mcp",
-                "ipc",
-                "spawn",
-            ]
+            for k in ["sub_repl", "transfer", "delegate", "mcp", "ipc", "repl_id"]
         ):
             return ThimacOperation.TRANSFER
 
-        # RECEIVE: Input / data retrieval / Search results
+        # 2. RELEASE: Output generation or state externalization
+        if any(
+            k in combined
+            for k in ["final_response", "write(", "save(", "create_file", "notify_user"]
+        ):
+            return ThimacOperation.RELEASE
+
+        # 3. ACCEPT: Validation success or grounding
+        if status == "success" and (
+            not result
+            or any(k in combined for k in ["verified", "grounded", "confirmed"])
+        ):
+            return ThimacOperation.ACCEPT
+
+        # 4. ARRIVE: Ingestion (Initial thought or search result)
         if any(
             k in combined
             for k in [
                 "read(",
-                "input",
                 "fetch",
-                "api",
-                "response",
-                "recv",
-                "get(",
-                "load(",
-                "ls -",
-                "find ",
                 "search",
                 "grep",
                 "cat ",
                 "view_",
+                "ls ",
+                "list_dir",
+                "find",
+                "fd ",
+                "glob",
+                "locate",
+                "stat",
+                "check_path",
             ]
         ):
-            return ThimacOperation.RECEIVE
+            return ThimacOperation.ARRIVE
 
-        # PROCESS: Default — execution / analysis
+        # 5. PROCESS: Transformation/Reasoning (Default)
         return ThimacOperation.PROCESS
 
     def _classify_level(self, thought: Dict) -> ThimacLevel:
@@ -325,29 +348,52 @@ class ThimacMemory:
     def _extract_summary(self, thought: Dict) -> str:
         """
         Extract a brief summary from the thought's content.
-        Prefers execution_summary, then first line of result, then prompt.
+        Prefers logical_id hints, then execution_summary, then content.
         """
-        # Try execution_summary first (if populated from earlier runs)
+        status = (thought.get("status") or "").lower()
+        operation = self._classify_operation(thought)
+
+        # 1. Use logical_id hint if it has a descriptive suffix (after the UUID part)
+        # Usually: session:T1:S2:SemanticLabel
+        lid = thought.get("logical_id") or ""
+        if lid and ":" in lid:
+            parts = lid.split(":")
+            if len(parts) > 3:
+                # Return the semantic part (e.g., DreamerRejection)
+                return " ".join(re.findall(r"[A-Z][a-z]*", parts[-1])) or parts[-1]
+
+        # 2. Try execution_summary
         es = thought.get("execution_summary")
         if es and len(str(es).strip()) > 5:
             return str(es).strip()[:80]
 
-        # Try first meaningful line of result
-        result = thought.get("result") or ""
-        if result:
-            first_line = result.strip().split("\n")[0][:80]
-            if len(first_line) > 5:
-                return first_line
+        # 3. For successful Existence (Materialized results), prefer the output (Result)
+        result = (thought.get("result") or "").strip()
+        prompt = (thought.get("prompt") or "").strip()
 
-        # Fall back to prompt (first meaningful command)
-        prompt = thought.get("prompt") or ""
-        # Look for the first line that isn't a comment or blank
-        for line in prompt.split("\n"):
-            clean = line.strip()
-            if clean and not clean.startswith("#"):
-                return clean[:80]
+        if status == "success" and result and len(result) > 2:
+            # For ingestion/search, combined view is best
+            if operation == ThimacOperation.ARRIVE:
+                first_line = result.split("\n")[0][:60]
+                return f"Found: {first_line}"
 
-        return prompt.strip().split("\n")[0][:80] if prompt else "(empty)"
+            # For general success, show the result (the "Thing" produced)
+            first_line = result.split("\n")[0][:80]
+            # Use "[Out] ..." to signify it's a result
+            return f"[Out] {first_line}" if len(first_line) < 40 else first_line
+
+        # 4. Fall back to prompt (The "Machine" activity)
+        if prompt:
+            # Look for the first line that isn't a comment or blank
+            for line in prompt.split("\n"):
+                clean = line.strip()
+                if clean and not clean.startswith("#"):
+                    return clean[:80]
+
+        # 5. Symbolic fallback based on status/operation if all else fails
+        if status == "success":
+            return "Grounding Turn"
+        return f"{status.title()} Event"
 
     @staticmethod
     def _format_ts(epoch_ms: Optional[int]) -> str:

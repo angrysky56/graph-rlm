@@ -25,11 +25,21 @@ def prove(premises: list[str] | Any = None, conclusion: str | Any = None, **kwar
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if premises is not None:
         mcp_args["premises"] = premises
     if conclusion is not None:
         mcp_args["conclusion"] = conclusion
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -66,9 +76,19 @@ def check_well_formed(statements: list[str] | Any = None, **kwargs) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if statements is not None:
         mcp_args["statements"] = statements
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -106,11 +126,21 @@ def find_model(premises: list[str] | Any = None, domain_size: int | None = None,
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if premises is not None:
         mcp_args["premises"] = premises
     if domain_size is not None:
         mcp_args["domain_size"] = domain_size
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -149,13 +179,23 @@ def find_counterexample(premises: list[str] | Any = None, conclusion: str | Any 
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if premises is not None:
         mcp_args["premises"] = premises
     if conclusion is not None:
         mcp_args["conclusion"] = conclusion
     if domain_size is not None:
         mcp_args["domain_size"] = domain_size
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -196,7 +236,9 @@ def verify_commutativity(path_a: list[str] | Any = None, path_b: list[str] | Any
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if path_a is not None:
         mcp_args["path_a"] = path_a
     if path_b is not None:
@@ -207,6 +249,14 @@ def verify_commutativity(path_a: list[str] | Any = None, path_b: list[str] | Any
         mcp_args["object_end"] = object_end
     if with_category_axioms is not None:
         mcp_args["with_category_axioms"] = with_category_axioms
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -244,11 +294,21 @@ def get_category_axioms(concept: str | Any = None, functor_name: str | None = No
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if concept is not None:
         mcp_args["concept"] = concept
     if functor_name is not None:
         mcp_args["functor_name"] = functor_name
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

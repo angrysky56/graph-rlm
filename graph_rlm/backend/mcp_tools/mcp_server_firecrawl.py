@@ -126,7 +126,19 @@ If JSON extraction returns empty, minimal, or just navigation content, the page 
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'only_main_content': 'onlyMainContent',
+        'include_tags': 'includeTags',
+        'exclude_tags': 'excludeTags',
+        'wait_for': 'waitFor',
+        'skip_tls_verification': 'skipTlsVerification',
+        'remove_base64_images': 'removeBase64Images',
+        'store_in_cache': 'storeInCache',
+        'zero_data_retention': 'zeroDataRetention',
+        'max_age': 'maxAge',
+    }
     if url is not None:
         mcp_args["url"] = url
     if formats is not None:
@@ -159,6 +171,14 @@ If JSON extraction returns empty, minimal, or just navigation content, the page 
         mcp_args["maxAge"] = maxAge
     if proxy is not None:
         mcp_args["proxy"] = proxy
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -230,7 +250,12 @@ Map a website to discover all indexed URLs on the site.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'include_subdomains': 'includeSubdomains',
+        'ignore_query_parameters': 'ignoreQueryParameters',
+    }
     if url is not None:
         mcp_args["url"] = url
     if search is not None:
@@ -243,6 +268,14 @@ Map a website to discover all indexed URLs on the site.
         mcp_args["limit"] = limit
     if ignoreQueryParameters is not None:
         mcp_args["ignoreQueryParameters"] = ignoreQueryParameters
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -346,7 +379,11 @@ The query also supports search operators, that you can use if needed to refine t
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'scrape_options': 'scrapeOptions',
+    }
     if query is not None:
         mcp_args["query"] = query
     if limit is not None:
@@ -363,6 +400,14 @@ The query also supports search operators, that you can use if needed to refine t
         mcp_args["scrapeOptions"] = scrapeOptions
     if enterprise is not None:
         mcp_args["enterprise"] = enterprise
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -438,7 +483,20 @@ def firecrawl_crawl(url: str | Any = None, prompt: str | None = None, excludePat
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'exclude_paths': 'excludePaths',
+        'include_paths': 'includePaths',
+        'max_discovery_depth': 'maxDiscoveryDepth',
+        'allow_external_links': 'allowExternalLinks',
+        'allow_subdomains': 'allowSubdomains',
+        'crawl_entire_domain': 'crawlEntireDomain',
+        'max_concurrency': 'maxConcurrency',
+        'deduplicate_similar_ur_ls': 'deduplicateSimilarURLs',
+        'ignore_query_parameters': 'ignoreQueryParameters',
+        'scrape_options': 'scrapeOptions',
+    }
     if url is not None:
         mcp_args["url"] = url
     if prompt is not None:
@@ -471,6 +529,14 @@ def firecrawl_crawl(url: str | Any = None, prompt: str | None = None, excludePat
         mcp_args["ignoreQueryParameters"] = ignoreQueryParameters
     if scrapeOptions is not None:
         mcp_args["scrapeOptions"] = scrapeOptions
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -520,9 +586,19 @@ Check the status of a crawl job.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -600,7 +676,13 @@ Extract structured information from web pages using LLM capabilities. Supports b
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'allow_external_links': 'allowExternalLinks',
+        'enable_web_search': 'enableWebSearch',
+        'include_subdomains': 'includeSubdomains',
+    }
     if urls is not None:
         mcp_args["urls"] = urls
     if prompt is not None:
@@ -613,6 +695,14 @@ Extract structured information from web pages using LLM capabilities. Supports b
         mcp_args["enableWebSearch"] = enableWebSearch
     if includeSubdomains is not None:
         mcp_args["includeSubdomains"] = includeSubdomains
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -715,13 +805,23 @@ Then poll with `firecrawl_agent_status` every 15-30 seconds for at least 2-3 min
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if prompt is not None:
         mcp_args["prompt"] = prompt
     if urls is not None:
         mcp_args["urls"] = urls
     if schema is not None:
         mcp_args["schema"] = schema
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -782,9 +882,19 @@ Check the status of an agent job and retrieve results when complete. Use this to
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if id is not None:
         mcp_args["id"] = id
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -842,13 +952,26 @@ Create a persistent browser session for code execution via CDP (Chrome DevTools 
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'activity_ttl': 'activityTtl',
+        'stream_web_view': 'streamWebView',
+    }
     if ttl is not None:
         mcp_args["ttl"] = ttl
     if activityTtl is not None:
         mcp_args["activityTtl"] = activityTtl
     if streamWebView is not None:
         mcp_args["streamWebView"] = streamWebView
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -939,13 +1062,25 @@ Execute code in a browser session. Supports agent-browser commands (bash), Pytho
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'session_id': 'sessionId',
+    }
     if sessionId is not None:
         mcp_args["sessionId"] = sessionId
     if code is not None:
         mcp_args["code"] = code
     if language is not None:
         mcp_args["language"] = language
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -995,9 +1130,21 @@ Destroy a browser session.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {
+        'session_id': 'sessionId',
+    }
     if sessionId is not None:
         mcp_args["sessionId"] = sessionId
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(
@@ -1047,9 +1194,19 @@ List browser sessions, optionally filtered by status.
     import asyncio
 
     # Build parameters dict
-    mcp_args = {}
+    mcp_args: dict[str, Any] = {}
+    # Mapping for snake_case to CamelCase resilience
+    param_map = {}
     if status is not None:
         mcp_args["status"] = status
+
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
 
     async def _async_call():
         return await call_mcp_tool(

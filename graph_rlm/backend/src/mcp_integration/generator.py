@@ -91,7 +91,6 @@ class ToolGenerator:
         required = input_schema.get("required", [])
 
         # Generate function signature
-        # Generate function signature
         params = []
 
         # Sort properties: required first, then optional
@@ -102,8 +101,6 @@ class ToolGenerator:
             is_required = param_name in required
 
             if is_required:
-                # Still make it optional in Python but handle check in body if desired
-                # Actually, making it optional with None allows for kwarg resilience
                 params.append(f"{param_name}: {param_type} | Any = None")
             else:
                 params.append(f"{param_name}: {param_type} | None = None")
@@ -131,24 +128,29 @@ class ToolGenerator:
         # Generate function body
         func_name = self.sanitize_name(tool_name)
 
-        # Build resilience logic for common parameter hallucinations
-        resilience_logic = ""
+        # Build mapping for snake_case to CamelCase resilience
+        param_mapping_lines = []
+        for p_name in properties.keys():
+            s_name = self.sanitize_name(p_name)
+            if s_name != p_name:
+                param_mapping_lines.append(f"        '{s_name}': '{p_name}',")
 
-        # 1. Handle 'type' collisions or aliases
+        param_mapping_code = (
+            "    # Mapping for snake_case to CamelCase resilience\n    param_map = {"
+        )
+        if param_mapping_lines:
+            param_mapping_code += "\n" + "\n".join(param_mapping_lines) + "\n    }\n"
+        else:
+            param_mapping_code += "}\n"
+
+        # Build resilience logic for common parameter hallucinations (type, thoughtType)
+        resilience_logic = ""
         if "type" in properties:
-            resilience_logic += (
-                "    # Resilience: Handle 'type' keyword safety and aliases\n"
-            )
-            resilience_logic += (
-                "    actual_type = type or kwargs.get('node_type') "
-                "or kwargs.get('thought_type')\n"
-            )
+            resilience_logic += "    # Resilience: Handle 'type' keyword safety\n"
+            resilience_logic += "    actual_type = type or kwargs.get('node_type') or kwargs.get('thought_type')\n"
         elif "thoughtType" in properties:
-            resilience_logic += "    # Resilience: Handle aliases for 'thoughtType'\n"
-            resilience_logic += (
-                "    actual_thoughtType = thoughtType or kwargs.get('type') "
-                "or kwargs.get('node_type') or kwargs.get('thought_type')\n"
-            )
+            resilience_logic += "    # Resilience: Handle 'thoughtType' aliases\n"
+            resilience_logic += "    actual_thoughtType = thoughtType or kwargs.get('type') or kwargs.get('node_type') or kwargs.get('thought_type')\n"
 
         function_code = f"""
 def {func_name}({params_str}) -> Any:
@@ -158,11 +160,15 @@ def {func_name}({params_str}) -> Any:
     import asyncio
 
     # Build parameters dict
-    mcp_args = {{}}
+    mcp_args: dict[str, Any] = {{}}
 """
+        if param_mapping_code:
+            function_code += param_mapping_code
+
         if resilience_logic:
             function_code += resilience_logic
 
+        # 1. Add named parameters
         for param_name in properties.keys():
             val_name = param_name
             if param_name == "type" and "actual_type" in resilience_logic:
@@ -176,7 +182,16 @@ def {func_name}({params_str}) -> Any:
         mcp_args["{param_name}"] = {val_name}
 """
 
+        # 2. Merge kwargs with mapping support
         function_code += """
+    # Merge additional kwargs with mapping support
+    for k, v in kwargs.items():
+        if v is not None:
+            # Map snake_case alias to original CamelCase key if it exists in schema
+            target_key = param_map.get(k, k)
+            if target_key not in mcp_args:
+                mcp_args[target_key] = v
+
     async def _async_call():
         return await call_mcp_tool(
             server_name="{server_name}",

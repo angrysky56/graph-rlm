@@ -558,6 +558,7 @@ class Agent:
         result: Optional[str],
         step: int,
         repl_id: Optional[str] = None,
+        logical_id: Optional[str] = None,
     ):
         """Helper to ingest a thought node into Thimac memory for ontology tracking."""
         try:
@@ -572,6 +573,7 @@ class Agent:
                 "turn_id": self.current_turn,
                 "step_id": step,
                 "repl_id": repl_id,
+                "logical_id": logical_id,
                 "execution_summary": None,
             }
             self.morph_memory.ingest_thought(thimac_thought_data)
@@ -618,6 +620,17 @@ class Agent:
                 repl_id=repl_id,
                 dreamer_analysis=json.dumps(analysis) if analysis else None,
                 validate=validate,
+            )
+
+            # Sync system node to Thimac
+            self._sync_thimac(
+                thought_id=thought_id,
+                prompt=summary,
+                status=status,
+                result=result,
+                step=step_id,
+                repl_id=repl_id,
+                logical_id=logical_id,
             )
         except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error(
@@ -1946,6 +1959,7 @@ class Agent:
                 result=output,
                 step=step,
                 repl_id=repl_id,
+                logical_id=logical_id,
             )
 
             # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
@@ -2160,6 +2174,7 @@ class Agent:
                             result=None,
                             step=step,
                             repl_id=repl_id,
+                            logical_id=feedback_lid,
                         )
 
                         # [Self-Healing Fix] Update agent state for Hot Seat recovery
@@ -2257,6 +2272,7 @@ class Agent:
                     result=None,
                     step=step,
                     repl_id=repl_id,
+                    logical_id=reflexion_lid,
                 )
 
                 # Update pointer
