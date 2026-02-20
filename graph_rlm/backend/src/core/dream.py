@@ -818,8 +818,8 @@ from pathlib import Path
         candidate_vec = await self.llm.get_embedding(candidate)
 
         # ── 2. RepE: Full Psychological Profile (all 4 axes) ──
-        # Provide fallback zero vector if embedding fails (usually 384 or 768 dims)
-        safe_vec = candidate_vec if candidate_vec is not None else [0.0] * 384
+        # Provide fallback zero vector if embedding fails (llm.get_embedding returns 3072 dims)
+        safe_vec = candidate_vec if candidate_vec is not None else [0.0] * 3072
         psych_profile = repe.scan_thought(safe_vec)
         # psych_profile keys: Shakiness, Confluence, Evasion, Freedom
         # Positive = grounded / healthy on that axis

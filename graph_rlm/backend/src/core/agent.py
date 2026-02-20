@@ -1936,18 +1936,30 @@ class Agent:
                         else None
                     ),
                     repe_shakiness=(
-                        psych_profile.get("Shakiness") if psych_profile else None
+                        float(psych_profile.get("Shakiness", 0.0))
+                        if psych_profile
+                        else 0.0
                     ),
                     repe_evasion=(
-                        psych_profile.get("Evasion") if psych_profile else None
+                        float(psych_profile.get("Evasion", 0.0))
+                        if psych_profile
+                        else 0.0
                     ),
                     repe_confluence=(
-                        psych_profile.get("Confluence") if psych_profile else None
+                        float(psych_profile.get("Confluence", 0.0))
+                        if psych_profile
+                        else 0.0
                     ),
                     repe_freedom=(
-                        psych_profile.get("Freedom") if psych_profile else None
+                        float(psych_profile.get("Freedom", 0.0))
+                        if psych_profile
+                        else 0.0
                     ),
-                    omcd_score=omcd_decision.get("q_stop") if omcd_decision else None,
+                    omcd_score=(
+                        float(omcd_decision.get("q_stop", 0.0))
+                        if omcd_decision
+                        else 0.0
+                    ),
                     thimac_op=(
                         classification.get("operation") if classification else None
                     ),
