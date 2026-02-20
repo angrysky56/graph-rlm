@@ -201,8 +201,8 @@ class Navigator:
 
     def extract_learnable_patterns(
         self,
-        session_id: str,  # pylint: disable=unused-argument
-        min_compression_gain: float = 0.2,  # pylint: disable=unused-argument
+        session_id: str,
+        min_compression_gain: float = 0.2,
     ) -> List[Dict[str, Any]]:
         """
         Retrospective analysis to find patterns that yielded high compression progress.

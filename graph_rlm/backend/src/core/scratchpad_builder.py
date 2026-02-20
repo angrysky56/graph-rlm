@@ -251,16 +251,18 @@ class ScratchpadBuilder:
                    n.repl_id as repl_id,
                    n.turn_id as turn_id,
                    n.step_id as step_id,
+                   n.code_hash as code_hash,
                    n.sheaf_score as sheaf_score,
-                   n.spectral_energy as spectral_energy,
-                   n.dreamer_analysis as dreamer_analysis,
-                   n.execution_summary as execution_summary,
+                   n.h0_rank as h0_rank,
                    n.repe_shakiness as repe_shakiness,
                    n.repe_evasion as repe_evasion,
                    n.repe_confluence as repe_confluence,
                    n.repe_freedom as repe_freedom,
-                   n.omcd_score as omcd_score
-            ORDER BY n.turn_id ASC, n.step_id ASC, n.created_at ASC
+                   n.omcd_score as omcd_score,
+                   n.thimac_op as thimac_op,
+                   n.thimac_level as thimac_level,
+                   n.navigator_insight as navigator_insight
+            ORDER BY n.created_at ASC
             LIMIT 2000
             """
             results = self.db.query(
@@ -299,22 +301,30 @@ class ScratchpadBuilder:
                     "repl_id": row[5],
                     "turn_id": row[6],
                     "step_id": row[7],
-                    "sheaf_score": row[8],
-                    "spectral_energy": row[9],
-                    "dreamer_analysis": row[10],
-                    "execution_summary": row[11],
                 }
                 # Check bounds for new columns
+                if len(row) > 8:
+                    base_data["code_hash"] = row[8]
+                if len(row) > 9:
+                    base_data["sheaf_score"] = row[9]
+                if len(row) > 10:
+                    base_data["h0_rank"] = row[10]
+                if len(row) > 11:
+                    base_data["repe_shakiness"] = row[11]
                 if len(row) > 12:
-                    base_data["repe_shakiness"] = row[12]
+                    base_data["repe_evasion"] = row[12]
                 if len(row) > 13:
-                    base_data["repe_evasion"] = row[13]
+                    base_data["repe_confluence"] = row[13]
                 if len(row) > 14:
-                    base_data["repe_confluence"] = row[14]
+                    base_data["repe_freedom"] = row[14]
                 if len(row) > 15:
-                    base_data["repe_freedom"] = row[15]
+                    base_data["omcd_score"] = row[15]
                 if len(row) > 16:
-                    base_data["omcd_score"] = row[16]
+                    base_data["thimac_op"] = row[16]
+                if len(row) > 17:
+                    base_data["thimac_level"] = row[17]
+                if len(row) > 18:
+                    base_data["navigator_insight"] = row[18]
 
                 processed_data.append(base_data)
 
@@ -335,7 +345,7 @@ class ScratchpadBuilder:
         # Build Table with Row Collapsing (Deduplication)
         lines = []
         lines.append(
-            "| Time | REPL | T.S | St | Ratings (Ψ,📐,Ω) | Summary (Action & Outcome) | Recall ID |"
+            "| Time | REPL | T.S | St | Gestalt (Ψ,📐,Ω,🧭) | Summary (Action & Outcome) | Recall ID |"
         )
         lines.append("|---|---|---|---|---|---|---|")
 
@@ -413,25 +423,34 @@ class ScratchpadBuilder:
                 if triplet:
                     summary = f"**{summary}**<br/>`{triplet}`"
 
-            # --- OBSERVABILITY RATINGS (Ψ,📐,Ω) ---
+            # --- OBSERVABILITY RATINGS (Ψ,📐,Ω,🧭) ---
             shaky = row.get("repe_shakiness")
             evasion = row.get("repe_evasion")
             confluence = row.get("repe_confluence")
             freedom = row.get("repe_freedom")
             sheaf = row.get("sheaf_score")
             omcd = row.get("omcd_score")
+            h0_rank = row.get("h0_rank")
 
-            # Format scores safely with descriptive labels
+            # Format scores safely with condensed labels
             def fmt(v):
-                return f"{v:.1f}" if isinstance(v, (int, float)) else "-"
+                return f"{v:.2f}" if isinstance(v, (float, int)) else "--"
 
-            repe_str = (
-                f"S:{fmt(shaky)} C:{fmt(confluence)} E:{fmt(evasion)} F:{fmt(freedom)}"
-            )
-            sheaf_str = f"{sheaf:.2f}" if isinstance(sheaf, (int, float)) else "--"
-            omcd_str = f"{omcd:.2f}" if isinstance(omcd, (int, float)) else "--"
+            shaky_str = fmt(shaky)
+            confluence_str = fmt(confluence)
+            evasion_str = fmt(evasion)
+            freedom_str = fmt(freedom)
+            sheaf_str = fmt(sheaf)
+            omcd_str = fmt(omcd)
+            h0_rank_str = fmt(h0_rank)
 
-            ratings = f"Ψ({repe_str}) \| 📐(Sheaf):{sheaf_str} \| Ω(oMCD):{omcd_str}"
+            # Gestalt string with RepE axes + Sheaf Consistency + oMCD Stop Probability
+            # S=Shakiness, C=Confluence, E=Evasion, F=Freedom
+            gestalt = f"Ψ(S:{shaky_str} C:{confluence_str} E:{evasion_str} F:{freedom_str}) | 📐(S:{sheaf_str} H0:{h0_rank_str}) | Ω:{omcd_str}"
+
+            nav_insight = row.get("navigator_insight")
+            if nav_insight:
+                gestalt += f" | 🧭 {nav_insight}"
 
             # --- ALERT DECORATION ---
             alerts = []
@@ -443,9 +462,12 @@ class ScratchpadBuilder:
                 alerts.append("!! UNCERTAIN !!")
             if isinstance(omcd, (int, float)) and omcd < 0.3:
                 alerts.append("!! LOW CONFIG !!")
+            if isinstance(h0_rank, (int, float)) and h0_rank > 0.7:
+                alerts.append("!! H0_RANK HIGH !!")
 
+            ratings = gestalt
             if alerts:
-                ratings = f"**{ratings}**<br/>" + " ".join(alerts)
+                ratings = f"**{gestalt}**<br/>" + " ".join(alerts)
 
             # Recall
             tid = row.get("id")
@@ -591,36 +613,38 @@ Summary:"""
 
     def _build_missing_requirements(self, task: str, gestalt: str) -> str:
         """
-        Heuristic contrast between task and Thimac existence state.
-        Uses entity extraction to detect missing grounding for specific identifiers.
+        Detects missing requirements based on empirical session issues.
+        Replaces guessing words from prompt with actual system-detected gaps.
         """
-        # 1. Simple scarcity detection
+        issues = []
+
+        # 1. Existence Gap (The primary "Missing Requirement")
         if "EXISTENCE: No materialized results" in gestalt:
-            return "> [!] SCARCITY ALERT: No concrete evidence materialized yet. You are likely stuck in a subsistence loop."
+            issues.append(
+                "Materialized Existence: No concrete files or artifacts generated yet."
+            )
 
-        # 2. Implementation gap detection
-        if ("CREATE" not in gestalt and "RELEASE" not in gestalt) and (
-            "implement" in task.lower() or "fix" in task.lower()
-        ):
-            return "> [!] MISSING ACTION: Task requires implementation, but no CREATE/RELEASE operations detected in history."
+        # 2. Sheaf Fragment (Logical Knots)
+        # We check the gestalt for h0_rank alerts or energy spikes if we had them here,
+        # but better to query recent history for high h0_rank.
+        if "CHAOTIC" in gestalt:
+            issues.append(
+                "Logical Consistency: Topological stress detected (Chaotic state)."
+            )
 
-        # 3. Dynamic Identification Grounding (The "Grounding Check" refinement)
-        # Extract potential identifiers: backticked text, capitalized words, file paths
-        identifiers = set(re.findall(r"[`']([a-zA-Z0-9_.-]+)[`']", task))
-        # Replace with strict CamelCase / PascalCase only:
-        identifiers.update(
-            set(re.findall(r"\b([A-Z][a-z]+[A-Z][a-zA-Z0-9_]*)\b", task))
-        )
+        # 3. Navigator Stalls
+        if "Progress: 0.0000" in gestalt:
+            issues.append(
+                "Intrinsic Progress: Thinking is stagnant or repeating (Low Compression Progress)."
+            )
 
-        missing_ids = []
-        for ident in identifiers:
-            if ident.lower() not in gestalt.lower():
-                missing_ids.append(f"`{ident}`")
+        # 4. oMCD Low Confidence
+        # (Could extract from Ω value if we parsed it back)
 
-        if missing_ids:
-            return f"> [i] Grounding Check: Researching {', '.join(missing_ids)} but no materialized existence found for these identifiers in the current session."
+        if issues:
+            return "\n".join([f"> [!] Missing: {iss}" for iss in issues])
 
-        return "> [✓] Grounding Pulse: Current research activity is aligned with the session's materialized knowledge state."
+        return "> [✓] Operational Alignment: All systems reporting normal grounding and progress."
 
 
 # Singleton instance

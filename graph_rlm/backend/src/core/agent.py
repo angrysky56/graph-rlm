@@ -559,8 +559,9 @@ class Agent:
         step: int,
         repl_id: Optional[str] = None,
         logical_id: Optional[str] = None,
-    ):
-        """Helper to ingest a thought node into Thimac memory for ontology tracking."""
+        tool_calls: Optional[List[str]] = None,
+    ) -> Optional[Dict[str, str]]:
+        """Helper to ingest a thought node into Thimac memory and return classification."""
         try:
             thimac_thought_data = {
                 "id": thought_id,
@@ -576,7 +577,11 @@ class Agent:
                 "logical_id": logical_id,
                 "execution_summary": None,
             }
-            self.morph_memory.ingest_thought(thimac_thought_data)
+            event = self.morph_memory.ingest_thought(thimac_thought_data, tool_calls)
+            return {
+                "operation": event.operation.value,
+                "level": event.level.value,
+            }
         except (AttributeError, ValueError, TypeError, KeyError) as e:
             logger.error(
                 "Thimac ingestion failed for thought %s: %s",
@@ -584,6 +589,7 @@ class Agent:
                 e,
                 exc_info=True,
             )
+            return None
 
     def _create_system_node(
         self,
@@ -1860,6 +1866,38 @@ class Agent:
                         final_parent_id = grandparent_id
                         node_to_prune = failed_node_id
 
+                # Capture Navigator Insight
+                nav_insight = None
+                if self.navigator:
+                    old_ratio = getattr(self.navigator, "_last_compression_ratio", 1.0)
+                    self.navigator.update_history(
+                        f"{full_content}\n{output if output else ''}"
+                    )
+                    new_ratio = getattr(self.navigator, "_last_compression_ratio", 1.0)
+                    progress = old_ratio - new_ratio
+                    # Heuristic window for Edge of Chaos (Class 4)
+                    is_class_4 = 0.25 <= new_ratio <= 0.75
+                    nav_insight = f"Progress: {progress:.4f}"
+                    if is_class_4:
+                        nav_insight = f"CLASS 4 | {nav_insight}"
+
+                # Fetch and Clear Session Logs for empirical Thimac detection
+                tool_calls = self.execution_logs.get(session_id, [])
+                if session_id in self.execution_logs:
+                    self.execution_logs[session_id] = []
+
+                # Sync with Thimac and get precise classification
+                classification = self._sync_thimac(
+                    thought_id=thought_id,
+                    prompt=full_content,
+                    status=thought_status,
+                    result=output if output else None,
+                    step=step,
+                    repl_id=repl_id,
+                    logical_id=logical_id,
+                    tool_calls=tool_calls,
+                )
+
                 # Update the node with full content, status, and execution metadata
                 self.db.create_thought_node(
                     thought_id,
@@ -1910,6 +1948,13 @@ class Agent:
                         psych_profile.get("Freedom") if psych_profile else None
                     ),
                     omcd_score=omcd_decision.get("q_stop") if omcd_decision else None,
+                    thimac_op=(
+                        classification.get("operation") if classification else None
+                    ),
+                    thimac_level=(
+                        classification.get("level") if classification else None
+                    ),
+                    navigator_insight=nav_insight,
                 )
 
                 # Execute Pruning

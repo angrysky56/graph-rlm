@@ -97,6 +97,10 @@ class GraphClient:
         repe_confluence: Optional[float] = None,
         repe_freedom: Optional[float] = None,
         omcd_score: Optional[float] = None,
+        thimac_op: Optional[str] = None,
+        thimac_level: Optional[str] = None,
+        navigator_insight: Optional[str] = None,
+        metadata_json: Optional[str] = None,
         validate: bool = True,
     ):
         """
@@ -130,6 +134,10 @@ class GraphClient:
             repe_confluence: Confluence score (Sycophancy vs Integrity)
             repe_freedom: Freedom score (Entropy vs Restriction)
             omcd_score: Confidence score from oMCD
+            thimac_op: Current Thimac operation (ARRIVE, PROCESS, etc.)
+            thimac_level: Current Thimac level (EXISTENCE, SUBSISTENCE)
+            navigator_insight: Brief insight from Navigator (e.g. 'Class 4')
+            metadata_json: Generic JSON blob for extensibility
             validate: Whether to run guardrail validation (skip for updates)
         """
         # If root_session_id is not provided, default to the session_id (implies this IS the root)
@@ -292,6 +300,22 @@ class GraphClient:
         if omcd_score is not None:
             params["omcd_score"] = float(omcd_score)
             cypher += ", t.omcd_score = $omcd_score"
+
+        if thimac_op is not None:
+            params["thimac_op"] = thimac_op
+            cypher += ", t.thimac_op = $thimac_op"
+
+        if thimac_level is not None:
+            params["thimac_level"] = thimac_level
+            cypher += ", t.thimac_level = $thimac_level"
+
+        if navigator_insight is not None:
+            params["navigator_insight"] = navigator_insight
+            cypher += ", t.navigator_insight = $navigator_insight"
+
+        if metadata_json is not None:
+            params["metadata_json"] = metadata_json
+            cypher += ", t.metadata_json = $metadata_json"
 
         self.query(cypher, params)
 

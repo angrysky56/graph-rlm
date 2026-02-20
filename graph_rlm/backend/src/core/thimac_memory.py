@@ -16,6 +16,7 @@ Five Thimac operations (Stages) classify every agent action:
 
 import logging
 import re
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
@@ -56,6 +57,7 @@ class ThimacEvent:
     step_id: Optional[int] = None
     repl_id: Optional[str] = None
     logical_id: Optional[str] = None
+    tool_calls: Optional[List[str]] = None
 
 
 class ThimacMemory:
@@ -98,22 +100,23 @@ class ThimacMemory:
     # Public API (matches MorphologicalMemory interface for drop-in use)
     # ------------------------------------------------------------------
 
-    def ingest_thought(self, thought: Dict) -> ThimacEvent:
+    def ingest_thought(
+        self, thought: Dict, tool_calls: Optional[List[str]] = None
+    ) -> ThimacEvent:
         """
         Classify and store a thought node by its Thimac operation and level.
         Updates state tracking for Skills, Files, and Knowledge Horizon.
 
         Args:
             thought: Dict with keys from the Thought node
-                     (id, prompt, status, result, created_at, repl_id,
-                      turn_id, step_id)
+            tool_calls: Optional list of tools actually executed (empirical trace)
 
         Returns:
             The created ThimacEvent.
         """
-        operation = self._classify_operation(thought)
+        operation = self._classify_operation(thought, tool_calls)
         level = self._classify_level(thought)
-        summary = self._extract_summary(thought)
+        summary = self._extract_summary(thought, tool_calls)
 
         event = ThimacEvent(
             thought_id=thought.get("id", ""),
@@ -126,6 +129,7 @@ class ThimacMemory:
             step_id=thought.get("step_id"),
             repl_id=thought.get("repl_id"),
             logical_id=thought.get("logical_id"),
+            tool_calls=tool_calls,
         )
 
         self._all_events.append(event)
@@ -142,7 +146,7 @@ class ThimacMemory:
             event.operation.value,
             event.level.value,
             event.status,
-            event.summary[:60],
+            event.summary[:600],
         )
         return event
 
@@ -165,9 +169,11 @@ class ThimacMemory:
             # Use dynamic repo root for grounding instead of hardcoded home
             # Extract paths from original casing for Linux compatibility
             paths = re.findall(r"(/[a-zA-Z0-9._/-]+)", prompt + " " + result)
+            # Use dynamic repo root for grounding and temp dir for safety
+            system_tmp = tempfile.gettempdir()
             for path in paths:
                 if (
-                    repo_root in path or "/tmp/" in path
+                    repo_root in path or system_tmp in path
                 ) and path not in self.known_files:
                     self.known_files.append(path)
 
@@ -269,10 +275,49 @@ class ThimacMemory:
     # Classification Logic
     # ------------------------------------------------------------------
 
-    def _classify_operation(self, thought: Dict) -> ThimacOperation:
+    def _classify_operation(
+        self, thought: Dict, tool_calls: Optional[List[str]] = None
+    ) -> ThimacOperation:
         """
-        Classify the thought into the 5 stages of the Thinging Machine.
+        Classify the Thimac operation based on empirical tool calls (priority)
+        or keyword heuristics (fallback).
         """
+        # 0. Empirical Detection (Priority)
+        if tool_calls:
+            # Map tool names to operations
+            for tool in tool_calls:
+                t = tool.lower()
+                # ARRIVE: Reading/Searching
+                if any(
+                    k in t
+                    for k in [
+                        "recall",
+                        "search",
+                        "history",
+                        "read",
+                        "list",
+                        "view",
+                        "grep",
+                        "fd",
+                        "ls",
+                    ]
+                ):
+                    return ThimacOperation.ARRIVE
+                # RELEASE: Externalizing/Saving
+                if any(
+                    k in t for k in ["save", "done", "write", "create", "notify_user"]
+                ):
+                    return ThimacOperation.RELEASE
+                # TRANSFER: Moving context/IPC
+                if any(
+                    k in t for k in ["run_skill", "delegate", "ipc", "repl", "call"]
+                ):
+                    return ThimacOperation.TRANSFER
+
+            # If tools were called but didn't match specific categories, it's a PROCESS
+            return ThimacOperation.PROCESS
+
+        # 1. Keyword Heuristics (Fallback)
         prompt = (thought.get("prompt") or "").lower()
         result = (thought.get("result") or "").lower()
         status = (thought.get("status") or "").lower()
@@ -345,66 +390,76 @@ class ThimacMemory:
         # "wake" = system intervention (subsists as context)
         return ThimacLevel.SUBSISTENCE
 
-    def _extract_summary(self, thought: Dict) -> str:
+    def _extract_summary(
+        self, thought: Dict, tool_calls: Optional[List[str]] = None
+    ) -> str:
         """
-        Extract a brief summary from the thought's content.
-        Prefers logical_id hints, then execution_summary, then content.
+        Extract a brief but informative summary from the thought's context.
         """
         status = (thought.get("status") or "").lower()
-        operation = self._classify_operation(thought)
+        operation = self._classify_operation(thought, tool_calls)
 
-        # 1. Use logical_id hint if it has a descriptive suffix (after the UUID part)
-        # Usually: session:T1:S2:SemanticLabel
+        # 1. Use logical_id hint if it has a descriptive suffix
         lid = thought.get("logical_id") or ""
         if lid and ":" in lid:
             parts = lid.split(":")
             if len(parts) > 3:
-                # Return the semantic part (e.g., DreamerRejection)
-                return " ".join(re.findall(r"[A-Z][a-z]*", parts[-1])) or parts[-1]
+                label = parts[-1]
+                # Smart label split: don't split all-caps acronyms like 'NAV' or 'MCP'
+                if label.isupper() and len(label) <= 5:
+                    return label
+                return " ".join(re.findall(r"[A-Z][a-z]*", label)) or label
 
-        # 2. Try execution_summary
+        # 2. Try execution_summary (with increased limit)
         es = thought.get("execution_summary")
         if es and len(str(es).strip()) > 5:
-            return str(es).strip()[:80]
+            return str(es).strip()[:150]
 
         # 3. For successful Existence (Materialized results), prefer the output (Result)
         result = (thought.get("result") or "").strip()
         prompt = (thought.get("prompt") or "").strip()
 
-        # Sanitize code fences and normalize whitespace
-        result = re.sub(r"```[\s\S]*?```", "", result).strip()
-        prompt = re.sub(r"```[\s\S]*?```", "", prompt).strip()
+        # Sanitize code fences but keep some context
+        result = re.sub(r"```[\s\S]*?```", "[Code]", result).strip()
+        prompt = re.sub(r"```[\s\S]*?```", "[Code]", prompt).strip()
 
         if status == "success" and result and len(result) > 2:
             # For ingestion/search, combined view is best
             if operation == ThimacOperation.ARRIVE:
-                first_line = result.split("\n")[0][:60]
+                first_line = result.split("\n")[0][:150]
                 return f"Found: {first_line}"
 
             # For general success, show the result (the "Thing" produced)
-            first_line = result.split("\n")[0][:80]
+            first_line = result.split("\n")[0][:150]
             # Use "[Out] ..." to signify it's a result
-            return f"[Out] {first_line}" if len(first_line) < 40 else first_line
+            return f"[Out] {first_line}" if len(first_line) < 60 else first_line
 
-        # 4. Handle Negative / Failed States
+        # 4. Handle tool calls (informative subsistence)
+        if tool_calls:
+            # Show the most pertinent tool
+            main_tool = tool_calls[0]
+            if len(tool_calls) > 1:
+                return f"T: {main_tool} (+{len(tool_calls)-1} more)"
+            return f"T: {main_tool}"
+
+        # 5. Handle Negative / Failed States
         if status in ["failed", "error", "rejected"]:
-            # Try to extract the actual error message or Dreamer rejection
             combined = prompt + " " + result
             err_match = re.search(
                 r"(Error:.*?|Exception:.*?|DREAMER REJECTION:.*?)(?=\n|$)", combined
             )
             if err_match:
-                return err_match.group(1)[:100]
+                return err_match.group(1)[:150]
             return f"[{status.upper()}] Action failed or rejected."
 
-        # 5. Fall back to prompt (The "Machine" activity)
+        # 6. Fall back to prompt (The "Machine" activity)
         if prompt:
             for line in prompt.split("\n"):
                 clean = line.strip()
-                if clean and not clean.startswith("#"):
-                    return clean[:80]
+                if clean and not clean.startswith(("[", "#")):
+                    return clean[:150]
 
-        # 6. Symbolic fallback based on status/operation if all else fails
+        # 7. Symbolic fallback
         if status == "success":
             return "Grounding Turn"
         return f"{status.title()} Event"
