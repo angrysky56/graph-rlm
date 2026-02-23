@@ -18,14 +18,23 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import httpx
+import redis
 
 from .circuit import generate_correlation_id, get_correlation_id
 from .config import settings
 from .db import GraphClient, db
 from .logger import get_logger
-from .services.circuit import protected_llm_generate
+from .services.circuit import CircuitOpenError, protected_llm_generate
 
 logger = get_logger("graph_rlm.scratchpad_builder")
+
+
+# RTM (Random Tree Model) Parameters
+# From: "Random Tree Model of Meaningful Memory" (2025)
+# K = branching factor, D = max depth
+RTM_K = 4
+RTM_D = 4
+RTM_LEAF_WINDOW = RTM_K ** (RTM_D - 2)  # 16 — recent steps shown individually
 
 
 class ScratchpadBuilder:
@@ -44,6 +53,7 @@ class ScratchpadBuilder:
         current_round_id: str = "",
         morph_gestalt: Optional[str] = None,
         current_repl_id: Optional[str] = None,
+        execution_state: Optional[Any] = None,
     ) -> str:
         """
         Build a complete scratchpad for the agent.
@@ -58,36 +68,138 @@ class ScratchpadBuilder:
         completed_rounds = self.db.get_completed_rounds(root_session_id)
         current_round_num = len(completed_rounds) + 1
 
+        # === 0. MISSION CONTROL (Phase C2) — Agent Orientation ===
+        # This structured header tells the stateless agent where it is,
+        # what's working, and what to focus on next.
+        if execution_state is not None:
+            phase = getattr(execution_state, "phase", "EXPLORING")
+            consec_ok = getattr(execution_state, "consecutive_successes", 0)
+            consec_fail = getattr(execution_state, "consecutive_failures", 0)
+            interventions = getattr(execution_state, "intervention_count", 0)
+            sheaf_e = getattr(execution_state, "last_sheaf_energy", 0.0)
+            omcd_q = getattr(
+                execution_state, "last_omcd_qstop", 0.0
+            )  # noqa: F841 (used in mc_lines below)
+            critique = getattr(execution_state, "last_dreamer_critique", None)
+            outcomes = getattr(execution_state, "step_outcomes", [])
+
+            # Build momentum indicator from last 10 outcomes
+            momentum_symbols = {
+                "success": "✓",
+                "completed": "✓",
+                "failed": "✗",
+                "error": "✗",
+                "reflexion": "🔄",
+                "running": "⏳",
+            }
+            momentum_str = (
+                "".join(momentum_symbols.get(o, "·") for o in outcomes[-10:])
+                or "(no steps yet)"
+            )
+
+            # Health assessment
+            if consec_fail >= 3:
+                health = "⚠️ STRUGGLING (3+ consecutive failures)"
+            elif sheaf_e > 0.5:
+                health = f"⚠️ DRIFTING (Sheaf Energy: {sheaf_e:.2f})"
+            elif consec_ok >= 3:
+                health = "✅ STRONG (3+ consecutive successes)"
+            else:
+                health = "🔵 NOMINAL"
+
+            mc_lines = [
+                "## 🎯 Mission Control",
+                f"- **Phase**: {phase}",
+                f"- **Health**: {health}",
+                f"- **Momentum**: {momentum_str} (last {min(len(outcomes), 10)} steps)",
+                f"- **Successes/Failures**: {consec_ok} consecutive ✓ / {consec_fail} consecutive ✗",
+                f"- **Monitors**: Sheaf Energy={sheaf_e:.2f} | oMCD q_stop={omcd_q:.2f}",
+            ]
+            if interventions > 0:
+                mc_lines.append(
+                    f"- **Interventions**: {interventions} (Reflexion/HOT SEAT)"
+                )
+            if critique:
+                mc_lines.append(f"- **Last Dreamer Critique**: {critique[:200]}")
+            mc_lines.append("")
+            lines.extend(mc_lines)
+
         # === 1. Previous Rounds (Variable Length Summaries) — STATIC ===
         if completed_rounds:
             lines.append("## Previous Rounds (Compressed Context)")
 
-            # Prepare summarization tasks
-            summary_tasks = []
-            for r in completed_rounds:
-                prompt_text = r.get("user_prompt") or ""
-                result_text = r.get("final_response") or ""
+            # Prepare summaries (Parallel execution for missing ones)
+            final_summaries = []
+            generation_tasks = []
+            task_metadata = []  # (index_in_rounds, field_name)
 
-                summary_tasks.append(
-                    self._summarize_content(prompt_text, "User Prompt")
-                )
-                summary_tasks.append(
-                    self._summarize_content(result_text, "Agent Result")
-                )
+            for i, r in enumerate(completed_rounds):
+                p_sum = r.get("prompt_summary")
+                r_sum = r.get("result_summary")
 
-            # Execute all summaries in parallel
-            summaries = await asyncio.gather(*summary_tasks)
+                # We need two slots per round in the final re-assembled list
+                if p_sum:
+                    p_final = p_sum
+                else:
+                    p_final = None  # Placeholder
+                    generation_tasks.append(
+                        self._summarize_content(
+                            r.get("user_prompt") or "", "User Prompt"
+                        )
+                    )
+                    task_metadata.append((i, "prompt_summary"))
 
-            # Re-assemble
-            summary_idx = 0
+                # Handle result summary separately to ensure both are checked
+                if r_sum:
+                    r_final = r_sum
+                else:
+                    r_final = None  # Placeholder
+                    generation_tasks.append(
+                        self._summarize_content(
+                            r.get("final_response") or "", "Agent Result"
+                        )
+                    )
+                    task_metadata.append((i, "result_summary"))
+
+                final_summaries.append({"prompt": p_final, "result": r_final})
+
+            # Execute missing summaries
+            if generation_tasks:
+                generated_vals = await asyncio.gather(*generation_tasks)
+
+                # Map back and persist
+                for val, (round_idx, field) in zip(
+                    generated_vals, task_metadata, strict=True
+                ):
+                    if field == "prompt_summary":
+                        final_summaries[round_idx]["prompt"] = val
+                    else:
+                        final_summaries[round_idx]["result"] = val
+
+                    # Persist if BOTH are now present (to avoid multiple DB calls, or just do it individually)
+                    current_r = completed_rounds[round_idx]
+                    rid = current_r.get("round_id")
+                    if rid:
+                        p_val = final_summaries[round_idx]["prompt"]
+                        r_val = final_summaries[round_idx]["result"]
+                        if p_val and r_val:
+                            try:
+                                self.db.update_round_summaries(rid, p_val, r_val)
+                            except Exception as db_e:
+                                logger.warning(
+                                    "Failed to persist round summaries for %s: %s",
+                                    rid,
+                                    db_e,
+                                )
+
+            # Re-assemble for display
             for i, r in enumerate(completed_rounds, 1):
                 rid = r.get("round_id") or "unknown"
                 repl_ids = r.get("repl_ids") or []
                 repls_str = ", ".join(repl_ids) if repl_ids else "None"
 
-                prompt_summary = summaries[summary_idx]
-                result_summary = summaries[summary_idx + 1]
-                summary_idx += 2
+                prompt_summary = final_summaries[i - 1]["prompt"] or "(summary failed)"
+                result_summary = final_summaries[i - 1]["result"] or "(summary failed)"
 
                 lines.append(f"### Round {i} (ID: `{rid}`)")
                 lines.append("**User Prompt**:")
@@ -179,7 +291,7 @@ class ScratchpadBuilder:
 
             prompt = (
                 f"You will generate increasingly concise, entity-dense summaries of the following {label}.\n\n"
-                f"INPUT: \n---\n{text[:8000]}\n---\n\n"
+                f"INPUT: \n---\n{text[:100000]}\n---\n\n"
                 "Repeat the following 2 steps 4 times.\n"
                 "Step 1. Identify 1-3 informative Entities ('; ' delimited) from the Input which are missing from the previously generated summary.\n"
                 "Step 2. Write a new, denser summary that covers every entity and detail from the previous summary plus the new Missing Entities.\n\n"
@@ -202,11 +314,11 @@ class ScratchpadBuilder:
             try:
                 # Handle potential markdown code blocks in the response
                 json_str = response.strip()
-                if json_str.startswith("```"):
-                    # Use regex to find the content inside triple backticks
-                    match = re.search(r"```(?:json)?\n(.*?)\n```", json_str, re.DOTALL)
-                    if match:
-                        json_str = match.group(1)
+                match = re.search(r"```(?:json)?\n(.*?)\n```", json_str, re.DOTALL)
+                if match:
+                    json_str = match.group(1).strip()
+                elif json_str.find("[") != -1 and json_str.rfind("]") != -1:
+                    json_str = json_str[json_str.find("[") : json_str.rfind("]") + 1]
 
                 data = json.loads(json_str)
                 if isinstance(data, list) and len(data) > 0:
@@ -331,16 +443,62 @@ class ScratchpadBuilder:
         if not processed_data:
             return "No progress rows."
 
-        # [WINDOWING] Disabled - Provide full trace for maximum fidelity (1M token budget)
-        windowed_data = processed_data
+        # --- RTM HIERARCHICAL COMPRESSION ---
+        # Split into gist groups (old, compressed) + leaf rows (recent, detailed)
+        gist_chunks, leaf_rows = self._build_rtm_tree(processed_data)
 
-        # Prepare batch LLM tasks for step summaries
-        summary_tasks = []
-        for row in windowed_data:
-            summary_tasks.append(self._generate_step_summary(row))
+        # Generate summaries: gist chunks get ONE summary per group,
+        # leaf rows get individual summaries (same as before)
+        gist_tasks = [self._generate_gist_summary(chunk) for chunk in gist_chunks]
+        leaf_tasks = [self._generate_step_summary(row) for row in leaf_rows]
 
-        # Parallel execution
-        summaries = await asyncio.gather(*summary_tasks)
+        gist_summaries = await asyncio.gather(*gist_tasks) if gist_tasks else []
+        leaf_summaries = await asyncio.gather(*leaf_tasks)
+
+        # Merge into unified view: gist rows first, then leaf rows
+        # windowed_data and summaries are rebuilt from the RTM tree
+        windowed_data = []
+        summaries = []
+
+        for i, chunk in enumerate(gist_chunks):
+            # Create a synthetic "gist row" from chunk metadata
+            first = chunk[0]
+            last = chunk[-1]
+            step_start = first.get("step_id", "?")
+            step_end = last.get("step_id", "?")
+            turn = first.get("turn_id", "?")
+
+            # Average sheaf/repe scores across chunk
+            def _avg(key, _chunk=chunk):
+                vals = [
+                    float(r.get(key, 0) or 0) for r in _chunk if r.get(key) is not None
+                ]
+                return round(sum(vals) / len(vals), 3) if vals else None
+
+            gist_row = {
+                "id": f"gist:{first.get('id', '?')[:8]}..{last.get('id', '?')[:8]}",
+                "created_at": first.get("created_at"),
+                "repl_id": first.get("repl_id"),
+                "turn_id": turn,
+                "step_id": f"{step_start}-{step_end}",
+                "status": "gist",
+                "sheaf_score": _avg("sheaf_score"),
+                "repe_shakiness": _avg("repe_shakiness"),
+                "repe_evasion": _avg("repe_evasion"),
+                "repe_confluence": _avg("repe_confluence"),
+                "repe_freedom": _avg("repe_freedom"),
+                "omcd_score": _avg("omcd_score"),
+                "h0_rank": _avg("h0_rank"),
+                "_is_gist": True,
+                "_gist_count": len(chunk),
+            }
+            windowed_data.append(gist_row)
+            summaries.append(gist_summaries[i])
+
+        # Append leaf rows as-is
+        for i, row in enumerate(leaf_rows):
+            windowed_data.append(row)
+            summaries.append(leaf_summaries[i])
 
         # Build Table with Row Collapsing (Deduplication)
         lines = []
@@ -411,6 +569,7 @@ class ScratchpadBuilder:
                 "sheaf": "📐",
                 "repe": "Ψ",
                 "reflexion": "🧠",
+                "gist": "📦",
             }
             st = st_map.get(row.get("status"), "?")
 
@@ -424,17 +583,25 @@ class ScratchpadBuilder:
                     summary = f"**{summary}**<br/>`{triplet}`"
 
             # --- OBSERVABILITY RATINGS (Ψ,📐,Ω,🧭) ---
-            shaky = row.get("repe_shakiness")
-            evasion = row.get("repe_evasion")
-            confluence = row.get("repe_confluence")
-            freedom = row.get("repe_freedom")
-            sheaf = row.get("sheaf_score")
-            omcd = row.get("omcd_score")
-            h0_rank = row.get("h0_rank")
+            def safe_float(v):
+                if v is None:
+                    return None
+                try:
+                    return float(v)
+                except (ValueError, TypeError):
+                    return None
+
+            shaky = safe_float(row.get("repe_shakiness"))
+            evasion = safe_float(row.get("repe_evasion"))
+            confluence = safe_float(row.get("repe_confluence"))
+            freedom = safe_float(row.get("repe_freedom"))
+            sheaf = safe_float(row.get("sheaf_score"))
+            omcd = safe_float(row.get("omcd_score"))
+            h0_rank = safe_float(row.get("h0_rank"))
 
             # Format scores safely with condensed labels
             def fmt(v):
-                return f"{v:.2f}" if isinstance(v, (float, int)) else "--"
+                return f"{v:.2f}" if v is not None else "--"
 
             shaky_str = fmt(shaky)
             confluence_str = fmt(confluence)
@@ -460,8 +627,6 @@ class ScratchpadBuilder:
                 alerts.append("!! EVASION !!")
             if isinstance(shaky, (int, float)) and shaky < -0.15:
                 alerts.append("!! UNCERTAIN !!")
-            if isinstance(omcd, (int, float)) and omcd < 0.3:
-                alerts.append("!! LOW CONFIG !!")
             if isinstance(h0_rank, (int, float)) and h0_rank > 0.7:
                 alerts.append("!! H0_RANK HIGH !!")
 
@@ -473,11 +638,177 @@ class ScratchpadBuilder:
             tid = row.get("id")
             recall_link = f"`recall('{tid}')`"
 
+            # Code Hash (for introspection)
+            chash = (row.get("code_hash") or "       ")[:7]
+
             lines.append(
-                f"| {ts_str} | `{repl}` | {ts_display} | {st} | {ratings} | {summary} | {recall_link} |"
+                f"| {ts_str} | `{repl}` | {ts_display} | {st} | `{chash}` | {ratings} | {summary} | {recall_link} |"
             )
 
         return "\n".join(lines)
+
+    def _build_rtm_tree(self, results: List[Dict]) -> tuple:
+        """
+        RTM Hierarchical Compression with Gain Modulation.
+
+        Inspired by Li et al. (2025) "Neural Mechanisms of Resource Allocation
+        in Working Memory": priority-based gain modulation determines which
+        items get high-fidelity representation (leaves) vs compressed (gist).
+
+        Gain = recency_weight × consistency_weight
+        - Recency: newer steps get higher weight (positional)
+        - Consistency: low sheaf_score = high topological consistency = higher gain
+
+        High-gain steps become leaves (detailed), low-gain become gist (compressed).
+        Max leaf count capped at RTM_K^(RTM_D-1) = 64.
+
+        Returns:
+            (gist_chunks, leaf_rows) where gist_chunks is List[List[Dict]]
+            and leaf_rows is List[Dict]
+        """
+        total = len(results)
+        max_leaves = RTM_K ** (RTM_D - 1)  # 64
+
+        if total <= RTM_LEAF_WINDOW:
+            # Short session — everything is a leaf (full detail)
+            return [], results
+
+        # --- GAIN MODULATION ---
+        # Compute gain score for each step: recency × consistency
+        gains = []
+        for i, row in enumerate(results):
+            # Recency: linear ramp from 0.1 (oldest) to 1.0 (newest)
+            recency = 0.1 + 0.9 * (i / max(total - 1, 1))
+
+            # Consistency: invert sheaf_score (low sheaf = high consistency = high gain)
+            sheaf = None
+            raw = row.get("sheaf_score")
+            if raw is not None:
+                try:
+                    sheaf = float(raw)
+                except (ValueError, TypeError):
+                    sheaf = None
+
+            if sheaf is not None:
+                consistency = 1.0 - min(sheaf, 1.0)  # 0→1, 1→0
+            else:
+                consistency = 0.5  # Unknown sheaf = neutral
+
+            gain = recency * consistency
+            gains.append(gain)
+
+        # Determine adaptive leaf window:
+        # Start with default RTM_LEAF_WINDOW, then adjust based on gain distribution
+        # Steps with gain above the median are candidates for leaf status
+        sorted_gains = sorted(gains)
+        median_gain = sorted_gains[len(sorted_gains) // 2] if sorted_gains else 0.5
+
+        # Count how many steps exceed median gain (these want to be leaves)
+        above_median = sum(1 for g in gains if g >= median_gain)
+        # Adaptive window: at least RTM_LEAF_WINDOW, up to max_leaves,
+        # biased by how many high-gain steps exist
+        adaptive_window = max(RTM_LEAF_WINDOW, min(above_median, max_leaves))
+
+        # But we still need at least SOME gist (don't make everything a leaf)
+        if adaptive_window >= total:
+            return [], results
+
+        # Select the top adaptive_window steps BY GAIN, but preserve temporal order
+        # Pair each step with (gain, original_index)
+        indexed_gains = [(gains[i], i) for i in range(total)]
+        # Sort by gain descending, take top adaptive_window
+        top_indices = sorted(
+            [
+                idx
+                for _, idx in sorted(indexed_gains, key=lambda x: -x[0])[
+                    :adaptive_window
+                ]
+            ]
+        )
+
+        # Build leaf and gist sets, preserving temporal order
+        leaf_set = set(top_indices)
+        gist_rows = []
+        leaf_rows = []
+
+        for i, row in enumerate(results):
+            if i in leaf_set:
+                leaf_rows.append(row)
+            else:
+                gist_rows.append(row)
+
+        # Group gist rows into chunks of K
+        chunks = []
+        for i in range(0, len(gist_rows), RTM_K):
+            chunk = gist_rows[i : i + RTM_K]
+            chunks.append(chunk)
+
+        # If there are still too many chunks, recursively compress
+        if len(chunks) > max_leaves:
+            super_cutoff = len(chunks) - max_leaves
+            super_old = chunks[:super_cutoff]
+            remaining = chunks[super_cutoff:]
+
+            merged = []
+            for i in range(0, len(super_old), RTM_K):
+                mega = []
+                for sub in super_old[i : i + RTM_K]:
+                    mega.extend(sub)
+                merged.append(mega)
+
+            chunks = merged + remaining
+
+        return chunks, leaf_rows
+
+    async def _generate_gist_summary(self, chunk: List[Dict]) -> str:
+        """
+        Generate a single compressed summary for a group of RTM steps.
+
+        This is the RTM "interior node" — a gist that compresses K steps
+        into one summary, preserving key outcomes and actions.
+        """
+        # Build a condensed representation of the chunk
+        step_briefs = []
+        for row in chunk:
+            prompt = (row.get("prompt") or "")[:10000]
+            result = (row.get("result") or "")[:10000]
+            status = row.get("status", "?")
+
+            # Use execution_summary if available (cheaper)
+            if row.get("execution_summary"):
+                brief = str(row["execution_summary"])[:500]
+            elif prompt:
+                brief = f"[{status}] {prompt[:5000]}"
+                if result:
+                    brief += f" → {result[:5000]}"
+            else:
+                brief = f"[{status}] (no prompt)"
+            step_briefs.append(brief)
+
+        combined = "\n".join(step_briefs)
+        count = len(chunk)
+
+        try:
+            summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
+            llm_prompt = f"""Compress these {count} agent steps into ONE dense summary (max 200 chars).
+Focus on: what was DONE, what WORKED, what FAILED. Be specific with file names and values.
+Do NOT use filler phrases. This is a memory compression for the agent's scratchpad.
+
+STEPS:
+{combined[:30000]}
+
+Compressed summary:"""
+
+            summary = await protected_llm_generate(
+                llm_prompt,
+                model=summary_model,
+                correlation_id=get_correlation_id() or generate_correlation_id(),
+            )
+            return f"[{count} steps] {summary.strip()[:150].replace(chr(10), ' ')}"
+        except (httpx.RequestError, ValueError, RuntimeError):
+            # Fallback: just list statuses
+            statuses = [r.get("status", "?") for r in chunk]
+            return f"[{count} steps] {', '.join(statuses)}"
 
     async def _generate_step_summary(self, row: Dict) -> str:
         """
@@ -497,7 +828,12 @@ class ScratchpadBuilder:
         ]:
             return prompt.strip()[:100]
 
-        # Use execution_summary if available from DB (cheaper)
+        # Use cached step_summary if available from DB
+        cached_summary = row.get("step_summary")
+        if cached_summary:
+            return str(cached_summary).strip()[:120].replace("\n", " ")
+
+        # Use execution_summary if available from DB (cheaper second-best)
         if row.get("execution_summary"):
             summary = str(row.get("execution_summary"))
             if len(summary) > 80 and "/" in summary:
@@ -521,8 +857,8 @@ class ScratchpadBuilder:
             llm_prompt = f"""Summarize this agent step professionally (max 100 chars).
 Focus on specific names, values, and the concrete outcome.
 BE DENSE: Avoid fillers like 'The agent...'.
-ACTION: {prompt[:1000]}
-RESULT: {result[:1000]}
+ACTION: {prompt[:50000]}
+RESULT: {result[:50000]}
 STATUS: {status}
 
 Summary:"""
@@ -532,9 +868,30 @@ Summary:"""
                 model=summary_model,
                 correlation_id=get_correlation_id() or generate_correlation_id(),
             )
-            return summary.strip()[:120].replace("\n", " ")
-        except (httpx.RequestError, ValueError, RuntimeError):
+            final_summary = summary.strip()[:120].replace("\n", " ")
+
+            # Persist the newly generated summary to the DB
+            thought_id = row.get("id")
+            if thought_id:
+                try:
+                    self.db.update_thought_result(
+                        thought_id=thought_id,
+                        result=result,
+                        step_summary=final_summary,
+                        status=status,
+                    )
+                except (RuntimeError, ValueError, redis.exceptions.RedisError) as db_e:
+                    logger.warning(
+                        "Failed to persist step summary for %s: %s", thought_id, db_e
+                    )
+
+            return final_summary
+        except (CircuitOpenError, httpx.RequestError, ValueError, RuntimeError) as e:
+            logger.debug("Summarization failed: %s", e)
             # Fallback
+            return prompt.strip()[:100].replace("\n", " ")
+        except (AttributeError, TypeError) as e:
+            logger.warning("Unexpected error in _generate_step_summary: %s", e)
             return prompt.strip()[:100].replace("\n", " ")
 
     def _get_sub_repls(
@@ -611,7 +968,7 @@ Summary:"""
         except (AttributeError, IndexError, ValueError):
             return ""
 
-    def _build_missing_requirements(self, task: str, gestalt: str) -> str:
+    def _build_missing_requirements(self, _task: str, gestalt: str) -> str:
         """
         Detects missing requirements based on empirical session issues.
         Replaces guessing words from prompt with actual system-detected gaps.

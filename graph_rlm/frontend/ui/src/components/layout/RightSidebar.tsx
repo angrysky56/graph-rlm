@@ -11,14 +11,15 @@ interface RightSidebarProps {
     graphData: { nodes: any[], links: any[] };
     onInjectContent: (text: string) => void;
     scratchpadText: string;
+    onNodeSelect?: (node: any) => void;
 }
 
-export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent, scratchpadText }) => {
+export const RightSidebar: React.FC<RightSidebarProps> = ({ graphData, onInjectContent, scratchpadText, onNodeSelect }) => {
     const handleNodeClick = useCallback((node: any) => {
-        if (onInjectContent) {
-            onInjectContent(`@[GraphNode:${node.id}] `);
+        if (onNodeSelect) {
+            onNodeSelect(node);
         }
-    }, [onInjectContent]);
+    }, [onNodeSelect]);
 
     const [collapsed, setCollapsed] = useState(false);
     const [graphExpanded, setGraphExpanded] = useState(true);

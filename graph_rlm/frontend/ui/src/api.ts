@@ -253,6 +253,8 @@ export const api = {
                                     onEvent(parsed);
                                 } else if (parsed.type === 'thinking') {
                                     onEvent(parsed);
+                                } else if (parsed.type === 'repe' || parsed.type === 'sheaf' || parsed.type === 'monitor') {
+                                    onEvent(parsed);
                                 } else if (parsed.type === 'tool_call_chunk') {
                                     onEvent(parsed);
                                 } else if (parsed.type === 'graph_update') {

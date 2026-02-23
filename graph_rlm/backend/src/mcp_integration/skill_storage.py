@@ -29,6 +29,21 @@ from graph_rlm.backend.src.core.logger import get_logger
 logger = get_logger("graph_rlm.skills")
 
 
+def _spec_name(raw: str) -> str:
+    """Sanitize a raw name to Agent Skills spec format.
+
+    Rules (from https://agentskills.io/specification.md):
+    - 1-64 characters
+    - Lowercase alphanumeric and hyphens only
+    - Must not start or end with hyphen
+    - No consecutive hyphens
+    - Must match parent directory name
+    """
+    name = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")
+    name = re.sub(r"-{2,}", "-", name)  # collapse consecutive hyphens
+    return name[:64] or "unnamed-skill"
+
+
 class SkillsManager:
     """
     Manages a directory of reusable skills (Python functions) in FalkorDB.
@@ -94,12 +109,12 @@ class SkillsManager:
 
     async def _sync_python_skill(self, file_path: Path) -> str | None:
         try:
-            code = file_path.read_text(encoding="utf-8")
-            name = file_path.stem
+            code = file_path.read_text(encoding="utf-8").strip()
+            name = _spec_name(file_path.stem)
 
             # Optimization: Check if content changed before parsing/embedding
             existing = self.get_skill(name)
-            if existing and existing.get("code") == code:
+            if existing and existing.get("code", "").strip() == code:
                 # Still check if embedding exists
                 res = self.db.query(
                     "MATCH (s:Skill {name: $name}) RETURN s.embedding IS NOT NULL as has_vec",
@@ -127,7 +142,6 @@ class SkillsManager:
                 )
                 return None
 
-            name = file_path.stem
             function_name = func_def.name
             description = ast.get_docstring(func_def) or ""
 
@@ -202,14 +216,14 @@ class SkillsManager:
         self, dir_path: Path, md_path: Path
     ) -> str | None:
         try:
-            content = md_path.read_text(encoding="utf-8")
+            content = md_path.read_text(encoding="utf-8").strip()
             name = dir_path.name
 
             # Optimization
             existing = self.get_skill(name)
             if (
                 existing
-                and existing.get("code") == content
+                and existing.get("code", "").strip() == content
                 and existing.get("type") == "instructional"
             ):
                 return name
@@ -233,7 +247,7 @@ class SkillsManager:
                         else:
                             frontmatter[key.strip()] = val_str
 
-            name = frontmatter.get("name") or dir_path.name
+            name = _spec_name(frontmatter.get("name") or dir_path.name)
             description = frontmatter.get("description") or "Instructional Skill"
             tags = frontmatter.get("tags") or []
 
@@ -363,9 +377,15 @@ class SkillsManager:
     ) -> str:
         """
         Save a skill function to the skills library.
+
+        Creates an Agent Skills spec-compliant directory:
+            {name}/
+            ├── SKILL.md          # Frontmatter + instructions
+            └── scripts/
+                └── {name}.py     # Executable code
         """
-        # Sanitize and limit name length for OS compatibility
-        name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
+        name = _spec_name(name)
+        code = code.strip()
         try:
             # 1. Parse with strict warning handling
             with warnings.catch_warnings(record=True):
@@ -389,8 +409,9 @@ class SkillsManager:
             raise ValueError(f"Invalid Python syntax or warning: {e}") from e
 
         # Generate embedding
+        desc = description or f"Python skill: {name}"
         try:
-            text_to_embed = f"{name}: {description}" if description else name
+            text_to_embed = f"{name}: {desc}"
             vec = await llm.get_embedding(text_to_embed)
             if vec is None:
                 logger.warning(
@@ -407,6 +428,7 @@ class SkillsManager:
             s.description = $desc,
             s.function_name = $func,
             s.tags = $tags,
+            s.type = 'python',
             s.version = COALESCE(s.version, 0) + 1,
             s.updated_at = timestamp()
         """
@@ -420,19 +442,57 @@ class SkillsManager:
             {
                 "name": name,
                 "code": code,
-                "desc": description or "",
+                "desc": desc,
                 "func": function_name,
                 "tags": tags or [],
                 "vec": vec,
             },
         )
 
-        # Write to disk
+        # Write Agent Skills spec-compliant directory
         try:
-            skill_file = self.skills_dir / f"{name}.py"
-            skill_file.write_text(code, encoding="utf-8")
+            skill_dir = self.skills_dir / name
+            skill_dir.mkdir(parents=True, exist_ok=True)
+
+            # scripts/ subdirectory
+            scripts_dir = skill_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            script_file = scripts_dir / f"{name.replace('-', '_')}.py"
+            script_file.write_text(code, encoding="utf-8")
+
+            # Also write a flat importable .py at the skill dir level
+            # so the harness can import it as skills.{name}.{name}
+            init_file = skill_dir / "__init__.py"
+            # Re-export the function from scripts/
+            module_safe = name.replace("-", "_")
+            init_file.write_text(
+                f'"""Auto-generated: re-exports skill function."""\n'
+                f"from .scripts.{module_safe} import {function_name}\n",
+                encoding="utf-8",
+            )
+
+            # SKILL.md with spec-compliant frontmatter
+            tag_str = ", ".join(f'"{t}"' for t in (tags or []))
+            skill_md = skill_dir / "SKILL.md"
+            skill_md.write_text(
+                f"---\n"
+                f"name: {name}\n"
+                f"description: {desc}\n"
+                + (
+                    f"metadata:\n  tags: [{tag_str}]\n  type: skill\n  origin: agent\n"
+                    if tags
+                    else "metadata:\n  type: skill\n  origin: agent\n"
+                )
+                + f"---\n\n"
+                f"# {name}\n\n"
+                f"{desc}\n\n"
+                f"## Usage\n\n"
+                f"Run this skill's entry function `{function_name}` from `scripts/{name.replace('-', '_')}.py`.\n",
+                encoding="utf-8",
+            )
+            logger.info("Skill '%s' saved as Agent Skills directory.", name)
         except Exception as e:  # pylint: disable=broad-except
-            logger.error("Failed to write skill to disk: %s", e)
+            logger.error("Failed to write skill directory to disk: %s", e)
 
         return name
 
@@ -445,32 +505,36 @@ class SkillsManager:
     ) -> str:
         """
         Save an instructional (folder-based) skill.
-        Creates a directory with SKILL.md.
+        Creates an Agent Skills spec-compliant directory with SKILL.md.
         """
-        # Sanitize and limit name length
-        name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
+        name = _spec_name(name)
+        instructions = instructions.strip()
         skill_dir = self.skills_dir / name
         skill_dir.mkdir(parents=True, exist_ok=True)
 
         md_file = skill_dir / "SKILL.md"
 
-        # Construct Frontmatter
-        desc = description or "Instructional Skill"
-        tag_str = ", ".join(tags) if tags else ""
+        # Construct spec-compliant frontmatter
+        desc = description or "Instructional skill"
+        metadata_lines = ["metadata:", "  type: instructional", "  origin: agent"]
+        if tags:
+            tag_str = ", ".join(f'"{t}"' for t in tags)
+            metadata_lines.append(f"  tags: [{tag_str}]")
+        metadata_block = "\n".join(metadata_lines)
 
-        content = f"""---
-name: {name}
-description: {desc}
-tags: [{tag_str}]
-type: instructional
----
-
-{instructions}
-"""
+        content = (
+            f"---\n"
+            f"name: {name}\n"
+            f"description: {desc}\n"
+            f"{metadata_block}\n"
+            f"---\n\n"
+            f"{instructions}\n"
+        )
         md_file.write_text(content, encoding="utf-8")
 
         # Sync to DB
         await self._sync_instructional_skill(skill_dir, md_file)
+        logger.info("Instructional skill '%s' saved (Agent Skills spec).", name)
 
         return name
 
@@ -687,16 +751,41 @@ class AxiomsManager:
         # NOTE: sync_from_disk() removed from __init__ to avoid loop conflicts.
 
     async def sync_from_disk(self) -> None:
-        """Sync axiom files from disk to database with :Axiom label."""
+        """Sync axiom files from disk to database with :Axiom label.
+
+        Handles both legacy flat .py files and new spec-compliant directories.
+        """
         count = 0
         seen_names = set()
         for item in self.axioms_dir.iterdir():
             if item.name == "__init__.py" or item.name.startswith("__"):
                 continue
+
+            # Case A: Legacy flat .py file
             if item.is_file() and item.suffix == ".py":
                 if await self._sync_axiom(item):
                     count += 1
-                seen_names.add(item.stem)
+                seen_names.add(_spec_name(item.stem))
+
+            # Case B: Spec-compliant directory with SKILL.md
+            elif item.is_dir():
+                skill_md = item / "SKILL.md"
+                scripts_dir = item / "scripts"
+                if skill_md.exists():
+                    # Find the .py script inside scripts/
+                    py_file = None
+                    if scripts_dir.exists():
+                        for f in scripts_dir.iterdir():
+                            if f.suffix == ".py" and not f.name.startswith("__"):
+                                py_file = f
+                                break
+                    if py_file:
+                        if await self._sync_axiom(py_file):
+                            count += 1
+                        seen_names.add(_spec_name(item.name))
+                    else:
+                        # Instructional axiom (no code)
+                        seen_names.add(_spec_name(item.name))
 
         # Cleanup Stale Axioms
         all_axioms = self.list_axioms()
@@ -714,12 +803,12 @@ class AxiomsManager:
 
     async def _sync_axiom(self, file_path: Path) -> bool:
         try:
-            code = file_path.read_text(encoding="utf-8")
-            name = file_path.stem
+            code = file_path.read_text(encoding="utf-8").strip()
+            name = _spec_name(file_path.stem)
 
             # Optimization: Check if content changed
             existing = self.get_axiom(name)
-            if existing and existing.get("code") == code:
+            if existing and existing.get("code", "").strip() == code:
                 # Still check if embedding exists
                 res = self.db.query(
                     "MATCH (a:Axiom {name: $name}) RETURN a.embedding IS NOT NULL as has_vec",
@@ -746,7 +835,6 @@ class AxiomsManager:
             if not func_def:
                 return False
 
-            name = file_path.stem
             function_name = func_def.name
             description = ast.get_docstring(func_def) or ""
 
@@ -776,19 +864,6 @@ class AxiomsManager:
             )
             if type_match:
                 axiom_type = type_match.group(1).lower()
-
-            # Generate embedding for semantic search
-            text_to_embed = f"{name}: {description}" if description else name
-            try:
-                vec = await llm.get_embedding(text_to_embed)
-                if vec is None:
-                    logger.warning(
-                        "Embedding service returned None for axiom %s. Semantic search will be unavailable.",
-                        name,
-                    )
-            except Exception as e:  # pylint: disable=broad-except
-                logger.warning("Failed to generate embedding for axiom %s: %s", name, e)
-                vec = None
 
             # Generate embedding for semantic search
             text_to_embed = f"{name}: {description}" if description else name
@@ -842,8 +917,16 @@ class AxiomsManager:
         session_id: str | None = None,
         root_session_id: str | None = None,
     ) -> str:
-        """Save an axiom to the axioms library."""
-        name = re.sub(r"[^a-zA-Z0-9_]", "_", name)[:100]
+        """Save an axiom to the axioms library.
+
+        Creates an Agent Skills spec-compliant directory:
+            {name}/
+            ├── SKILL.md          # Frontmatter with metadata.type = axiom_type
+            └── scripts/
+                └── {name}.py     # Executable code
+        """
+        name = _spec_name(name)
+        code = code.strip()
         try:
             # 1. Parse with strict warning handling
             with warnings.catch_warnings(record=True):
@@ -867,8 +950,9 @@ class AxiomsManager:
             raise ValueError(f"Invalid Python syntax or warning: {e}") from e
 
         # 2. Generate embedding
+        desc = description or f"Axiom ({axiom_type}): {name}"
         try:
-            text_to_embed = f"{name}: {description}" if description else name
+            text_to_embed = f"{name}: {desc}"
             vec = await llm.get_embedding(text_to_embed)
             if vec is None:
                 logger.warning(
@@ -901,7 +985,7 @@ class AxiomsManager:
             {
                 "name": name,
                 "code": code,
-                "desc": description or "",
+                "desc": desc,
                 "func": function_name,
                 "tags": tags or ["general"],
                 "type": axiom_type,
@@ -912,15 +996,52 @@ class AxiomsManager:
             },
         )
 
-        # Write to disk
+        # Write Agent Skills spec-compliant directory
         try:
-            axiom_file = self.axioms_dir / f"{name}.py"
-            # Secondary Safety Net: Ensure final newline if LLM missed it
-            if not code.endswith("\n"):
-                code += "\n"
-            axiom_file.write_text(code, encoding="utf-8")
+            axiom_dir = self.axioms_dir / name
+            axiom_dir.mkdir(parents=True, exist_ok=True)
+
+            # scripts/ subdirectory
+            scripts_dir = axiom_dir / "scripts"
+            scripts_dir.mkdir(exist_ok=True)
+            module_safe = name.replace("-", "_")
+            script_file = scripts_dir / f"{module_safe}.py"
+            script_file.write_text(code, encoding="utf-8")
+
+            # __init__.py for importability
+            init_file = axiom_dir / "__init__.py"
+            init_file.write_text(
+                f'"""Auto-generated: re-exports axiom function."""\n'
+                f"from .scripts.{module_safe} import {function_name}\n",
+                encoding="utf-8",
+            )
+
+            # SKILL.md with spec frontmatter
+            tag_str = ", ".join(f'"{t}"' for t in (tags or ["general"]))
+            skill_md = axiom_dir / "SKILL.md"
+            skill_md.write_text(
+                f"---\n"
+                f"name: {name}\n"
+                f"description: {desc}\n"
+                f"metadata:\n"
+                f"  type: {axiom_type}\n"
+                f"  origin: dreamer\n"
+                f"  tags: [{tag_str}]\n"
+                + (f"  session-id: {session_id}\n" if session_id else "")
+                + f"---\n\n"
+                f"# {name}\n\n"
+                f"{desc}\n\n"
+                f"## Usage\n\n"
+                f"Entry function: `{function_name}` in `scripts/{module_safe}.py`.\n",
+                encoding="utf-8",
+            )
+            logger.info(
+                "Axiom '%s' saved as Agent Skills directory (type=%s).",
+                name,
+                axiom_type,
+            )
         except Exception as e:  # pylint: disable=broad-except
-            logger.error("Failed to write axiom to disk: %s", e)
+            logger.error("Failed to write axiom directory to disk: %s", e)
 
         return name
 

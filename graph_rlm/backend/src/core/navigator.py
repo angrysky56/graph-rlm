@@ -32,6 +32,24 @@ class Navigator:
     3. Topological Consistency: Via Sheaf Cohomology checks (delegated to Sheaf)
     """
 
+    def check_stress_anomaly(self, stress_ratio: float):
+        """Flags STRESS ANOMALY if ratio >= 0.15."""
+        if stress_ratio >= 0.15:
+            logger.warning("STRESS ANOMALY DETECTED: Ratio %s", stress_ratio)
+            return True
+        return False
+
+    async def monitor_stress_anomalies(self, session_id: str, sheaf_monitor: "Any"):
+        """Asynchronously monitors topological stress and returns status dictionary."""
+        stress = sheaf_monitor.calculate_topological_stress(session_id)
+        if stress >= 0.15:
+            logger.warning(
+                "STRESS ANOMALY: Session %s stress at %s", session_id, stress
+            )
+            # This flag surfaces to the agent's context/scratchpad
+            return {"status": "STRESS_ANOMALY", "ratio": stress}
+        return {"status": "STABLE", "ratio": stress}
+
     def __init__(self, sheaf_monitor=None):
         self.sheaf = sheaf_monitor
         self.history_buffer: List[str] = []
@@ -173,16 +191,24 @@ class Navigator:
             temperature = 1.5 if is_class_4 else 1.0
             force = temperature * grad_s
 
+            # 5. Thermodynamic Penalty (Cost of Determinism)
+            # If the trajectory is artificially collapsed (Freedom approaches 0),
+            # we apply a penalty to prevent the agent from locking into a
+            # deterministic, zero-entropy path without exploring alternatives.
+            # Threshold: 0.3. Max penalty: 0.6.
+            thermodynamic_penalty = 0.0
+            if current_s_tau < 0.3:
+                thermodynamic_penalty = (0.3 - current_s_tau) * 2.0
+
             # Total Curiosity Score
             # Weighting: 40% Compression Progress, 60% Causal Entropic Force
             # We use a Sigmoid to squash scores into the 0.0 - 1.0 range
-            # k=0.1 for a gentle slope centered at 0
             def sigmoid(x: float) -> float:
                 import math
 
                 return 1 / (1 + math.exp(-0.2 * x))
 
-            raw_score = (r_t * 0.4) + (force * 0.6)
+            raw_score = (r_t * 0.4) + (force * 0.6) - thermodynamic_penalty
             score = sigmoid(raw_score)
 
             details = {
@@ -190,6 +216,7 @@ class Navigator:
                 "compression_progress": r_t,
                 "future_entropy": current_s_tau,
                 "causal_force": force,
+                "thermodynamic_penalty": thermodynamic_penalty,
                 "is_class_4": is_class_4,
                 "score": score,
             }
@@ -207,19 +234,33 @@ class Navigator:
         """
         Retrospective analysis to find patterns that yielded high compression progress.
         Used by Dreamer to codify skills.
+
+        Uses Sheaf consistency score (sheaf_score) as quality signal:
+        - Low sheaf_score = high topological consistency = good pattern
+        - Filters out noisy/loopy nodes (sheaf_score >= min_compression_gain)
+
+        Args:
+            session_id: Session to analyze.
+            min_compression_gain: Sheaf score threshold. Thoughts with
+                sheaf_score >= this value are considered too noisy to learn from.
         """
-        # Query for successful thoughts
-        # We look for thoughts with status='success' and substantial result content
+        # Query for successful thoughts with LOW sheaf_score (= high consistency)
+        # This replaces the old heuristic of `status='success' AND size(result) > 10`
         cypher = """
         MATCH (t:Thought {session_id: $sid, status: 'success'})
-        WHERE t.result IS NOT NULL AND size(t.result) > 10
-        RETURN t.id as id, t.prompt as prompt, t.result as result
-        ORDER BY t.created_at DESC
+        WHERE t.result IS NOT NULL
+          AND size(t.result) > 10
+          AND (t.sheaf_score IS NULL OR t.sheaf_score < $max_sheaf)
+        RETURN t.id as id, t.prompt as prompt, t.result as result,
+               t.sheaf_score as sheaf_score
+        ORDER BY t.sheaf_score ASC, t.created_at DESC
         LIMIT 20
         """
 
         try:
-            results = db.query(cypher, {"sid": session_id})
+            results = db.query(
+                cypher, {"sid": session_id, "max_sheaf": min_compression_gain}
+            )
             patterns = []
             for row in results:
                 # Handle both dict and object return types from DB wrapper
@@ -236,14 +277,21 @@ class Navigator:
                 r_id = (
                     row.get("id") if isinstance(row, dict) else getattr(row, "id", None)
                 )
+                r_sheaf = (
+                    row.get("sheaf_score")
+                    if isinstance(row, dict)
+                    else getattr(row, "sheaf_score", None)
+                )
 
                 if r_prompt and r_result:
+                    # Compression gain = inverse of sheaf_score (low sheaf = high quality)
+                    gain = 1.0 - (float(r_sheaf) if r_sheaf is not None else 0.0)
                     patterns.append(
                         {
                             "id": r_id,
                             "prompt": r_prompt,
                             "result": r_result,
-                            "compression_gain": 1.0,  # Placeholder until compute persist is active
+                            "compression_gain": gain,
                         }
                     )
             return patterns
@@ -255,6 +303,18 @@ class Navigator:
                 exc_info=True,
             )
             return []
+
+    def evaluate_topological_stress(
+        self, stress: float, threshold: float = 0.15
+    ) -> str:
+        """
+        Evaluates the Shepard/Topological Stress ratio.
+        Returns a warning flag if the session graph is becoming too noisy or contradictory.
+        """
+        if stress > threshold:
+            logger.warning("Navigator: High Topological Stress detected (%.4f)", stress)
+            return f"STRESS ANOMALY ({stress:.2f})"
+        return ""
 
 
 navigator = Navigator(sheaf_monitor=sheaf)

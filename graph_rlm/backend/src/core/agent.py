@@ -191,6 +191,7 @@ class Agent:
         self.step_id: int = 0
         self.current_turn: int = 1
         self.current_thought_id: Optional[str] = None
+        self._last_reflexion_step: int = -10  # Cooldown tracker for Sheaf reflexion
 
         # === EVALUATION COUNTERS ===
         # Track success/failure for session-level and global metrics
@@ -525,6 +526,7 @@ class Agent:
         max_steps: int,
         current_round_id: str,
         morph_gestalt: Optional[str] = None,
+        execution_state: Optional[Any] = None,
     ) -> str:
         """
         Rebuild the scratchpad — the stateless agent's only memory.
@@ -543,6 +545,7 @@ class Agent:
                 current_round_id=current_round_id,
                 morph_gestalt=morph_gestalt,
                 current_repl_id=current_repl_id,
+                execution_state=execution_state,
             )
             self.emit_event("scratchpad_text", content=pad, is_internal=True)
             return pad
@@ -563,6 +566,12 @@ class Agent:
     ) -> Optional[Dict[str, str]]:
         """Helper to ingest a thought node into Thimac memory and return classification."""
         try:
+            # Calculate MDL Compression Gain (Phase 4 Gestalt)
+            compression_gain = 0.0
+            if getattr(self, "navigator", None):
+                content = f"{prompt}\n{result}" if result else prompt
+                compression_gain = self.navigator.compute_compression_progress(content)
+
             thimac_thought_data = {
                 "id": thought_id,
                 "prompt": prompt,
@@ -575,9 +584,20 @@ class Agent:
                 "step_id": step,
                 "repl_id": repl_id,
                 "logical_id": logical_id,
-                "execution_summary": None,
+                "execution_summary": None,  # Dropped in favor of topological graph footprints
+                "compression_gain": compression_gain,
             }
             event = self.morph_memory.ingest_thought(thimac_thought_data, tool_calls)
+
+            # Persistent Homology Pipeline: If compression > 0, we can autonomously codify it as an Axiom.
+            # (In a fully autonomous setup, the Dreamer handles this, but Thimac flags it here).
+            if compression_gain > 0.1 and status == "success":
+                trace_action(
+                    "THIMAC",
+                    "PERSISTENT_HOMOLOGY",
+                    f"Node {thought_id[:8]} compressed state space significantly (+{compression_gain:.2f}). Flagged for survival.",
+                )
+
             return {
                 "operation": event.operation.value,
                 "level": event.level.value,
@@ -1078,6 +1098,7 @@ class Agent:
             vec = None
             psych_profile = None
             omcd_decision = None
+            temp_override = None  # Amygdala: RepE-driven temperature modulation
 
             self.emit_event(
                 "graph_update",
@@ -1107,12 +1128,9 @@ class Agent:
                 },
             )
 
-        # 1. Base System Prompt (DYNAMIC UPDATE)
-        # Pass the profile we just generated!
-        base_system_prompt = await build_system_prompt(
-            skills_manager=self.skills_manager,
-            agent_profile=task_profile,  # <--- PASS THE DYNAMIC PROFILE
-        )
+        # 1. Base System Prompt
+        # System prompt is built fresh each iteration at the system_prompt assignment
+        # inside the loop, combining build_system_prompt() with the dynamic scratchpad.
 
         max_steps = 1000
         step = 0
@@ -1120,6 +1138,13 @@ class Agent:
         # Track previous status for topological resolution
         previous_thought_status = None
         context_scratchpad = ""
+        frontier = []
+        reasoning_frontier = []
+
+        # [C3] Phase-tracking execution state
+        exec_state = agent_state.get()
+        if exec_state is None:
+            exec_state = ExecutionState()
 
         while step < max_steps:
             # 0.5 CHECK STOP SIGNAL
@@ -1156,18 +1181,8 @@ class Agent:
                 )
                 morph_gestalt = None
 
-            # --- DYNAMIC SCRATCHPAD REFRESH ---
-            context_scratchpad = await self._refresh_scratchpad(
-                session_id=session_id,
-                root_session_id=final_root_id,
-                task=prompt,
-                current_step=step,
-                max_steps=max_steps,
-                current_round_id=current_round_id,
-                morph_gestalt=morph_gestalt,
-            )
-
-            system_prompt = f"{base_system_prompt}\n\n{context_scratchpad}"
+            # NOTE: Scratchpad is built at L1281 as part of system_prompt construction.
+            # A prior redundant rebuild here was eliminated (Phase A1 optimization).
 
             # Construct Dynamic Context (Minimal)
             # No longer pre-loading raw Frontier content into the prompt.
@@ -1181,8 +1196,18 @@ class Agent:
             frontier_ids = []
 
             try:
-                # Get last 10 thoughts for Sheaf topology monitoring
-                frontier = self.db.get_context_frontier(session_id, limit=10)
+                # Get last 20 thoughts for Sheaf topology monitoring
+                # By default, this EXCLUDES system nodes like SHEAF, oMCD, etc.
+                # which prevents the agent from being penalized for system-level repetition.
+                frontier = self.db.get_context_frontier(session_id, limit=20)
+                # Filter frontier to only include 'success' or 'completed' reasoning thoughts
+                # to avoid triggering on system noise/diagnostics.
+                reasoning_frontier = [
+                    n
+                    for n in frontier
+                    if n.get("status") in ["success", "completed", "complete"]
+                    and n.get("prompt")
+                ]
                 for node in frontier:
                     val = node.get("n") if isinstance(node, dict) else node
                     if val is None:
@@ -1256,12 +1281,58 @@ class Agent:
                     "Failure to align will result in a recursive block.\n---"
                 )
 
+            # --- DASHBOARD METRICS ---
+            dashboard_data = {}
+            try:
+                # [Universal Observability] Fetch latest metrics for this session to inject into prompt
+                latest_q = """
+                MATCH (n:Thought)
+                WHERE n.root_session_id = $rsid
+                AND n.session_id = $sid
+                RETURN n.sheaf_score as sheaf_energy,
+                       n.repe_shakiness as repe_shakiness,
+                       n.repe_evasion as repe_evasion,
+                       n.repe_confluence as repe_confluence,
+                       n.repe_freedom as repe_freedom,
+                       n.omcd_score as omcd_score
+                ORDER BY n.created_at DESC
+                LIMIT 1
+                """
+                latest_res = self.db.query(
+                    latest_q, {"rsid": final_root_id, "sid": session_id}
+                )
+                if latest_res:
+                    row = latest_res[0]
+                    if isinstance(row, dict):
+                        dashboard_data = {
+                            k: f"{v:.2f}" if isinstance(v, (float, int)) else v
+                            for k, v in row.items()
+                        }
+                    else:
+                        # Raw driver list-based fallback
+                        cols = [
+                            "sheaf_energy",
+                            "repe_shakiness",
+                            "repe_evasion",
+                            "repe_confluence",
+                            "repe_freedom",
+                            "omcd_score",
+                        ]
+                        dashboard_data = {}
+                        for i, v in enumerate(row):
+                            if i < len(cols):
+                                dashboard_data[cols[i]] = (
+                                    f"{v:.2f}" if isinstance(v, (float, int)) else v
+                                )
+            except Exception as e:
+                logger.warning("Failed to fetch dashboard metrics for prompt: %s", e)
+
             system_prompt = (
-                f"{await build_system_prompt(skills_manager=self.skills_manager, agent_profile=task_profile)}\n\n"
+                f"{await build_system_prompt(skills_manager=self.skills_manager, agent_profile=task_profile, dashboard_data=dashboard_data)}\n\n"
                 f"--- FILE OPERATIONS & GROUNDING ---\n"
                 f"CRITICAL: If your action creates or modifies a file, you MUST print the absolute path "
                 f"and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations.\n\n"
-                f"{await self._refresh_scratchpad(session_id=session_id, root_session_id=final_root_id, task=prompt, current_step=step, max_steps=max_steps, current_round_id=current_round_id, morph_gestalt=morph_gestalt)}{hot_seat_warning}"
+                f"{await self._refresh_scratchpad(session_id=session_id, root_session_id=final_root_id, task=prompt, current_step=step, max_steps=max_steps, current_round_id=current_round_id, morph_gestalt=morph_gestalt, execution_state=exec_state)}{hot_seat_warning}"
             )
 
             # --- SYNTHESIS HARDENING ---
@@ -1281,11 +1352,37 @@ class Agent:
             # a curiosity-driven directive to guide exploration.
             if self.navigator and step % 3 == 0:  # Check periodically to avoid noise
                 # [Universal Traceability] Materialize Navigator Reasoning
-                # We log the history compression status as a proxy for 'exploration depth'
                 nav_lid = f"{session_id}:T{self.current_turn}:S{step}:NAV"
+
+                # [D1] NAVIGATOR STEERING: Inject stagnation directive if compression is negative
+                comp_ratio = getattr(self.navigator, "_last_compression_ratio", 1.0)
+                try:
+                    if hasattr(self.navigator, "compute_compression_progress"):
+                        comp_progress = self.navigator.compute_compression_progress(
+                            context_scratchpad or ""
+                        )
+                    else:
+                        comp_progress = comp_ratio - 1.0
+                except (AttributeError, TypeError, ValueError):
+                    comp_progress = 0.0
+
+                if comp_progress < -0.05:
+                    nav_directive = (
+                        "\n--- \U0001f9ed NAVIGATOR: STAGNATION DETECTED ---\n"
+                        f"Compression progress: {comp_progress:.4f} (negative = repetitive content).\n"
+                        "You are producing content the system has already seen. "
+                        "CHANGE YOUR APPROACH: try a different tool, reframe the problem, or explore an unexplored subtopic.\n"
+                        "---\n"
+                    )
+                    system_prompt = nav_directive + system_prompt
+                    logger.info(
+                        "\U0001f9ed Navigator injected stagnation directive (progress: %.4f)",
+                        comp_progress,
+                    )
+
                 self._create_system_node(
                     nav_lid,
-                    f"Navigator: Monitoring history compression (Ratio: {getattr(self.navigator, '_last_compression_ratio', 1.0):.4f})",
+                    f"Navigator: Monitoring history compression (Ratio: {comp_ratio:.4f}, Progress: {comp_progress:.4f})",
                     status="navigator",
                     session_id=session_id,
                     root_session_id=final_root_id,
@@ -1294,9 +1391,8 @@ class Agent:
                     step_id=step,
                     repl_id="NAV",
                     analysis={
-                        "compression_ratio": getattr(
-                            self.navigator, "_last_compression_ratio", 1.0
-                        ),
+                        "compression_ratio": comp_ratio,
+                        "compression_progress": comp_progress,
                         "history_size": len(self.navigator.history_buffer),
                     },
                     validate=False,
@@ -1314,97 +1410,146 @@ class Agent:
                 tag="AGENT",
             )
 
-            # 3. LLM Gen (Think)
+            # 3. LLM Gen (Think) with Unified Real-Time Healing
             response_text = ""
-            try:
+            current_healing_attempt = 0
+            max_healing_retries = 2
 
-                # [DIAGNOSTIC] Log start of network request
-                self.emit_event(
-                    "debug_thought",
-                    content=f"... Sending request to LLM (Size: {len(current_context)} chars) ...",
-                )
-                # Generate correlation ID for circuit breaker tracking
-                correlation_id = generate_correlation_id()
+            # Temporary context to modify for healing retries
+            temp_context = current_context
 
+            while current_healing_attempt <= max_healing_retries:
                 try:
-                    # Define Usage Callback
-                    def on_usage_update(usage_data: dict):
-                        # Broadcast detailed usage to UI
-                        self.emit_event(
-                            "token_usage", data=usage_data, is_internal=True
-                        )
-
-                    # Execute LLM Call
-                    # [OpenRouter Caching Strategy]
-                    llm_config = self.llm.config
-                    if llm_config.get("provider") == "openrouter":
-                        # Construct structured system message with cache control
-                        # Consolidate into a single text block with trailing cache control to maximize prefix sharing
-                        # Note: system_prompt already contains the scratchpad at the end (line 1105)
-                        system_message_content = [
-                            {
-                                "type": "text",
-                                "text": system_prompt,
-                                "cache_control": {"type": "ephemeral"},
-                            }
-                        ]
-
-                        # Manually construct messages list to bypass llm.generate's simple formatting
-                        messages = [
-                            {"role": "system", "content": system_message_content},
-                            {"role": "user", "content": current_context},
-                        ]
-
-                        response_text = await protected_llm_generate(
-                            prompt=messages,
-                            system=None,
-                            stream=False,
-                            stop=["</invoke>", "<|endoftext|>"],
-                            on_usage=on_usage_update,
-                        )
-                    else:
-                        # Standard execution
-                        response_text = await protected_llm_generate(
-                            prompt=current_context,
-                            system=system_prompt,
-                            stream=False,
-                            stop=["</invoke>", "<|endoftext|>"],
-                            on_usage=on_usage_update,
-                        )
-                except CircuitOpenError as e:
-                    # Circuit breaker is open, graceful degradation
-                    logger.warning(
-                        "llm_circuit_open",
-                        extra={
-                            "correlation_id": correlation_id,
-                            "circuit": e.circuit_name,
-                            "error": e.message,
-                        },
+                    # [DIAGNOSTIC] Log start of network request
+                    log_label = (
+                        "... Sending request to LLM ..."
+                        if current_healing_attempt == 0
+                        else f"... Introspective Healing (Attempt {current_healing_attempt}) ..."
                     )
-                    # Use graceful degradation handler
-                    response_text = await self._handle_llm_circuit_open(e)
-                except httpx.RequestError as e:
-                    # Log network exception specifically
-                    response_text = f"LLM Network Error: {str(e)}"
-                    logger.error("LLM Request Error (%s): %s", type(e).__name__, e)
-                except (ValueError, TypeError, KeyError) as e:
-                    # Log parsing/logic exception
-                    response_text = f"LLM Logic Error: {str(e)}"
-                    logger.error("LLM Logic/Data Error (%s): %s", type(e).__name__, e)
-                    self.emit_event("error", content=response_text)
+                    self.emit_event(
+                        "debug_thought",
+                        content=f"{log_label} (Size: {len(temp_context)} chars) ...",
+                    )
+                    # Generate correlation ID for circuit breaker tracking
+                    correlation_id = generate_correlation_id()
 
-                # Post-gen stop check
-                if self.stop_requested or self.global_stop_event.is_set():
-                    self.stop_requested = True
+                    try:
+                        # Define Usage Callback
+                        def on_usage_update(usage_data: dict):
+                            # Broadcast detailed usage to UI
+                            self.emit_event(
+                                "token_usage", data=usage_data, is_internal=True
+                            )
+
+                        # Execute LLM Call
+                        # [OpenRouter Caching Strategy]
+                        llm_config = self.llm.config
+                        if llm_config.get("provider") == "openrouter":
+                            system_message_content = [
+                                {
+                                    "type": "text",
+                                    "text": system_prompt,
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ]
+                            messages = [
+                                {"role": "system", "content": system_message_content},
+                                {"role": "user", "content": temp_context},
+                            ]
+                            response_text = await protected_llm_generate(
+                                prompt=messages,
+                                system=None,
+                                stream=False,
+                                stop=["</invoke>", "<|endoftext|>"],
+                                on_usage=on_usage_update,
+                                temperature=temp_override,
+                            )
+                        else:
+                            response_text = await protected_llm_generate(
+                                prompt=temp_context,
+                                system=system_prompt,
+                                stream=False,
+                                stop=["</invoke>", "<|endoftext|>"],
+                                on_usage=on_usage_update,
+                                temperature=temp_override,
+                            )
+                    except CircuitOpenError as e:
+                        logger.warning(
+                            "llm_circuit_open",
+                            extra={
+                                "correlation_id": correlation_id,
+                                "circuit": e.circuit_name,
+                                "error": e.message,
+                            },
+                        )
+                        response_text = await self._handle_llm_circuit_open(e)
+                    except httpx.RequestError as e:
+                        response_text = f"LLM Network Error: {str(e)}"
+                        logger.error("LLM Request Error (%s): %s", type(e).__name__, e)
+                    except (ValueError, TypeError, KeyError) as e:
+                        response_text = f"LLM Logic Error: {str(e)}"
+                        logger.error(
+                            "LLM Logic/Data Error (%s): %s", type(e).__name__, e
+                        )
+                        self.emit_event("error", content=response_text)
+
+                    # Post-gen stop check
+                    if self.stop_requested or self.global_stop_event.is_set():
+                        self.stop_requested = True
+                        break
+
+                    # --- PROACTIVE INTROSPECTIVE HEALING ---
+                    # Before we commit this thought, probe it for structural integrity.
+                    try:
+                        # Ephemeral rlm_ctx for signature validation
+                        rlm_ctx = RLMInterface(
+                            self,
+                            session_id=session_id,
+                            root_session_id=final_root_id or session_id,
+                        )
+
+                        correction = await intelli_synth.introspective_probe(
+                            response_text,
+                            rlm=rlm_ctx,
+                            context_scratchpad=context_scratchpad,
+                        )
+
+                        if not correction:
+                            # Thought is clean or contains no code to heal
+                            break
+
+                        # Healing logic triggered
+                        current_healing_attempt += 1
+                        if current_healing_attempt > max_healing_retries:
+                            logger.info(
+                                "Maximum healing retries reached. Committing latest attempt."
+                            )
+                            break
+
+                        self.emit_event(
+                            "thinking",
+                            content=f"⚠️ **[Introspective Healing]** {correction['type']} detected. Patching action...",
+                            tag="SYSTEM",
+                        )
+
+                        # Augment temp_context with the correction hint
+                        temp_context += (
+                            f"\n\n[SYSTEM INTROSPECTION ERROR]: {correction['message']}\n"
+                            f"HINT: {correction['hint']}\n"
+                            "Please correct your logic/code and try again."
+                        )
+                        # Clear response_text to ensure we loop back unless broken above
+                        response_text = ""
+
+                    except (AttributeError, RuntimeError, ValueError) as probe_err:
+                        logger.error("Introspective probe failed: %s", probe_err)
+                        break
+
+                except (AttributeError, RuntimeError, KeyError, ValueError) as outer_e:
+                    logger.error("Critical error in thinking loop: %s", outer_e)
+                    if not response_text:
+                        response_text = f"System Error: {outer_e}"
                     break
-            except (AttributeError, RuntimeError, KeyError, ValueError) as outer_e:
-                # Diagnostic block to catch non-critical errors in the thought reporting loop
-                logger.error(
-                    "Error in diagnostic thought block (Logic/State error): %s", outer_e
-                )
-                # Ensure loop can continue or response_text is set
-                if not response_text:
-                    response_text = f"System Error in diagnostic loop: {outer_e}"
 
             # Raw response logging restored for visibility
             trace_action(
@@ -1485,6 +1630,12 @@ class Agent:
             # 5. Semantic Vectorization (Early)
             # We compute the embedding for the RAW thought now, so we can check it
             # before execution. We will update it later if execution adds significant output.
+            vec = None
+            try:
+                vec = await self.llm.get_embedding(response_text)
+            except (httpx.RequestError, ValueError, TypeError) as e:
+                logger.warning("Failed to embed thought: %s", e)
+
             # 7. PRE-COMMIT (Atomic Traceability)
             # Create the node as "running" before any monitors/execution
             thimac_state = (
@@ -1566,6 +1717,17 @@ class Agent:
                 )  # Negative = Shaky
                 # evasion_score = psych_profile.get("Evasion", 0.0)     # Negative = Evasive
 
+                # Amygdala Circuit: Modulate LLM temperature from RepE threat
+                # High shakiness (neurotic) -> low temp (conservative)
+                # Low shakiness (grounded) -> default temp (creative)
+                raw_shakiness = -float(shakiness_score)  # Invert: positive = threat
+                temp_override = max(0.3, min(0.8, 0.7 - (raw_shakiness * 0.5)))
+                logger.debug(
+                    "[Amygdala] Shakiness=%.2f -> Temperature=%.2f",
+                    raw_shakiness,
+                    temp_override,
+                )
+
                 # 2. Sheaf (External Trajectory: Logic/Goal)
                 # Checks: "Does this follow? Am I closer to the goal?"
                 hypothetical_edges = [(fid, thought_id) for fid in frontier_ids]
@@ -1578,6 +1740,7 @@ class Agent:
                     },
                     hypothetical_edges=hypothetical_edges,
                     goal_embedding=self.session_cache.get("task_embedding"),
+                    round_id=current_round_id,
                 )
 
                 # [Universal Traceability] Materialize Sheaf Reasoning
@@ -1597,10 +1760,27 @@ class Agent:
                     validate=False,
                 )
 
-                # --- oMCD OPTIMAL STOPPING GATE ---
+                # --- oMCD OPTIMAL STOPPING GATE (Hamiltonian Bounded) ---
                 # Evaluate whether to commit (stop) or continue deliberating.
                 confidence = sheaf_diag.get("confidence", 0.5)
-                omcd_decision = omcd.evaluate_step(step, confidence)
+
+                # Calculate Potential Energy (Semantic distance to the goal)
+                potential_energy = 1.0
+                goal_vec = self.session_cache.get("task_embedding")
+                if current_vec and goal_vec:
+                    try:
+                        import numpy as np
+
+                        v1 = np.array(current_vec)
+                        v2 = np.array(goal_vec)
+                        n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+                        if n1 > 0 and n2 > 0:
+                            sim = float(np.dot(v1, v2) / (n1 * n2))
+                            potential_energy = max(0.0, 1.0 - sim)
+                    except (ImportError, ValueError, TypeError, ZeroDivisionError) as e:
+                        logger.warning("Failed to compute OMCD potential energy: %s", e)
+
+                omcd_decision = omcd.evaluate_step(step, confidence, potential_energy)
 
                 # [Universal Traceability] Materialize oMCD Reasoning
                 omc_lid = f"{session_id}:T{self.current_turn}:S{step}:OMC"
@@ -1640,14 +1820,46 @@ class Agent:
                 intervention_type = None
                 dream_critique = None
 
-                # SCENARIO 1: TOTAL COLLAPSE (Shaky + Drifting)
-                if (
+                # SCENARIO -1: HAMILTONIAN CONSERVATION VIOLATION (Hallucinated Leap)
+                if omcd_decision.get("is_non_physical"):
+                    intervention_type = "NON_PHYSICAL_LEAP"
+                    intervention_prompt = (
+                        "Intervention (Physics Engine): Your proposed step caused a massive, "
+                        "unearned shift in Semantic Potential Energy without the required computational "
+                        "Kinetic Effort. You are hallucinating a solution or jumping to conclusions "
+                        "without showing your work. Detail your steps and prove your logic."
+                    )
+
+                # SCENARIO 0: TOPOLOGICAL STRESS OVERLOAD
+                topological_stress = sheaf_diag.get("topological_stress", 0.0)
+
+                # Dynamically compress Thimac memory based on current stress
+                if getattr(self, "morph_memory", None):
+                    self.morph_memory.adapt_to_stress(topological_stress)
+
+                if not intervention_prompt and topological_stress >= 0.15:
+                    pruned_count, pruned_ids = self.db.force_consolidate_noisy_branches(
+                        final_root_id
+                    )
+                    intervention_type = "TOPOLOGICAL_PRUNING"
+                    id_summary = (
+                        f" (Nodes: {', '.join(pruned_ids[:4])}...)"
+                        if pruned_ids
+                        else ""
+                    )
+                    intervention_prompt = (
+                        f"Memory Consolidation: High Topological Stress detected ({topological_stress:.2f}). "
+                        f"The system has autonomously pruned {pruned_count} noisy or contradictory dead-ends from your active memory{id_summary}. "
+                        f"Reorient your reasoning to focus on the remaining reliable facts."
+                    )
+
+                elif (
                     shakiness_score < -0.15
                     and sheaf_diag.get("status") == "SEMANTIC_DRIFT"
                 ):
                     intervention_type = "CRITICAL_RESET"
                     intervention_prompt = (
-                        f"SYSTEM INTERVENTION: Critical fault detected. "
+                        f"Critical fault detected. "
                         f"Internal Monitor reports high uncertainty (Score {shakiness_score:.2f}) "
                         f"AND Trajectory Monitor reports you are moving away from the goal. "
                         f"STOP. Do not execute code. Summarize what you *actually* know versus what you guessed."
@@ -1657,17 +1869,17 @@ class Agent:
                 elif shakiness_score < -0.15:
                     intervention_type = "REFLEXION_GROUNDING"
                     intervention_prompt = (
-                        f"SYSTEM INTERVENTION (Authenticity Check): Your language indicates you are simulating competence ('As-If' Layer) "
-                        f"rather than relying on facts. Score: {shakiness_score:.2f}. "
-                        f"You are engaging in 'Task Performance' instead of 'Task Completion'. "
-                        f"Verify your premises using a tool immediately."
+                        f"Authenticity Check: Your language indicates you are uncertain ('As-If' Layer) "
+                        f"rely on facts. Score: {shakiness_score:.2f}. "
+                        f"Check for issues with your premises. "
+                        f"Seek the root of the warning."
                     )
 
                 # SCENARIO 3: TUNNEL VISION (Confident but Drifting)
                 elif sheaf_diag.get("status") == "SEMANTIC_DRIFT":
                     intervention_type = "REFLEXION_REORIENT"
                     intervention_prompt = (
-                        f"SYSTEM INTERVENTION (Field Check): You are confident, but you are drifting away from the Goal. "
+                        f"Field Check: You are confident, but you are drifting away from the Goal. "
                         f"Teleological Gradient: {sheaf_diag.get('energy', 0):.2f} (Diverging). "
                         "Re-read the original user request and justify how this step helps."
                     )
@@ -1677,30 +1889,64 @@ class Agent:
                     intervention_type = "REFLEXION_BREAK"
                     loop_nodes = sheaf_diag.get("loop_nodes", [])
 
-                    # [Dreamer Link]: Immediate Lucid Analysis
-                    dream_critique = await dreamer.analyze_holonomy(
-                        loop_nodes, current_thought=response_text
+                    # [Dreamer Link]: Data-only holonomy analysis
+                    holonomy_data = await dreamer.analyze_holonomy(
+                        loop_nodes, _current_thought=response_text
                     )
+                    repeated = holonomy_data.get("repeated_actions", [])
+                    loop_len = holonomy_data.get("loop_length", 0)
+
+                    # Filter for actual IDs to avoid messy dict stringification
+                    node_ids = []
+                    for n in loop_nodes:
+                        tid = n.get("id") or n.get("thought_id")
+                        if tid:
+                            node_ids.append(str(tid)[:8])
+                        else:
+                            node_ids.append("unknown")
 
                     intervention_prompt = (
-                        f"SYSTEM INTERVENTION (Sheaf Topology/IntelliSynth): Logical Knot detected. "
-                        f"REPL ID: {repl_id} | Point: {thought_id} | Issue: {dream_critique} "
+                        f"Logical Knot detected in REPL [{repl_id}]. "
+                        f"Loop detected ({loop_len} repeated steps) across nodes: {', '.join(node_ids[:4])}. "
+                        + (
+                            f"Repeated actions: {', '.join(r[:60] for r in repeated[:3])}. "
+                            if repeated
+                            else ""
+                        )
+                        + "You MUST try a completely different approach or call rlm.done() with your best answer."
                     )
+                    dream_critique = str(holonomy_data)  # For persistence
 
                 # SCENARIO 5: SEMANTIC DUPLICATE (Epistemic Loop Prevention)
                 if not intervention_prompt and vec:
-                    for prev_node in frontier[:5]:
+                    # Current code hash for comparison
+                    current_code_hash = hashlib.sha256(
+                        response_text.encode("utf-8")
+                    ).hexdigest()[:8]
+
+                    for prev_node in reasoning_frontier[:5]:
                         prev_vec = prev_node.get("prompt_embedding")
                         if prev_vec:
                             similarity = self.llm.compute_cosine_similarity(
                                 vec, prev_vec
                             )
-                            if similarity > 0.96:
+                            prev_code_hash = prev_node.get("code_hash", "")[:8]
+                            code_changed = current_code_hash != prev_code_hash
+
+                            # If code changed, we allow much higher semantic similarity (incremental progress)
+                            threshold = 0.99 if code_changed else 0.96
+
+                            if similarity > threshold:
                                 intervention_type = "PIVOT_REQUIRED"
                                 intervention_prompt = (
                                     "SYSTEM: SEMANTIC DUPLICATE DETECTED. "
-                                    "You are repeating a previous action or thought pattern exactly. "
-                                    "The definition of insanity is doing the same thing and expecting different results. "
+                                    "You are repeating a previous action or thought pattern exactly"
+                                    + (
+                                        " (with same code)."
+                                        if not code_changed
+                                        else "."
+                                    )
+                                    + " The definition of insanity is doing the same thing and expecting different results. "
                                     "You MUST now either change your tool parameters, use a different technique, "
                                     "or move to the next logical phase of your plan. "
                                     "Explain your pivot before proceeding."
@@ -1709,7 +1955,9 @@ class Agent:
 
                 # SCENARIO 6: CIRCUIT BREAKER (Action Repetition)
                 if not intervention_prompt:
-                    recent_prompts = [n.get("prompt", "")[:100] for n in frontier[:4]]
+                    recent_prompts = [
+                        n.get("prompt", "")[:1000] for n in reasoning_frontier[:4]
+                    ]
                     if len(recent_prompts) >= 4 and len(set(recent_prompts)) == 1:
                         intervention_type = "CIRCUIT_BREAKER"
                         intervention_prompt = (
@@ -1748,12 +1996,13 @@ class Agent:
                         repl_id=repl_id,
                     )
 
-                    # Steering Action: Force the pointer to this intervention
-                    self.current_thought_id = intervention_id
-
-                    # Skip execution of the flawed thought!
-                    # The agent will wake up in the next loop seeing this intervention.
-                    continue
+                    # Steering Action: Record the pointer so the intervention
+                    # shows up in the next step's scratchpad context.
+                    # NOTE: We do NOT skip execution. Interventions are ADVISORY context,
+                    # not execution gates. Blocking execution permanently prevents
+                    # forward progress, which keeps sheaf energy high → more interventions
+                    # → death spiral. Let the code run; the result will inform the next step.
+                    exec_state.intervention_count += 1
 
             # 7. Act (Execute Code)
             # repl_id lookup moved to start of block
@@ -2021,6 +2270,7 @@ class Agent:
                     max_steps=max_steps,
                     current_round_id=current_round_id,
                     morph_gestalt=morph_gestalt,
+                    execution_state=exec_state,
                 )
             except (AttributeError, RuntimeError, KeyError, ValueError) as refresh_err:
                 logger.warning(
@@ -2033,6 +2283,55 @@ class Agent:
             # Update previous status for next iteration
             previous_thought_status = thought_status
             self.current_thought_id = thought_id
+
+            # --- [C3] PHASE & MOMENTUM TRACKING ---
+            exec_state.step_outcomes.append(thought_status)
+            # Keep ring buffer manageable
+            if len(exec_state.step_outcomes) > 20:
+                exec_state.step_outcomes = exec_state.step_outcomes[-20:]
+
+            if thought_status in ("success", "completed"):
+                exec_state.consecutive_successes += 1
+                exec_state.consecutive_failures = 0
+                exec_state.phase = "EXECUTING"
+            elif thought_status in ("failed", "error"):
+                exec_state.consecutive_failures += 1
+                exec_state.consecutive_successes = 0
+                if exec_state.consecutive_failures >= 3:
+                    exec_state.phase = "EXPLORING"  # Force re-exploration
+
+                # Cerebellum: Track error types for recurring pattern detection
+                error_type = "UnknownError"
+                if response_text:
+                    # Extract error class from traceback/response (e.g., "TypeError")
+
+                    err_match = re.search(
+                        r"((?:Key|Type|Value|Name|Attribute|Import|Index|Runtime|"
+                        r"Syntax|OS|IO|File|Permission|Timeout)Error)",
+                        str(response_text),
+                    )
+                    if err_match:
+                        error_type = err_match.group(1)
+                exec_state.error_counts[error_type] = (
+                    exec_state.error_counts.get(error_type, 0) + 1
+                )
+                if exec_state.error_counts[error_type] >= 3:
+                    logger.warning(
+                        "[Cerebellum] Recurring error pattern: %s (%dx)",
+                        error_type,
+                        exec_state.error_counts[error_type],
+                    )
+            exec_state.last_sheaf_energy = float(
+                sheaf_diag.get("consistency_energy", sheaf_diag.get("energy", 0.0))
+            )
+
+            # --- [D2] THIMAC STRESS ADAPTATION ---
+            # If topological stress is high, let Thimac compress its session memory
+            if exec_state.last_sheaf_energy > 0.4 and self.morph_memory:
+                try:
+                    self.morph_memory.adapt_to_stress(exec_state.last_sheaf_energy)
+                except (AttributeError, ValueError, TypeError) as ts_err:
+                    logger.warning("Thimac stress adaptation failed: %s", ts_err)
 
             # --- THIMAC MEMORY INGESTION ---
             # Feed the committed thought into Thimac for Existence/Subsistence tracking
@@ -2075,6 +2374,10 @@ class Agent:
             # --- CONSOLIDATED EXIT GATE (Linearized) ---
             # 1. Detect final markers
             has_final_marker = any(t in response_text for t in ["RLM_FINAL_OUTPUT"])
+
+            # [C3] Phase transition: agent is submitting a final response
+            if has_final_marker or self.awaiting_validation:
+                exec_state.phase = "VALIDATING"
 
             # 2. Check if the Agent is trying to finish
             if (
@@ -2221,6 +2524,21 @@ class Agent:
                             final_response=self.final_result,
                         )
                         self.eval_success_count += 1
+
+                        # [B2] Trigger Dream Cycle on SUCCESS to extract Skills/Axioms
+                        # The Dreamer should learn from what worked, not just failures.
+                        try:
+                            await dreamer.dream_cycle(
+                                emit_callback=self.emit_event,
+                                session_id=session_id,
+                                final_response_candidate=self.final_result,
+                                context=context_scratchpad,
+                                turn_id=self.current_turn,
+                                root_session_id=final_root_id,
+                            )
+                        except (RuntimeError, ValueError, AttributeError) as dc_err:
+                            logger.warning("Post-success dream cycle: %s", dc_err)
+
                         break  # THE ONLY SUCCESSFUL EXIT
                     else:
                         self.last_rejected_result = self.final_result
@@ -2232,6 +2550,11 @@ class Agent:
                         feedback_prompt = (
                             f"DREAMER REJECTION: {instruction}\nREASONS: {reasons}"
                         )
+
+                        # [C3] Phase transition: Dreamer rejected → force re-exploration
+                        exec_state.phase = "EXPLORING"
+                        exec_state.last_dreamer_critique = instruction[:200]
+                        exec_state.intervention_count += 1
 
                         feedback_lid = f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection"
                         feedback_id = str(uuid.uuid4())
@@ -2273,6 +2596,7 @@ class Agent:
                             session_id=session_id,
                             context=context_scratchpad,
                             turn_id=self.current_turn,
+                            root_session_id=final_root_id,
                         )
 
                         self.current_thought_id = feedback_id
@@ -2280,7 +2604,7 @@ class Agent:
                             "warning", content=f"Dreamer Rejection: {instruction}"
                         )
                         continue
-                except Exception as e:
+                except (RuntimeError, ValueError, KeyError, AttributeError) as e:
                     logger.error("Dreamer check failed: %s", e, exc_info=True)
                     self._emit_terminal_report(
                         "DREAMER_ERROR",
@@ -2294,76 +2618,166 @@ class Agent:
             energy = float(
                 sheaf_diag.get("consistency_energy", sheaf_diag.get("energy", 0.0))
             )
-            if energy > 0.9:
-                logger.warning(
-                    "Sheaf detected logical knot (Energy %.2f). Initiating Reflexion.",
-                    energy,
-                )
+            if (
+                energy > 0.75
+                and not self.awaiting_validation  # Don't fire during VALIDATION phase
+            ):  # [B1-FIX] Raised from 0.6 to 0.75 — 0.6 caused death spiral
+                # [COOLDOWN] Don't fire Reflexion if it fired in the last 4 steps
+                last_reflexion_step = getattr(self, "_last_reflexion_step", -10)
+                if step - last_reflexion_step < 4:
+                    logger.info(
+                        "Sheaf energy %.2f exceeds threshold but Reflexion on cooldown "
+                        "(last fired at step %d, current step %d).",
+                        energy,
+                        last_reflexion_step,
+                        step,
+                    )
+                else:
+                    self._last_reflexion_step = step
+                    logger.warning(
+                        "Sheaf detected logical knot (Energy %.2f). Initiating Reflexion.",
+                        energy,
+                    )
 
-                # Overwrite the 'thought' with a Meta-Cognitive critique (IntelliSynth)
-                # Dynamic Logic Analysis instead of static warning
-                logger.warning(
-                    "Sheaf detected logical knot (Energy %.2f). triggering IntelliSynth Advancement Cycle.",
-                    energy,
-                )
+                    try:
+                        # IntelliSynth gathers structured metrics (no LLM calls)
+                        analysis = await intelli_synth.advancement_cycle(
+                            trace_context=context_scratchpad,
+                            current_thought=response_text,
+                            divergence_point=f"High-Energy Logical Knot (Energy: {energy:.2f}) at Step {step}",
+                            db=self.db,
+                            session_id=session_id,
+                            root_session_id=final_root_id,
+                            turn_id=self.current_turn,
+                            step_id=step,
+                        )
 
-                try:
-                    # Trigger the real Truth -> Scrutiny -> Improvement cycle
-                    # self.current_thought_id is the PARENT of the knot, or the knot itself?
-                    # We pass the scratchpad as context.
-                    directive = await intelli_synth.advancement_cycle(
-                        trace_context=context_scratchpad,  # Pass the current scratchpad as reality
-                        current_thought=response_text,
-                        divergence_point=f"High-Energy Logical Knot (Energy: {energy:.2f}) at Step {step}",
-                        db=self.db,
+                        # Build context-aware reflexion prompt using IntelliSynth data
+                        # This is the Actor/Evaluator/Self-Reflection framework:
+                        # - Truth: What is the agent actually doing vs what it should be doing?
+                        # - Scrutiny: What specific flaws exist in the current approach?
+                        # - Improvement: What concrete changes should be made?
+                        action = analysis.get("action", "CONTINUE")
+                        drift = analysis.get("drift_score", 0)
+                        genesis = analysis.get("genesis_commitments", "")
+                        metrics = analysis.get("metrics_report", "")
+                        loop_energy = analysis.get("loop_energy", 0)
+
+                        reflexion_prompt = f"""You are the Self-Reflection module (Msr) of the IntelliSynth framework.
+The agent has triggered a Logical Knot (Sheaf Energy: {energy:.2f}).
+
+DIAGNOSTICS:
+- Action Recommended: {action}
+- Drift from Genesis: {drift:.2f}
+- Loop Energy (RepE): {loop_energy:.2f}
+- Genesis Commitment: {genesis}
+- Metrics: {metrics}
+
+AGENT'S CURRENT SCRATCHPAD:
+{context_scratchpad}
+
+AGENT'S LAST RESPONSE:
+{response_text}
+
+Perform the IntelliSynth Advancement Analysis:
+1. TRUTH: What is the agent actually doing vs what the genesis task requires?
+2. SCRUTINY: What specific flaws or loops exist in the current approach? Be concrete.
+3. IMPROVEMENT: What is ONE specific, actionable change the agent should make RIGHT NOW?
+
+Be brief (max 200 words). Address the agent directly. Do NOT repeat the diagnostics.
+End with a clear directive: either a specific next action or "call rlm.done() with your best answer."
+"""
+                        try:
+                            reflexion_content = await protected_llm_generate(
+                                reflexion_prompt,
+                                model=settings.SUMMARY_MODEL or "gemini-2.0-flash-lite",
+                                correlation_id=get_correlation_id()
+                                or generate_correlation_id(),
+                            )
+                            reflexion_content = f"⚠️ REFLEXION (E={energy:.2f}): {reflexion_content.strip()}"
+                        except (
+                            CircuitOpenError,
+                            httpx.RequestError,
+                            RuntimeError,
+                            ValueError,
+                        ) as llm_err:
+                            logger.warning("Reflexion LLM call failed: %s", llm_err)
+                            # Fallback to structured data text
+                            if action == "FOLD_TO_ROOT" and genesis:
+                                reflexion_content = (
+                                    f"REFLEXION (Drift={drift:.2f}): Your root task was: "
+                                    f"'{genesis[:200]}'. You have drifted. Return to this objective. "
+                                    "Change your approach or call rlm.done() with your best answer."
+                                )
+                            elif action == "BREAK_LOOP":
+                                reflexion_content = (
+                                    f"REFLEXION (Energy={energy:.2f}, Loop={loop_energy:.2f}): "
+                                    "You are repeating yourself. CHANGE YOUR APPROACH NOW. "
+                                    "Try a completely different strategy or call rlm.done()."
+                                )
+                            else:
+                                reflexion_content = (
+                                    f"REFLEXION ({metrics}): "
+                                    "Reconsider your current approach. "
+                                    "Verify your premises or call rlm.done()."
+                                )
+                    except (AttributeError, RuntimeError, ValueError) as e:
+                        logger.error("IntelliSynth data analysis failed: %s", e)
+                        reflexion_content = (
+                            f"REFLEXION: Logical Knot detected (Energy: {energy:.2f}). "
+                            "You are repeating yourself. CHANGE YOUR APPROACH NOW. "
+                            "Try a completely different strategy or call rlm.done() with your best answer."
+                        )
+
+                    # Create a specific 'Reflexion' node
+                    reflexion_lid = (
+                        f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
+                    )
+                    reflexion_id = str(uuid.uuid4())
+                    self.db.create_thought_node(
+                        thought_id=reflexion_id,
+                        prompt=reflexion_content,
+                        logical_id=reflexion_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
+                        prompt_embedding=vec,
+                        parent_id=self.current_thought_id,
+                        round_id=current_round_id,
                         turn_id=self.current_turn,
                         step_id=step,
-                    )
-                    reflexion_content = f"SYSTEM REFLEXION (IntelliSynth): {directive}"
-                except (AttributeError, RuntimeError, ValueError) as e:
-                    logger.error("IntelliSynth cycle failed: %s", e)
-                    # Fallback
-                    reflexion_content = (
-                        f"SYSTEM REFLEXION: I have detected a High-Energy Logical Knot (Energy: {energy:.2f}). "
-                        "I am repeating myself or contradicting recent history. "
-                        "I MUST now change my approach completely. Am I stuck in a meta-loop? Break it."
+                        repl_id=repl_id,
+                        status="reflexion",
                     )
 
-                # Create a specific 'Reflexion' node
-                reflexion_lid = f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
-                reflexion_id = str(uuid.uuid4())
-                self.db.create_thought_node(
-                    thought_id=reflexion_id,
-                    prompt=reflexion_content,
-                    logical_id=reflexion_lid,
-                    session_id=session_id,
-                    root_session_id=final_root_id,
-                    prompt_embedding=vec,
-                    parent_id=self.current_thought_id,
-                    round_id=current_round_id,
-                    turn_id=self.current_turn,
-                    step_id=step,
-                    repl_id=repl_id,
-                )
+                    # Sync reflection to Thimac
+                    self._sync_thimac(
+                        thought_id=reflexion_id,
+                        prompt=reflexion_content,
+                        status="success",
+                        result=None,
+                        step=step,
+                        repl_id=repl_id,
+                        logical_id=reflexion_lid,
+                    )
 
-                # Sync reflection to Thimac
-                self._sync_thimac(
-                    thought_id=reflexion_id,
-                    prompt=reflexion_content,
-                    status="success",  # We treat system reflection as successful grounding
-                    result=None,
-                    step=step,
-                    repl_id=repl_id,
-                    logical_id=reflexion_lid,
-                )
+                    # Update pointer and track intervention
+                    self.current_thought_id = reflexion_id
+                    exec_state.intervention_count += 1
 
-                # Update pointer
-                self.current_thought_id = reflexion_id
+                    # Emit concise warning to user, not the full directive
+                    self.emit_event(
+                        "warning",
+                        content=(
+                            f"⚠️ REFLEXION_BREAK: Logical Knot detected (Energy: {energy:.2f}). "
+                            f"REPL ID: {repl_id} | Point: {reflexion_id} | "
+                            f"Issue: {reflexion_content[:200]}"
+                        ),
+                    )
 
-                # Do NOT break. Let the loop continue.
-                continue
+                    # Advisory: reflexion is context for the next step,
+                    # not a gate. Don't `continue` — let the loop naturally
+                    # proceed to the next iteration without re-triggering
+                    # epistemic checks on the reflexion noise.
 
         # === THE FIX FOR THE "GHOST ERROR" ===
         if self.stop_requested:
@@ -2396,9 +2810,10 @@ class Agent:
                 )
 
         # 9. ARCHIVE ROUND (If we have a result or just to save state)
-        if self.final_result:
+        # [REGRESSION FIX] Also save rejected results as drafts
+        best_result = self.final_result or getattr(self, "last_rejected_result", None)
+        if best_result:
             try:
-                # Reconstruct full scratchpad for archive
                 # Reconstruct full scratchpad for archive
                 final_scratchpad = await self._refresh_scratchpad(
                     session_id=session_id,
@@ -2430,33 +2845,37 @@ class Agent:
                         e,
                     )
 
+                # [AUTO-SAVE FINAL OUTPUT]
+                # Enforce organized disk persistence for the final output
+                # Now also saves rejected drafts with a "_draft" suffix
+                try:
+                    kb_root = Path(settings.KNOWLEDGE_BASE_PATH)
+                    out_dir = kb_root / "outputs" / final_root_id
+                    out_dir.mkdir(parents=True, exist_ok=True)
+                    suffix = "_final.md" if self.final_result else "_draft.md"
+                    out_file = out_dir / f"{session_id}{suffix}"
+                    save_content = best_result
+                    if not self.final_result:
+                        save_content = f"[DRAFT - DREAMER REJECTED]\n\n{best_result}"
+                    out_file.write_text(save_content, encoding="utf-8")
+                    logger.info("Saved output to %s", out_file)
+                except (OSError, IOError) as e:
+                    logger.warning(
+                        "Failed to automatically save final output to disk: %s", e
+                    )
+
                 self.db.save_round(
                     round_id=current_round_id,
                     root_session_id=final_root_id,
                     user_prompt=prompt,
                     repl_ids=repl_ids,
-                    final_response=self.final_result,
+                    final_response=best_result,
                     full_scratchpad=final_scratchpad,
                     started_at=int(current_round_started),
                     ended_at=int(datetime.datetime.now().timestamp() * 1000),
                 )
             except (AttributeError, RuntimeError, KeyError, OSError) as e:
                 logger.error("Failed to archive round (DB/IO error): %s", e)
-
-        # 10. [RESTORED] Final Success Dreaming (Skill Extraction)
-        # If we finished successfully, trigger a dream cycle to look for learnable patterns.
-        if self.final_result and not self.stop_requested:
-            try:
-                # We use the final_scratchpad if available, or fetch current
-                await dreamer.dream_cycle(
-                    emit_callback=self.emit_event,
-                    session_id=session_id,
-                    final_response_candidate=self.final_result,
-                    context=locals().get("final_scratchpad") or "",
-                    turn_id=self.current_turn,
-                )
-            except (AttributeError, RuntimeError, ValueError) as e:
-                logger.warning("Final Success Dream Cycle failed: %s", e)
 
         # Return the final result or a default message if not set
         return self.final_result or "Task processing stopped."

@@ -72,6 +72,8 @@ class AgentRuntime:
         self.python_exe = self._get_venv_python()
         # Persistent Session Map: session_id -> Process
         self.sessions: Dict[str, Any] = {}
+        # Discovery Cache: session_id_discovery -> float (timestamp or True)
+        self._discovery_cache: Dict[str, Any] = {}
 
     def _get_venv_python(self) -> Path:
         """Locates the Python executable within the agent's venv."""
@@ -207,29 +209,35 @@ class AgentRuntime:
         if not process.stdin or not process.stdout or not process.stderr:
             return "", "System Error: Kernel process streams are missing.", None, 1
 
-        # 2. Prepare MCP Discovery Data
+        # 2. Prepare MCP Discovery Data (With Caching)
         discovery_data = {}
         if mcp_namespace:
-            try:
-                server_names = dir(mcp_namespace)
-                for srv_name in server_names:
-                    try:
-                        srv_obj = getattr(mcp_namespace, srv_name)
-                        tools = {}
-                        for tool_name in dir(srv_obj):
-                            try:
-                                tool_obj = getattr(srv_obj, tool_name)
-                                doc = getattr(tool_obj, "__doc__", "") or ""
-                                tools[tool_name] = {"doc": doc}
-                            except AttributeError:
-                                # Skip items that don't behave like tools
-                                continue
-                        discovery_data[srv_name] = tools
-                    except AttributeError:
-                        # Skip items that don't behave like servers
-                        continue
-            except Exception as e:
-                logger.warning("Failed to extract MCP discovery data: %s", e)
+            # We cache discovery per-session to avoid giant payloads on every call
+            cache_key = f"{session_id}_discovery"
+            if cache_key in self._discovery_cache:
+                discovery_data = {}  # Signal to kernel: nothing new
+            else:
+                try:
+                    server_names = dir(mcp_namespace)
+                    for srv_name in server_names:
+                        try:
+                            srv_obj = getattr(mcp_namespace, srv_name)
+                            tools = {}
+                            for tool_name in dir(srv_obj):
+                                try:
+                                    tool_obj = getattr(srv_obj, tool_name)
+                                    # [Optimization] Skip heavy docstrings if not first run
+                                    doc = getattr(tool_obj, "__doc__", "") or ""
+                                    tools[tool_name] = {"doc": doc}
+                                except AttributeError:
+                                    continue
+                            discovery_data[srv_name] = tools
+                        except AttributeError:
+                            continue
+
+                    self._discovery_cache[cache_key] = True
+                except Exception as e:
+                    logger.warning("Failed to extract MCP discovery data: %s", e)
 
         # 3. Construct Command Packet
         packet = {
@@ -243,27 +251,22 @@ class AgentRuntime:
             "discovery": discovery_data,
         }
 
-        # 4. Send to Kernel
+        # 4. Construct Message
         try:
             msg = json.dumps(packet) + "\n"
-            process.stdin.write(msg.encode())
-            await process.stdin.drain()
         except Exception as e:
-            logger.error("Failed to send to kernel: %s", str(e))
-            self.sessions.pop(session_id, None)
-            return "", f"Kernel Communication Error: {e}", None, 1
+            return "", f"Serialization Error: {e}", None, 1
 
-        # 5. Read Output Loop
+        # 5. Read Output Loop (Closure)
         async def read_stream(stream, is_stdout=False) -> str:
             acc = []
             while True:
                 # Safeguard: Ensure streams are still open
                 if not process.stdout or not process.stderr:
-                    raise RuntimeError("Process streams are closed unexpectedly.")
+                    break
 
                 line_bytes = await stream.readline()
                 if not line_bytes:
-                    # EOF reached, stream closed.
                     break
 
                 line = line_bytes.decode()
@@ -275,7 +278,6 @@ class AgentRuntime:
                 if is_stdout and line.startswith("<<RESULT>>"):
                     try:
                         res_json = line.replace("<<RESULT>>", "").strip()
-                        # We store the latest result found in the stream
                         context["_last_result"] = json.loads(res_json)
                     except Exception as e:
                         logger.warning("Failed to parse result JSON from kernel: %s", e)
@@ -294,18 +296,29 @@ class AgentRuntime:
                                 )
                                 await process.stdin.drain()
                             except (OSError, BrokenPipeError):
-                                # If writing the error back fails, the kernel is likely dead.
-                                # We ignore this to avoid crashing the host during cleanup.
                                 pass
                 else:
                     acc.append(line)
             return "".join(acc)
 
+        # 6. Execute with Deadlock Protection
+        # We start reading BEFORE we finish writing/draining to ensure the
+        # kernel doesn't block on writing back to us while we are still writing to it.
         try:
-            stdout_data, stderr_data = await asyncio.gather(
-                read_stream(process.stdout, is_stdout=True),
-                read_stream(process.stderr, is_stdout=False),
+            # Create read tasks
+            stdout_task = asyncio.create_task(
+                read_stream(process.stdout, is_stdout=True)
             )
+            stderr_task = asyncio.create_task(
+                read_stream(process.stderr, is_stdout=False)
+            )
+
+            # Send to Kernel
+            process.stdin.write(msg.encode())
+            await process.stdin.drain()
+
+            # Wait for output
+            stdout_data, stderr_data = await asyncio.gather(stdout_task, stderr_task)
 
             if process.returncode is not None:
                 return (
@@ -315,7 +328,7 @@ class AgentRuntime:
                     1,
                 )
 
-            # Extract result from context (it was updated in the read_stream closure)
+            # Extract result
             exec_result = context.get("_last_result")
             return stdout_data, stderr_data, exec_result, 0
 

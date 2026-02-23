@@ -17,9 +17,8 @@ function App() {
 
   const [currentModel, setCurrentModel] = useState<string>(''); // Empty initially, load from config
   const [chatEntries, setChatEntries] = useState<any[]>([]);
-  const [terminalEntries, setTerminalEntries] = useState<any[]>([]);
-  const [codeEntries, setCodeEntries] = useState<any[]>([]);
   const [scratchpadText, setScratchpadText] = useState<string>(''); // ACTUAL scratchpad text from agent
+  const [selectedNode, setSelectedNode] = useState<any>(null);
 
   // Chat Input State (Lifted for Injection)
   const [chatInput, setChatInput] = useState("");
@@ -126,8 +125,7 @@ function App() {
     const newId = uuidv4();
     setSessionId(newId);
     setChatEntries([]);
-    setTerminalEntries([]);
-    setCodeEntries([]);
+    setSelectedNode(null);
     setScratchpadText(''); // Clear scratchpad
     setGraphData({ nodes: [], links: [] });
   }, []);
@@ -135,8 +133,7 @@ function App() {
   const handleSessionSelect = useCallback(async (sid: string) => {
     setSessionId(sid);
     setChatEntries([]);
-    setTerminalEntries([]);
-    setCodeEntries([]);
+    setSelectedNode(null);
     setScratchpadText(''); // Clear while loading
     loadGraph(sid); // Restore explicit load to handle view mode switches
 
@@ -184,23 +181,9 @@ function App() {
           };
         });
 
-        const newChat: any[] = [];
-        const newTerminal: any[] = [];
-        const newCode: any[] = [];
-
-        entries.forEach(e => {
-            if (e.style === 'code') {
-                newCode.push(e);
-            } else if (e.style === 'thinking' || e.style === 'trace' || e.type === 'error') {
-                newTerminal.push(e);
-            } else {
-                newChat.push(e);
-            }
-        });
-
-        setChatEntries(newChat);
-        setTerminalEntries(newTerminal);
-        setCodeEntries(newCode);
+        // Push ALL relevant entries into the chat thread directly.
+        // The ChatHistory component will filter and accordion them appropriately.
+        setChatEntries(entries.filter((e: any) => e.style !== 'trace'));
       }
     } catch (e) {
       console.error("Failed to load history:", e);
@@ -220,7 +203,6 @@ function App() {
   const handleExecute = useCallback((query: string) => {
     setIsProcessing(true);
     setChatEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now() }]);
-    setTerminalEntries(prev => [...prev, { type: 'input', content: query, timestamp: Date.now(), ui_target: 'TERMINAL_RAW' }]);
 
     const payload = {
       model: currentModel,
@@ -295,27 +277,29 @@ function App() {
         }
       }
 
-      else if (event.ui_target === 'CODE_RESULT') {
-        setCodeEntries(prev => [...prev, {
+      else if (event.type === 'repe' || event.type === 'sheaf' || event.type === 'monitor') {
+        setChatEntries(prev => [...prev, {
             type: 'output',
-            content: event.type === 'code_output' ? `[FINAL RESULT] (REPL: ${event.repl_id})\n${safeContent}` : safeContent,
+            role: 'system',
+            content: `📊 Monitor [${event.type.toUpperCase()}]: ${event.message || safeContent}`,
+            timestamp: Date.now(),
+            style: 'monitor',
+            metrics: event.metrics || event.data
+        }]);
+      }
+
+      else if (event.ui_target === 'CODE_RESULT') {
+        // Combine code + execution result in a single code block
+        const codeBlock = event.code ? `\`\`\`python\n${event.code}\n\`\`\`\n` : '';
+        const resultBlock = event.content ? `**Execution Result:**\n\`\`\`\n${event.content}\n\`\`\`` : '';
+        const combined = codeBlock + resultBlock;
+        setChatEntries(prev => [...prev, {
+            type: 'output',
+            content: combined || '(no output)',
             timestamp: Date.now(),
             style: 'code',
             repl_id: event.repl_id,
             isStreaming: event.type === 'code_output_chunk'
-        }]);
-      }
-
-      else if (event.ui_target === 'TERMINAL_RAW' || !event.ui_target) {
-        const logContent = safeContent || (typeof event.data === 'string' ? event.data : '');
-        if (!logContent && !event.type) return;
-
-        setTerminalEntries(prev => [...prev, {
-            type: event.type === 'error' ? 'error' : 'info',
-            content: logContent || `[${event.type || 'info'}]`,
-            timestamp: Date.now(),
-            style: event.type === 'thinking' ? 'thinking' : 'trace',
-            repl_id: event.repl_id
         }]);
       }
     });
@@ -363,10 +347,10 @@ function App() {
         setViewMode('explorer');
         loadGraph(null); // Force Global Load
       }}
-      terminalEntries={terminalEntries}
-      codeEntries={codeEntries}
       scratchpadText={scratchpadText} // Pass to Layout -> RightSidebar
       usage={tokenUsage}
+      selectedNode={selectedNode}
+      onNodeSelect={setSelectedNode}
     >
 
       <div className="flex h-full relative flex-col">

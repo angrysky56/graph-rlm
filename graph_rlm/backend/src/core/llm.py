@@ -143,6 +143,7 @@ class LLMService:
         model_override: Optional[str] = None,
         stop: Optional[List[str]] = None,
         max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Format request body based on provider quirks."""
         model = model_override or self.config.get("model")
@@ -152,7 +153,9 @@ class LLMService:
                 "model": model,
                 "messages": messages,
                 "stream": stream,
-                "options": {"temperature": 0.7},  # Default
+                "options": {
+                    "temperature": temperature if temperature is not None else 0.7
+                },
             }
             if stop:
                 request["stop"] = stop
@@ -166,6 +169,8 @@ class LLMService:
                 "messages": messages,
                 "stream": stream,
             }
+            if temperature is not None:
+                body["temperature"] = temperature
             if stop:
                 body["stop"] = stop
             if max_tokens:
@@ -181,6 +186,7 @@ class LLMService:
         on_usage: Optional[Any] = None,
         model: Optional[str] = None,
         max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> Any:
         """
         Generates a response from the LLM.
@@ -192,6 +198,7 @@ class LLMService:
             stop: Optional stop sequences.
             on_usage: Callback for usage statistics.
             model: Optional model override.
+            temperature: Optional temperature override (Amygdala circuit).
 
         Returns:
             The generated text or an async iterator if streaming is enabled.
@@ -216,6 +223,7 @@ class LLMService:
                 model_override=model,
                 stop=stop,
                 max_tokens=max_tokens,
+                temperature=temperature,
             )
 
     async def _generate_stream(
@@ -424,6 +432,7 @@ class LLMService:
         model_override: Optional[str] = None,
         stop: Optional[List[str]] = None,
         max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
     ) -> str:
         endpoint = self._get_endpoint("chat/completions")
         headers = self._get_headers()
@@ -433,6 +442,7 @@ class LLMService:
             model_override=model_override,
             stop=stop,
             max_tokens=max_tokens,
+            temperature=temperature,
         )
 
         # Trace Outgoing

@@ -16,6 +16,7 @@ import inspect
 import json
 import logging
 import os
+import re
 import shutil
 
 # trunk-ignore(bandit/B404)
@@ -29,6 +30,14 @@ from graph_rlm.backend.src.core.llm import llm
 
 from .client import call_mcp_tool, cleanup_global_client_async
 from .skill_storage import get_axioms_manager, get_skills_manager
+
+
+def _spec_name(raw: str) -> str:
+    """Sanitize a raw name to Agent Skills spec format."""
+    name = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")
+    name = re.sub(r"-{2,}", "-", name)  # collapse consecutive hyphens
+    return name[:64] or "unnamed-skill"
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -45,10 +54,8 @@ def verify_skill_importable(skill_name: str, directory: str = "skills") -> bool:
     Args:
         skill_name: The name of the .py file or module.
         directory: The relative path (or absolute path) to the skill directory.
-
-    Returns:
-        bool: True if importable, False otherwise.
     """
+    skill_name = _spec_name(skill_name)
     repo_root = BACKEND_ROOT.parent.parent
 
     # Handle both relative and absolute paths for directory
@@ -57,10 +64,19 @@ def verify_skill_importable(skill_name: str, directory: str = "skills") -> bool:
     else:
         skill_dir = repo_root / directory
 
+    # Check flat .py first
     skill_path = skill_dir / f"{skill_name}.py"
     if not skill_path.exists():
-        logger.warning("Skill file %s missing (might be instructional).", skill_path)
-        return False
+        # Check for spec-compliant directory with scripts/ subdir
+        module_safe = skill_name.replace("-", "_")
+        spec_script = skill_dir / skill_name / "scripts" / f"{module_safe}.py"
+        if spec_script.exists():
+            skill_path = spec_script
+        else:
+            logger.warning(
+                "Skill file %s missing (might be instructional).", skill_path
+            )
+            return False
 
     # Ensure directory is in sys.path
     abs_dir = str(skill_dir.resolve())
@@ -284,6 +300,7 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
     Internal execution logic (runs INSIDE the venv).
     Imports and runs the skill/axiom function.
     """
+    skill_name = _spec_name(skill_name)
     # 1. Try to find in Skills DB
     skills_mgr = get_skills_manager()
     skill = skills_mgr.get_skill(skill_name)
@@ -316,12 +333,25 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         skill_file = skills_root / f"{skill_name}.py"
         axiom_file = axioms_root / f"{skill_name}.py"
 
+        # Also check spec-compliant directories with scripts/ subdir
+        module_safe = skill_name.replace("-", "_")
+        spec_skill_script = skills_root / skill_name / "scripts" / f"{module_safe}.py"
+        spec_axiom_script = axioms_root / skill_name / "scripts" / f"{module_safe}.py"
+
         if skill_file.exists():
             logger.info("Skill found in file: %s", skill_file)
             module_name = f"skills.{skill_name}"
             function_name = None
+        elif spec_skill_script.exists():
+            logger.info("Spec skill found: %s", spec_skill_script)
+            module_name = f"skills.{skill_name}"
+            function_name = None
         elif axiom_file.exists():
             logger.info("Axiom found in file: %s", axiom_file)
+            module_name = f"axioms_dir.{skill_name}"
+            function_name = None
+        elif spec_axiom_script.exists():
+            logger.info("Spec axiom found: %s", spec_axiom_script)
             module_name = f"axioms_dir.{skill_name}"
             function_name = None
         else:

@@ -123,49 +123,73 @@ class OmcdController:
         cost = self.calculate_cost(step * self.params.kappa)
         return benefit - cost
 
-    def evaluate_step(self, step: int, confidence: float) -> dict:
+    def evaluate_step(
+        self, step: int, confidence: float, potential_energy: float = 1.0
+    ) -> dict:
         """
         Evaluate whether to continue deliberating or stop.
+        Enforces Hamiltonian Energy Conservation to reject physical hallucinations.
 
         Returns:
-            {
-                "should_stop": bool,
-                "q_stop": float,
-                "threshold": float,
-                "cost": float,
-                "benefit": float,
-                "confidence": float,
-                "bernshteyn_penalty": float
-            }
+            dict containing decision parameters including `is_non_physical`.
         """
         # 1. Calculate Bernshteyn Penalty (Cost of Rulial Noise)
-        # We use 'step' as depth and '1-confidence' as a noise proxy (p)
         penalty = self.calculate_bernshteyn_penalty(step, 1.0 - confidence)
 
-        # 2. Calculate components
-        # Cost is scaled by the Bernshteyn penalty
-        cost = self.calculate_cost(step * self.params.kappa) * penalty
+        # 2. Physics Engine: Hamiltonian Dynamics
+        # T (Kinetic Energy) = physical computational cost exerted
+        base_kinetic = self.calculate_cost(step * self.params.kappa)
+        kinetic_energy = base_kinetic * penalty
+
+        # V (Potential Energy) = remaining semantic distance to goal
+        # Total Energy H = T + V
+        hamiltonian = kinetic_energy + potential_energy
+
+        is_non_physical = False
+
+        if self._history:
+            last_v = self._history[-1].get("potential_energy", potential_energy)
+            progress = last_v - potential_energy  # Postive if we got closer to goal
+
+            # Energy conservation bound (Free Lunch Theorem).
+            # The progress made (-Delta V) cannot exceed the base kinetic effort applied.
+            # If the agent claims massive progress with minimal base effort, it's an unearned leap (hallucination).
+            if progress > 0.5 and base_kinetic < 0.2:
+                is_non_physical = True
+                trace_action(
+                    "oMCD",
+                    "CONSERVATION_VIOLATION",
+                    result=f"Unearned Leap: Progress={progress:.2f}, Effort={kinetic_energy:.2f}. Hallucination blocked.",
+                    tag="SYSTEM",
+                )
+
         benefit = self.calculate_benefit(confidence)
 
         # Q_stop = Benefit - Cost
-        q_stop = benefit - cost
+        q_stop = benefit - kinetic_energy
 
         decision = {
-            "should_stop": q_stop >= self.params.omega,
+            "should_stop": q_stop >= self.params.omega and not is_non_physical,
+            "is_non_physical": is_non_physical,
             "q_stop": q_stop,
             "threshold": self.params.omega,
-            "cost": cost,
+            "cost": kinetic_energy,
             "benefit": benefit,
             "confidence": confidence,
             "step": step,
             "bernshteyn_penalty": penalty,
+            "hamiltonian": hamiltonian,
+            "potential_energy": potential_energy,
+            "kinetic_energy": kinetic_energy,
         }
 
         # Record for calibration
         self._history.append(decision)
 
         # Emit trace for visibility
-        status_msg = f"Q_stop={q_stop:.3f} (Conf={confidence:.2f}, Cost={cost:.3f})"
+        status_msg = (
+            f"Q_stop={q_stop:.3f} (Conf={confidence:.2f}, Cost={kinetic_energy:.3f})"
+        )
         if decision["should_stop"]:
             trace_action(
                 "oMCD",

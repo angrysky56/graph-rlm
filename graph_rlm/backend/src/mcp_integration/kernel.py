@@ -380,8 +380,10 @@ async def kernel_loop():
                 break
 
             if command == "EXECUTE":
-                # Update Discovery Data
-                _MCP_DISCOVERY.update(packet.get("discovery", {}))
+                # Update Discovery Data (Skip if empty/cached)
+                new_discovery = packet.get("discovery")
+                if new_discovery:
+                    _MCP_DISCOVERY.update(new_discovery)
 
                 # Update Context (restore variables if needed, though they persist)
                 context_update = packet.get("context", {})

@@ -58,6 +58,7 @@ class ThimacEvent:
     repl_id: Optional[str] = None
     logical_id: Optional[str] = None
     tool_calls: Optional[List[str]] = None
+    compression_gain: float = 0.0
 
 
 class ThimacMemory:
@@ -130,6 +131,7 @@ class ThimacMemory:
             repl_id=thought.get("repl_id"),
             logical_id=thought.get("logical_id"),
             tool_calls=tool_calls,
+            compression_gain=thought.get("compression_gain", 0.0),
         )
 
         self._all_events.append(event)
@@ -158,10 +160,19 @@ class ThimacMemory:
         repo_root = str(self._get_repo_root())
 
         # 1. Update Known Skills
-        if "agentskills" in prompt_lower or "list_skills" in prompt_lower:
-            skills = re.findall(r"['`]([a-zA-Z0-9_]+)['`]", result)
+        if any(
+            k in prompt_lower
+            for k in ["agentskills", "list_skills", "save_skill", "rlm.save_skill"]
+        ):
+            # Try to grab names from agentskills list or save_skill definition
+            # e.g., rlm.save_skill('my_skill', code) -> grabs 'my_skill'
+            skills = re.findall(r"['\"]([a-zA-Z0-9_]+)['\"]", prompt + " " + result)
             for skill in skills:
-                if skill not in self.known_skills and len(skill) > 3:
+                if (
+                    skill not in self.known_skills
+                    and len(skill) > 3
+                    and skill not in ["name", "code", "description"]
+                ):
                     self.known_skills.append(skill)
 
         # 2. Update Known Files
@@ -270,6 +281,67 @@ class ThimacMemory:
         self.existence.clear()
         self.subsistence.clear()
         self._all_events.clear()
+
+    def adapt_to_stress(self, topological_stress: float) -> None:
+        """
+        Dynamically compresses the session memory if topological stress is high.
+        Aggressively drops 'PROCESS' nodes and trims the history buffers to prevent
+        the context window from filling with noisy dead-ends.
+        """
+        if topological_stress < 0.15:
+            # Baseline maintenance: keep arrays from ballooning indefinitely
+            if len(self.existence) > 40:
+                self.existence = self.existence[-40:]
+            if len(self.subsistence) > 40:
+                self.subsistence = self.subsistence[-40:]
+            if len(self._all_events) > 100:
+                self._all_events = self._all_events[-100:]
+            return
+
+        logger.info(
+            "Thimac: High stress detected (%.2f). Compressing memory...",
+            topological_stress,
+        )
+
+        # High Stress Compression:
+        # 1. Keep only the last 10 'EXISTENCE' (hard facts)
+        self.existence = self.existence[-10:]
+
+        # 2. Aggressively filter 'SUBSISTENCE' (thoughts/plans)
+        # Keep only ACCEPT/ARRIVE operations, drop speculative PROCESS loops.
+        filtered_sub = [
+            s
+            for s in self.subsistence
+            if s.operation in [ThimacOperation.ACCEPT, ThimacOperation.ARRIVE]
+        ]
+        # Always keep the very last 2 nodes regardless of type so we don't lose immediate context
+        last_two = (
+            self.subsistence[-2:] if len(self.subsistence) >= 2 else self.subsistence
+        )
+
+        # Merge and deduplicate (preserving order)
+        new_sub = []
+        seen_ids = set()
+
+        # Phase 4 Gestalt: Persistent Homology
+        # Nodes that mathematically compress the state space (MDL gain > 0)
+        # survive the pruning wave natively, becoming formalized persistent structures.
+        persistent_homology_nodes = [
+            s
+            for s in self.subsistence
+            if s.compression_gain > 0.1 and s not in filtered_sub
+        ]
+
+        for s in filtered_sub + persistent_homology_nodes + last_two:
+            if s.thought_id not in seen_ids:
+                new_sub.append(s)
+                seen_ids.add(s.thought_id)
+
+        self.subsistence = new_sub[-15:]
+
+        # Sync master list
+        all_kept_ids = {e.thought_id for e in self.existence + self.subsistence}
+        self._all_events = [e for e in self._all_events if e.thought_id in all_kept_ids]
 
     # ------------------------------------------------------------------
     # Classification Logic
@@ -394,75 +466,34 @@ class ThimacMemory:
         self, thought: Dict, tool_calls: Optional[List[str]] = None
     ) -> str:
         """
-        Extract a brief but informative summary from the thought's context.
+        Extracts a purely topological footprint of the event.
+        Replaces LLM text lossy summaries with structural MDL graphs.
         """
         status = (thought.get("status") or "").lower()
-        operation = self._classify_operation(thought, tool_calls)
+        compression = thought.get("compression_gain", 0.0)
 
-        # 1. Use logical_id hint if it has a descriptive suffix
-        lid = thought.get("logical_id") or ""
-        if lid and ":" in lid:
-            parts = lid.split(":")
-            if len(parts) > 3:
-                label = parts[-1]
-                # Smart label split: don't split all-caps acronyms like 'NAV' or 'MCP'
-                if label.isupper() and len(label) <= 5:
-                    return label
-                return " ".join(re.findall(r"[A-Z][a-z]*", label)) or label
+        # Base mathematical identifier (UUID prefix)
+        footprint = f"[{thought.get('id', 'N/A')[:8]}] "
 
-        # 2. Try execution_summary (with increased limit)
-        es = thought.get("execution_summary")
-        if es and len(str(es).strip()) > 5:
-            return str(es).strip()[:150]
+        # Add Minimum Description Length (MDL) metric
+        if abs(compression) > 0.01:
+            footprint += f"(MDL: {compression:+.2f}) "
 
-        # 3. For successful Existence (Materialized results), prefer the output (Result)
-        result = (thought.get("result") or "").strip()
-        prompt = (thought.get("prompt") or "").strip()
-
-        # Sanitize code fences but keep some context
-        result = re.sub(r"```[\s\S]*?```", "[Code]", result).strip()
-        prompt = re.sub(r"```[\s\S]*?```", "[Code]", prompt).strip()
-
-        if status == "success" and result and len(result) > 2:
-            # For ingestion/search, combined view is best
-            if operation == ThimacOperation.ARRIVE:
-                first_line = result.split("\n")[0][:150]
-                return f"Found: {first_line}"
-
-            # For general success, show the result (the "Thing" produced)
-            first_line = result.split("\n")[0][:150]
-            # Use "[Out] ..." to signify it's a result
-            return f"[Out] {first_line}" if len(first_line) < 60 else first_line
-
-        # 4. Handle tool calls (informative subsistence)
+        # Add Execution Edge Types
         if tool_calls:
-            # Show the most pertinent tool
             main_tool = tool_calls[0]
             if len(tool_calls) > 1:
-                return f"T: {main_tool} (+{len(tool_calls)-1} more)"
-            return f"T: {main_tool}"
+                footprint += f"Edge: {main_tool} (+{len(tool_calls)-1} more)"
+            else:
+                footprint += f"Edge: {main_tool}"
+        elif status == "success":
+            footprint += "Edge: Axiomatic_Transform"
+        elif status in ["failed", "error", "rejected"]:
+            footprint += "Edge: Broken_Sympathy"
+        else:
+            footprint += "Edge: Latent_Vector"
 
-        # 5. Handle Negative / Failed States
-        if status in ["failed", "error", "rejected"]:
-            combined = prompt + " " + result
-            err_match = re.search(
-                r"(Error:.*?|Exception:.*?|DREAMER REJECTION:.*?)(?=\n|$)", combined
-            )
-            if err_match:
-                return err_match.group(1)[:150]
-            return f"[{status.upper()}] Action failed or rejected."
-
-        # 6. Fall back to prompt (The "Machine" activity)
-        if prompt:
-            for line in prompt.split("\n"):
-                clean = line.strip()
-                if clean and not clean.startswith(("[", "#")):
-                    return clean[:150]
-
-        # 7. Symbolic fallback
-        if status == "success":
-            return "Grounding Turn"
-        return f"{status.title()} Event"
+        return footprint
 
     @staticmethod
     def _format_ts(epoch_ms: Optional[int]) -> str:

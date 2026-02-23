@@ -15,9 +15,9 @@ interface LayoutProps {
     onSelectSession?: (id: string) => void;
     onOpenExplorer?: () => void;
     usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number; };
-    terminalEntries?: any[];
-    codeEntries?: any[];
     scratchpadText: string;
+    selectedNode: any | null;
+    onNodeSelect: (node: any) => void;
 }
 
 export const Layout: React.FC<LayoutProps> = ({
@@ -29,11 +29,10 @@ export const Layout: React.FC<LayoutProps> = ({
 
     onRefreshConfig,
     onInjectContent,
-    onSelectSession,
     onOpenExplorer,
     usage,
-    terminalEntries,
-    codeEntries
+    selectedNode,
+    onNodeSelect
 }) => {
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -47,8 +46,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     onOpenSettings={() => setIsSettingsOpen(true)}
                     onOpenExplorer={onOpenExplorer}
                     usage={usage}
-                    terminalEntries={terminalEntries}
-                    codeEntries={codeEntries}
+                    selectedNode={selectedNode}
                 />
             </div>
 
@@ -65,6 +63,7 @@ export const Layout: React.FC<LayoutProps> = ({
                     graphData={graphData}
                     onInjectContent={onInjectContent || (() => { })}
                     scratchpadText={scratchpadText}
+                    onNodeSelect={onNodeSelect}
                 />
             </div>
 

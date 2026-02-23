@@ -17,8 +17,13 @@ execution_events: contextvars.ContextVar[Optional[queue.Queue]] = (
 
 @dataclass
 class ExecutionState:
-    """Thread-local state for the agent's execution loop."""
+    """Thread-local state for the agent's execution loop.
 
+    Extended with phase/momentum tracking (Phase C1) so the stateless agent
+    can know where it has been and where it needs to go step by step.
+    """
+
+    # --- Core State ---
     final_result: Optional[str] = None
     stop_requested: bool = False
     synthesis_triggered: bool = False
@@ -27,6 +32,26 @@ class ExecutionState:
     turn_id: int = 1
     recursion_stack: List[str] = field(default_factory=list)
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    # --- Phase Awareness (C1) ---
+    phase: str = "EXPLORING"  # EXPLORING | EXECUTING | VALIDATING | SYNTHESIZING
+    consecutive_failures: int = 0
+    consecutive_successes: int = 0
+    intervention_count: int = 0
+    tools_used_this_turn: List[str] = field(default_factory=list)
+    last_dreamer_critique: Optional[str] = None
+
+    # --- Momentum Tracking (C1) ---
+    # Ring buffer of last N step outcomes for quick trajectory assessment
+    step_outcomes: List[str] = field(default_factory=list)
+
+    # --- Monitor Snapshots (C1) ---
+    last_sheaf_energy: float = 0.0
+    last_omcd_qstop: float = 0.0
+
+    # --- Cerebellum: Error Pattern Tracking ---
+    # Accumulates error types across steps for recurring pattern detection
+    error_counts: Dict[str, int] = field(default_factory=dict)
 
 
 # Session-specific state isolated by thread/context

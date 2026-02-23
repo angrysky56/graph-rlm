@@ -101,6 +101,7 @@ class GraphClient:
         thimac_level: Optional[str] = None,
         navigator_insight: Optional[str] = None,
         metadata_json: Optional[str] = None,
+        step_summary: Optional[str] = None,
         validate: bool = True,
     ):
         """
@@ -250,6 +251,10 @@ class GraphClient:
             params["final_response"] = final_response
             cypher += ", t.final_response = $final_response"
 
+        if step_summary:
+            params["step_summary"] = step_summary
+            cypher += ", t.step_summary = $step_summary"
+
         if turn_id is not None:
             params["turn_id"] = turn_id
             cypher += ", t.turn_id = $turn_id"
@@ -364,6 +369,7 @@ class GraphClient:
         sheaf_score: Optional[float] = None,
         spectral_energy: Optional[float] = None,
         h0_rank: Optional[int] = None,
+        step_summary: Optional[str] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
@@ -398,6 +404,10 @@ class GraphClient:
         if h0_rank is not None:
             params["h0_rank"] = h0_rank
             cypher += ", t.h0_rank = $h0_rank"
+
+        if step_summary:
+            params["step_summary"] = step_summary
+            cypher += ", t.step_summary = $step_summary"
 
         self.query(cypher, params)
 
@@ -529,7 +539,10 @@ class GraphClient:
         return self.query(cypher)
 
     def get_context_frontier(
-        self, repl_id: str, limit: int = 5
+        self,
+        session_id: str,
+        limit: int = 10,
+        exclude_statuses: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Retrieves the 'Frontier' of the conversation for a given session.
@@ -539,11 +552,28 @@ class GraphClient:
 
         Used by the Stateless Agent to 'Wake Up' and load context.
         """
-        params = {"sid": repl_id, "limit": limit}
+        params: Dict[str, Any] = {"sid": session_id, "limit": limit}
+
+        # Default statuses to exclude if none provided (Internal System Actions)
+        if exclude_statuses is None:
+            exclude_statuses = [
+                "system",
+                "sheaf",
+                "omcd",
+                "navigator",
+                "thimac",
+                "validator",
+                "dreamer",
+                "axiomatic_check",
+                "reflexion",
+            ]
+
+        params["excluded"] = exclude_statuses
 
         cypher = """
         MATCH (n:Thought)
         WHERE n.session_id = $sid
+        AND NOT n.status IN $excluded
         RETURN n
         ORDER BY n.created_at DESC
         LIMIT $limit
@@ -679,6 +709,27 @@ class GraphClient:
         self.query(cypher, params)
         logger.info("Archived Round %s for session %s", round_id, root_session_id)
 
+    def update_round_summaries(
+        self,
+        round_id: str,
+        prompt_summary: str,
+        result_summary: str,
+    ):
+        """
+        Updates the summaries of an archived round.
+        """
+        params = {
+            "rid": round_id,
+            "p_sum": prompt_summary,
+            "r_sum": result_summary,
+        }
+        cypher = """
+        MATCH (r:Round {round_id: $rid})
+        SET r.prompt_summary = $p_sum, r.result_summary = $r_sum
+        """
+        self.query(cypher, params)
+        logger.info("Updated summaries for Round %s", round_id)
+
     def get_completed_rounds(self, root_session_id: str) -> List[Dict[str, Any]]:
         """
         Retrieves all completed rounds for a session, ordered by completion time.
@@ -692,6 +743,8 @@ class GraphClient:
                r.user_prompt as user_prompt,
                r.repl_ids as repl_ids,
                r.final_response as final_response,
+               r.prompt_summary as prompt_summary,
+               r.result_summary as result_summary,
                r.ended_at as ended_at
         ORDER BY r.ended_at ASC
         """
@@ -724,9 +777,15 @@ class GraphClient:
                n.sheaf_score as sheaf_score,
                n.spectral_energy as spectral_energy,
                n.h0_rank as h0_rank,
-               n.sheaf_score as sheaf_score,
-               n.spectral_energy as spectral_energy,
-               n.h0_rank as h0_rank
+               n.repe_shakiness as repe_shakiness,
+               n.repe_evasion as repe_evasion,
+               n.repe_confluence as repe_confluence,
+               n.repe_freedom as repe_freedom,
+               n.omcd_score as omcd_score,
+               n.thimac_op as thimac_op,
+               n.thimac_level as thimac_level,
+               n.navigator_insight as navigator_insight,
+               n.step_summary as step_summary
         """
         if limit:
             q += "\n        ORDER BY n.created_at DESC"
@@ -818,6 +877,65 @@ class GraphClient:
         """
         self.query(cypher, {"aid": axiom_id})
         logger.warning("🚫 Axiom %s has been DISABLED by the system.", axiom_id)
+
+    def force_consolidate_noisy_branches(
+        self, session_id: str
+    ) -> tuple[int, list[str]]:
+        """
+        Autonomously prunes graph branches that contribute to high topological stress.
+        Nodes with status 'failed', 'error', 'reflexion', or high sheaf_score are marked as consolidated
+        and effectively hidden from the active context window.
+
+        Returns:
+            Tuple[int, List[str]]: (count of pruned nodes, list of pruned thought_ids)
+        """
+        try:
+            cypher = """
+            MATCH (n:Thought)
+            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+              AND NOT n.status IN ['consolidated', 'system_intervention', 'sheaf']
+              AND NOT (n.status = 'success' AND n.result IS NOT NULL)
+              AND (
+                  (n.status IN ['failed', 'error', 'reflexion', 'LOGICAL_KNOT', 'EMPIRICAL_CONTRADICTION'])
+                  OR
+                  (n.sheaf_score >= 0.3)
+                  OR
+                  (n.spectral_energy >= 0.3)
+              )
+            SET n.status = 'consolidated',
+                n.consolidated_at = timestamp(),
+                n.prune_reason = 'topological_stress_auto_prune'
+            RETURN n.id as tid
+            """
+            result = self.query(cypher, {"sid": session_id})
+            pruned_ids = []
+            if result:
+                for row in result:
+                    if isinstance(row, dict):
+                        tid = row.get("tid")
+                    elif hasattr(row, "tid"):
+                        tid = row.tid
+                    elif isinstance(row, (list, tuple)) and len(row) > 0:
+                        tid = row[0]
+                    else:
+                        tid = None
+
+                    if tid:
+                        pruned_ids.append(str(tid))
+
+                count = len(pruned_ids)
+                if count > 0:
+                    logger.info(
+                        "Auto-pruned %d noisy nodes for session %s: %s",
+                        count,
+                        session_id,
+                        pruned_ids[:5],
+                    )
+                return count, pruned_ids
+            return 0, []
+        except Exception as e:
+            logger.error("Failed to consolidate noisy branches: %s", e, exc_info=True)
+            return 0, []
 
     def perform_synaptic_homeostasis(self, retention_window: int = 24):
         """

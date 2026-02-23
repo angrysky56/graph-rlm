@@ -15,9 +15,12 @@ def compute_sheaf_laplacian(
 ) -> np.ndarray:
     """
     Constructs the Sheaf Laplacian matrix (L = D - A).
+    Edge weights are calculated dynamically using a semantic Restriction Map
+    between node embeddings. A high distance (low similarity) reduces the edge weight,
+    representing a topological defect or verification obstruction.
 
     Args:
-        graph_nodes: List of node dictionaries (must have 'id')
+        graph_nodes: List of node dictionaries (must have 'id' and optionally 'vec' or 'embedding')
         graph_edges: List of (source_id, target_id) tuples
 
     Returns:
@@ -30,6 +33,16 @@ def compute_sheaf_laplacian(
     # ID map
     id_map = {n["id"]: i for i, n in enumerate(graph_nodes)}
 
+    # Store vectors for fast lookup
+    vec_map = {}
+    for n in graph_nodes:
+        vec = n.get("vec") or n.get("embedding")
+        if vec is not None:
+            vec = np.array(vec)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec_map[n["id"]] = vec / norm
+
     # Adjacency Matrix
     row = []
     col = []
@@ -38,8 +51,16 @@ def compute_sheaf_laplacian(
     for u_id, v_id in graph_edges:
         if u_id in id_map and v_id in id_map:
             u, v = id_map[u_id], id_map[v_id]
-            # Weight by consistency (default 1.0 for now)
+
+            # Semantic Restriction Map (Dynamic Edge Weight)
             weight = 1.0
+            if u_id in vec_map and v_id in vec_map:
+                # Cosine similarity between normalized embeddings
+                sim = float(np.dot(vec_map[u_id], vec_map[v_id]))
+                # Weight bounds: 0.01 (min threshold to avoid isolated nodes) to 1.0
+                # A low similarity drops the weight dramatically, indicating a fragmented geodesic
+                weight = max(0.01, sim)
+
             row.append(u)
             col.append(v)
             data.append(weight)

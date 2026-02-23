@@ -18,6 +18,7 @@ import numpy as np
 import redis
 
 from ..mcp_integration.skill_storage import get_axioms_manager
+from .circuit import CircuitOpenError
 from .config import settings
 from .core import PythonREPL
 from .db import GraphClient, db
@@ -144,54 +145,52 @@ class Dreamer:
         return empty
 
     async def analyze_holonomy(
-        self, loop_nodes: List[Dict[str, Any]], current_thought: str
-    ) -> str:
+        self, loop_nodes: List[Dict[str, Any]], _current_thought: str
+    ) -> Dict[str, Any]:
         """
-        [Lucid Dream / IntelliSynth] Immediate synchronous analysis of a detected logical knot.
-        Uses the IntelliSynth Advancement Cycle (Truth -> Scrutiny -> Improvement)
-        to break the loop with mathematical precision.
-        """
-        from .reflexion import intelli_synth
+        Data-only analysis of a detected logical knot.
 
+        Extracts loop structure and repeated patterns from the graph data.
+        Returns structured metrics for the main agent to interpret.
+        NO LLM calls — one brain, many sensors.
+        """
         logger.info(
-            "⚡ [Dreamer] Triggering IntelliSynth Advancement Cycle for Loop Analysis..."
+            "[Dreamer] Analyzing holonomy (data-only, %d nodes)...",
+            len(loop_nodes),
         )
 
-        # Format history trace for AwL Analysis
-        trace_str = ""
-        for i, node in enumerate(reversed(loop_nodes)):
-            # Handle FalkorDB/Neo4j node structures
+        # Extract summaries from loop nodes
+        node_summaries = []
+        for node in loop_nodes[-5:]:  # Last 5 nodes
             props = node
             if hasattr(node, "properties"):
                 props = node.properties
             elif "n" in node:
                 props = node["n"]
-
-            # Normalize dict access
             if hasattr(props, "properties"):
                 props = props.properties
 
-            content = props.get("content", str(props))
-            trace_str += f"Step -{i}: {content[:30000]}...\n"
+            content = str(props.get("content", props.get("prompt", "")))[:100]
+            node_summaries.append(content)
 
-        divergence_node_id = loop_nodes[-1].get("id") if loop_nodes else "unknown"
+        # Detect repeated actions (simple deduplication check)
+        repeated_actions = []
+        seen = {}
+        for summary in node_summaries:
+            key = summary[:50].strip().lower()
+            seen[key] = seen.get(key, 0) + 1
+            if seen[key] == 2:  # First duplicate
+                repeated_actions.append(summary[:80])
 
-        # Execute IntelliSynth Advancement Cycle
-        # (AP1: Truth -> AP2: Scrutiny [AwL] -> AP3: Improvement)
-        try:
-            improvement_directive = await intelli_synth.advancement_cycle(
-                trace_context=trace_str,
-                current_thought=current_thought,
-                divergence_point=str(divergence_node_id),
-            )
-            return improvement_directive
-        except (AttributeError, ValueError, TypeError, RuntimeError):
-            logger.exception("IntelliSynth cycle failed")
-            # Fallthrough to robust default directive below
-            return (
-                "SYSTEM REFLEXION: BREAK LOOP. IntelliSynth failed, but you are repeating yourself. "
-                "Change approach immediately."
-            )
+        return {
+            "type": "HOLONOMY_ANALYSIS",
+            "loop_length": len(loop_nodes),
+            "node_summaries": node_summaries,
+            "repeated_actions": repeated_actions,
+            "node_ids": [
+                str(n.get("id", n.get("thought_id", "?"))) for n in loop_nodes[-3:]
+            ],
+        }
 
     async def dream_cycle(
         self,
@@ -236,7 +235,14 @@ class Dreamer:
                 turn_id,
                 root_session_id,
             )
-        except Exception as e:
+        except (
+            CircuitOpenError,
+            httpx.RequestError,
+            RuntimeError,
+            ValueError,
+            AttributeError,
+            KeyError,
+        ) as e:
             logger.error(
                 "Unexpected error in Dream Cycle Wrapper: %s", e, exc_info=True
             )
@@ -318,43 +324,9 @@ class Dreamer:
                 recent_context_str = "\n".join(recent_lines)
 
         if not surprise_events:
-            # [CRITICAL FIX] Check for Silent Failure / Stagnation
-            # If the session was empty or failed but generated no "Surprise" (because no edges formed),
-            # we MUST wake the dreamer to inspect why nothing happened.
-            is_stagnant = False
-            if not recent_events:
-                is_stagnant = True
-            elif recent_events and recent_events[0].get("status") in [
-                "failed",
-                "error",
-                "empty",
-            ]:
-                is_stagnant = True
-
-            if is_stagnant:
-                logger.warning(
-                    "🚨 [Dreamer] Sleep disturbed by STAGNATION (Empty/Failed Session)."
-                )
-                trace_action(
-                    "DREAMER",
-                    "WAKE_UP",
-                    result="Stagnation Detected. Forcing Analysis.",
-                    tag="SYSTEM",
-                )
-                surprise_events.append(
-                    {
-                        "source": "SYSTEM",
-                        "target": "AGENT",
-                        "surprise_score": 1.0,
-                        "status": "STAGNATION",
-                        "parent_prompt": "SYSTEM MONITOR",
-                        "child_prompt": "NO ACTION TAKEN",
-                        "child_result": "Session ended with no successful operations.",
-                    }
-                )
-            elif not final_response_candidate:
-                # [CAG Fix]: Only return early if NO surprise AND NO final response candidate.
-                # Successful runs often have low surprise but are the best time to extract skills.
+            # [CAG Fix]: Only return early if NO surprise AND NO final response candidate.
+            # Successful runs often have low surprise but are the best time to extract skills.
+            if not final_response_candidate:
                 logger.info("No high-surprise events found. Sleep was peaceful.")
                 trace_action(
                     "DREAMER",
@@ -417,6 +389,40 @@ class Dreamer:
                 f"{context}\n"
                 f"--------------------------------------------\n"
             )
+
+        # Hippocampal Replay: Walk NEXT_THOUGHT chain for episodic trace
+        # Reconstructs the sequential reasoning path for causal pattern recognition
+        episodic_trace_section = ""
+        if root_session_id:
+            try:
+                chain = self.db.query(
+                    "MATCH (n:Thought) "
+                    "WHERE n.root_session_id = $sid "
+                    "RETURN n.step_id AS step, n.prompt AS prompt, "
+                    "n.status AS status, n.result AS result "
+                    "ORDER BY n.step_id ASC LIMIT 8",
+                    {"sid": root_session_id},
+                )
+                if chain:
+                    lines = []
+                    for r in chain:
+                        if isinstance(r, dict):
+                            step = r.get("step", "?")
+                            status = r.get("status", "?")
+                            prompt = str(r.get("prompt") or "")[:100]
+                            lines.append(f"T={step}: [{status}] {prompt}")
+                    if lines:
+                        episodic_trace_section = (
+                            "\n\n--- EPISODIC REPLAY (HIPPOCAMPAL CONSOLIDATION) ---\n"
+                            + "\n".join(lines)
+                            + "\n---------------------------------------------------\n"
+                        )
+                        logger.info(
+                            "[Hippocampus] Replayed %d episodic steps for consolidation.",
+                            len(lines),
+                        )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as e:
+                logger.warning("Hippocampal replay failed: %s", e)
 
         # [INTELLIGENT ACTIVATION] Detect if Axiom Codification is required
         # We look for explicit signals in the context OR structural signals in the events.
@@ -496,6 +502,7 @@ class Dreamer:
             + "\n\n"
             "--- IMMEDIATE RECENT CONTEXT (THE TRUTH) ---\n" + recent_context_str + "\n"
             f"{context_section}"
+            f"{episodic_trace_section}"
             f"{candidate_section}\n"
             f"{system_signal_section}\n"
             "Instructions:\n"
@@ -580,6 +587,7 @@ class Dreamer:
                 status_override = "peaceful"
 
         except (
+            CircuitOpenError,
             httpx.RequestError,
             ValueError,
             TypeError,
@@ -590,8 +598,8 @@ class Dreamer:
 
         # 4. [REM] Adversarial Simulation (The Overfitted Brain Check)
         # If the insight proposes a rule, we must stress-test it before consolidating
-        # [Strict Trigger] Use Regex to avoid false positives on common words
-        trigger_pattern = r"(?:Rule|Guardrail|Skill|Tool Pattern|Actionable Advice):\s+"
+        # [B3] Broadened to catch markdown headers, bold text, and more keywords
+        trigger_pattern = r"(?:#+\s*)?(?:\*{0,2})?\s*(?:Rule|Guardrail|Skill|Tool Pattern|Actionable Advice|Axiom|Lesson|Pattern)\s*(?:\*{0,2})?[:\-]"
         if re.search(trigger_pattern, insight_text, re.IGNORECASE):
             logger.info("👁️ REM Phase: Testing Generality of new insight...")
             trace_action(
@@ -657,10 +665,21 @@ class Dreamer:
         self.db.perform_synaptic_homeostasis(retention_window=24)
 
         # 8. [CAG Pivot] Auto-Axiom Generation
-        # [Strict Trigger] Use Regex to ensure we only catch specific headers, not random words.
-        # Pattern matches "Header: Content" format.
-        trigger_pattern = r"(?:Rule|Guardrail|Skill|Tool Pattern|Actionable Advice):\s+"
-        if re.search(trigger_pattern, insight_text, re.IGNORECASE):
+        # [B3] Broadened trigger: catches markdown headers, bold text, and more keywords.
+        # Also includes a fallback for code blocks when ACTION REQUIRED was signaled.
+        trigger_pattern = r"(?:#+\s*)?(?:\*{0,2})?\s*(?:Rule|Guardrail|Skill|Tool Pattern|Actionable Advice|Axiom|Lesson|Pattern)\s*(?:\*{0,2})?[:\-]"
+        should_codify = bool(re.search(trigger_pattern, insight_text, re.IGNORECASE))
+        if (
+            not should_codify
+            and axiom_required
+            and re.search(r"```python", insight_text)
+        ):
+            should_codify = True
+            logger.info(
+                "🤖 Fallback axiom trigger: code block found with ACTION REQUIRED signal."
+            )
+
+        if should_codify:
             logger.info(
                 "🤖 Dreamer detected a potential Axiom. Attempting to codify..."
             )
@@ -704,7 +723,7 @@ class Dreamer:
         ) as e:  # pylint: disable=broad-except
             logger.warning("oMCD calibration skipped: %s", e)
 
-        except Exception as e:
+        except (RuntimeError, KeyError, AttributeError) as e:
             logger.error("Unexpected error in Dream Cycle: %s", e, exc_info=True)
             return {"status": "error", "message": str(e)}
         finally:
@@ -780,10 +799,9 @@ class Dreamer:
                 # B) Execute in REPL
                 # Inject minimal context for verification
                 preamble = """import os
-import sys
-from pathlib import Path
-"""
-                from .config import settings
+                import sys
+                from pathlib import Path
+                """
                 from .core import KnowledgeBaseStructure
 
                 kb = KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
@@ -834,6 +852,7 @@ from pathlib import Path
         diagnosis = sheaf.diagnose_trace(
             root_id=str(session_id) if session_id else "unknown",
             hypothetical_node={
+                "id": f"hypo_{uuid.uuid4().hex[:8]}",
                 "content": candidate,
                 "role": "assistant",
                 "embedding": candidate_vec,

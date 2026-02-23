@@ -439,10 +439,6 @@ async def get_graph(session_id: Optional[str] = None):
     try:
         # If session_id is provided, filter nodes
         if session_id:
-            # We want all nodes in this session + their rels
-            # Note: We assume edges don't cross sessions generally?
-            # Or if they do, we want that context?
-            # Safe bet: MATCH (n:Thought) WHERE n.session_id = $sid
             # We query on root_session_id OR session_id to catch everything relevant
             cypher = """
             MATCH (n:Thought)
@@ -457,15 +453,50 @@ async def get_graph(session_id: Optional[str] = None):
         nodes = {}
         links = []
 
-        for row in raw_data:
-            # Row is [node, rel, target_node] or just [node, None, None]
-            # FalkorDB python client returns Nodes/Relationships as objects or dicts depending on version
-            # We assume dict-like or object with properties
+        # Helper to extract and format node properties
+        def process_node(entity):
+            if entity is None:
+                return None
 
-            # Safe extraction
+            # Extract basic properties
+            props = {}
+            if hasattr(entity, "properties"):
+                props = entity.properties
+            elif isinstance(entity, dict):
+                props = entity
+
+            node_id = props.get("id")
+            if not node_id:
+                return None
+
+            # Result fallback logic: use execution_summary if result is empty
+            res = props.get("result", "")
+            if not res or res == "None":
+                res = props.get("execution_summary", "")
+
+            return {
+                "id": node_id,
+                "label": props.get("prompt", "Unknown"),
+                "prompt": props.get("prompt", ""),
+                "result": res,
+                "status": props.get("status", "pending"),
+                "sheaf_score": props.get("sheaf_score"),
+                "spectral_energy": props.get("spectral_energy"),
+                "h0_rank": props.get("h0_rank"),
+                "repe_shakiness": props.get("repe_shakiness"),
+                "omcd_score": props.get("omcd_score"),
+                "round_id": props.get("round_id"),
+                "turn_id": props.get("turn_id"),
+                "val": 5,
+            }
+
+        for row in raw_data:
+            # Safe extraction based on query `RETURN n, r, m`
+            source = None
+            rel = None
+            target = None
+
             if isinstance(row, dict):
-                # FalkorDB wrapper might return keys 'n', 'r', 'm' based on query
-                # Query was `RETURN n, r, m`
                 source = row.get("n") or row.get("source")
                 rel = row.get("r") or row.get("rel")
                 target = row.get("m") or row.get("target")
@@ -473,66 +504,54 @@ async def get_graph(session_id: Optional[str] = None):
                 source = row[0] if len(row) > 0 else None
                 rel = row[1] if len(row) > 1 else None
                 target = row[2] if len(row) > 2 else None
-            else:
-                # Fallback
-                source = row
-                rel = None
-                target = None
-
-            # Helper to extract props
-            def get_props(entity):
-                if hasattr(entity, "properties"):
-                    return entity.properties
-                if isinstance(entity, dict):
-                    return entity
-                # Falkor sometimes returns (id, ['Label'], {props}) tuple in old versions?
-                # But simplified client wrapper usually returns objects.
-                # Let's assume object with .id and .properties or dict
-                return {}
 
             # Process Source Node
-            s_props = get_props(source)
-            s_id = s_props.get("id")
-            if s_id and s_id not in nodes:
-                nodes[s_id] = {
-                    "id": s_id,
-                    "label": s_props.get("prompt", "Unknown"),
-                    "prompt": s_props.get("prompt", ""),
-                    "result": s_props.get("result", ""),
-                    "group": 2 if "DECOMPOSES_INTO" in str(rel) else 1,  # heuristic
-                    "val": 5,
-                    "status": s_props.get("status", "pending"),
-                    "sheaf_score": s_props.get("sheaf_score"),
-                    "spectral_energy": s_props.get("spectral_energy"),
-                    "h0_rank": s_props.get("h0_rank"),
-                }
-
-            # Process Relationship
-            if rel and target:
-                t_props = get_props(target)
-                t_id = t_props.get("id")
-
-                if t_id:
-                    # Upgrade coloring if we see relationships
-                    if s_id in nodes:
-                        nodes[s_id]["group"] = 1  # Root-ish?
-                    if t_id not in nodes:
-                        nodes[t_id] = {
-                            "id": t_id,
-                            "label": t_props.get("prompt", "Unknown"),
-                            "group": 2,  # Child
-                            "val": 3,
-                            "status": t_props.get("status", "pending"),
-                            "sheaf_score": t_props.get("sheaf_score"),
-                            "spectral_energy": t_props.get("spectral_energy"),
-                            "h0_rank": t_props.get("h0_rank"),
+            s_data = process_node(source)
+            if s_data:
+                s_id = s_data["id"]
+                if s_id not in nodes:
+                    nodes[s_id] = s_data
+                else:
+                    # Update existing entry with any missing/new props from this match
+                    nodes[s_id].update(
+                        {
+                            k: v
+                            for k, v in s_data.items()
+                            if v is not None or nodes[s_id].get(k) is None
                         }
+                    )
 
-                    links.append({"source": s_id, "target": t_id})
+                # Process Relationship and Target
+                if rel and target:
+                    t_data = process_node(target)
+                    if t_data:
+                        t_id = t_data["id"]
+                        if t_id not in nodes:
+                            nodes[t_id] = t_data
+                            nodes[t_id]["val"] = 3  # Default smaller for leaf/child
+                        else:
+                            nodes[t_id].update(
+                                {
+                                    k: v
+                                    for k, v in t_data.items()
+                                    if v is not None or nodes[t_id].get(k) is None
+                                }
+                            )
+
+                        links.append({"source": s_id, "target": t_id})
+
+        # Dynamic group assignment for coloring
+        for node in nodes.values():
+            if node.get("status") == "consolidated":
+                node["group"] = 3  # Distinct color for consolidated
+            elif node.get("status") in ["error", "failed"]:
+                node["group"] = 4
+            else:
+                node["group"] = 1
 
         return {"nodes": list(nodes.values()), "links": links}
     except (AttributeError, KeyError, ValueError, TypeError) as e:
-        print(f"Graph fetch error: {e}")
+        logger.error("Graph fetch error: %s", e)
         return {"nodes": [], "links": []}
 
 

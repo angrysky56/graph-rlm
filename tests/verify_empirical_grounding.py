@@ -40,7 +40,7 @@ async def test_empirical_grounding():
     # Check if summary contains the tool
     event_1 = agent.morph_memory._all_events[-1]
     print(f"PROCESS summary: {event_1.summary}")
-    assert "T: rlm.recall" in event_1.summary
+    assert "Edge: rlm.recall" in event_1.summary
 
     # 2. Simulate a thought with a NAV label
     thought_id_2 = str(uuid.uuid4())
@@ -54,8 +54,9 @@ async def test_empirical_grounding():
     )
     event_2 = agent.morph_memory._all_events[-1]
     print(f"NAV summary: {event_2.summary}")
-    assert event_2.summary == "NAV"  # Should not be "N A V"
-
+    assert (
+        "Axiomatic_Transform" in event_2.summary
+    )  # Structural mapping used instead of NAV
     # 3. Verify DB storage
     print("Verifying DB property storage...")
     db.create_thought_node(
@@ -89,20 +90,19 @@ async def test_empirical_grounding():
     print("\nGestalt Snippet (First 1000 chars):")
     print(gestalt[:1000])
 
-    # Instead of looking for "ACCEPT:", find the line containing the long string fragment
+    # Found topological link
+    # Topological footprints don't store long strings, so it should be Edge: Axiomatic_Transform
     found_long_summary = False
     for line in gestalt.split("\n"):
-        if "Materializing evidence for X X" in line:
-            print(f"Found long summary line: {line}")
-            if len(line) > 100:
-                found_long_summary = True
-                break
+        if (
+            "Edge: Axiomatic_Transform" in line and "[c40062d5]" not in line
+        ):  # checking for the new thought
+            print(f"Found formal trace line: {line}")
+            found_long_summary = True
+            break
 
-    assert (
-        found_long_summary
-    ), "Could not find the long materialized summary in gestalt output"
-
-    print("\nSUCCESS: Empirical grounding and Thimac refinements verified.")
+    assert found_long_summary, "Topological event was not recorded in gestalt"
+    print("\nSUCCESS: Empirical grounding and topological representations verified.")
 
 
 if __name__ == "__main__":

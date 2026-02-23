@@ -146,10 +146,11 @@ class GestaltMonitor:
                     e,
                     exc_info=True,
                 )
-            except Exception:
+            except (AttributeError, KeyError, ValueError) as e:
                 logger.error(
-                    "Unexpected error loading RepE cache from %s",
+                    "Unexpected error loading RepE cache from %s: %s",
                     self._cache_path,
+                    e,
                     exc_info=True,
                 )
         return {}
@@ -166,10 +167,11 @@ class GestaltMonitor:
                 e,
                 exc_info=True,
             )
-        except Exception:
+        except (AttributeError, KeyError, ValueError) as e:
             logger.error(
-                "Unexpected error saving RepE cache to %s",
+                "Unexpected error saving RepE cache to %s: %s",
                 self._cache_path,
+                e,
                 exc_info=True,
             )
 
@@ -242,7 +244,27 @@ class GestaltMonitor:
         Projects the thought onto all calibrated axes.
         Returns a 'Psychological Profile' of the current thought.
         """
-        if not self.is_calibrated or not vector:
+        if not vector:
+            return {}
+
+        # Lazy calibration: trigger on first call if not yet calibrated
+        if not self.is_calibrated:
+            import asyncio
+
+            try:
+                loop = asyncio.get_running_loop()
+                # We're inside an async context — schedule calibration
+                loop.create_task(self.calibrate())
+                logger.info(
+                    "RepE: Calibration scheduled (first scan_thought call). "
+                    "Results will be available on next call."
+                )
+                return {}  # Skip this one call — axes not ready yet
+            except RuntimeError:
+                # No running loop — run synchronously
+                asyncio.run(self.calibrate())
+
+        if not self.is_calibrated:
             return {}
 
         thought_vec = np.array(vector, dtype=float)
@@ -251,11 +273,11 @@ class GestaltMonitor:
         if norm > 0:
             thought_vec = thought_vec / norm
 
-        scores = {}
+        scores: Dict[str, float] = {}
         for concept, axis in self.steering_axes.items():
             # Dot product measures alignment.
             # Low Negative value (< -0.15) means HIGH NEUROSIS (aligned with bad pole).
-            scores[concept] = np.dot(thought_vec, axis)
+            scores[concept] = round(float(np.dot(thought_vec, axis)), 3)
 
         trace_action(
             "REPE",

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { Settings, Plus } from 'lucide-react';
+import { Settings, Plus, Activity, BookOpen, Hash, Code, Copy, Check } from 'lucide-react';
+import { useState } from 'react';
 
 interface SidebarProps {
     onNewChat?: () => void;
@@ -11,8 +11,7 @@ interface SidebarProps {
         completion_tokens: number;
         total_tokens: number;
     };
-    terminalEntries?: any[];
-    codeEntries?: any[];
+    selectedNode: any | null;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -21,76 +20,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onOpenSettings,
     onOpenExplorer,
     usage,
-    terminalEntries = [],
-    codeEntries = []
+    selectedNode
 }) => {
-    const [terminalLogs, setTerminalLogs] = useState<string[]>([]);
-    const wsRef = useRef<WebSocket | null>(null);
+    const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
-    // Refs for auto-scrolling
-    const terminalRef = useRef<HTMLDivElement>(null);
-    const codeRef = useRef<HTMLDivElement>(null);
-
-    // Auto-scroll terminal to bottom when new entries arrive
-    useEffect(() => {
-        if (terminalRef.current) {
-            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-        }
-    }, [terminalEntries]);
-
-    // Auto-scroll code panel
-    useEffect(() => {
-        if (codeRef.current) {
-            codeRef.current.scrollTop = codeRef.current.scrollHeight;
-        }
-    }, [codeEntries]);
-
-    // WebSocket Log Stream Connection (Ground Truth)
-    useEffect(() => {
-        const connect = () => {
-             // Correctly targeting the backend's logging websocket
-             // Use window.location.hostname to be more robust for different network environments
-             const backendHost = window.location.hostname === 'localhost' ? 'localhost:8000' : `${window.location.hostname}:8000`;
-             const socket = new WebSocket(`ws://${backendHost}/api/v1/ws/logs`);
-             wsRef.current = socket;
-
-             socket.onopen = () => {
-                 console.log("[Terminal] Connected to backend log stream.");
-             };
-
-             socket.onmessage = (event) => {
-                 if (event.data) {
-                     setTerminalLogs(prev => [...prev, event.data].slice(-1000));
-                 }
-             };
-
-             socket.onclose = () => {
-                 console.log("[Terminal] Disconnected. Retrying in 3s...");
-                 setTimeout(connect, 3000);
-             };
-
-             socket.onerror = (err) => {
-                 console.error("[Terminal] WebSocket error:", err);
-             };
-        };
-
-        connect();
-
-        return () => {
-            if (wsRef.current) wsRef.current.close();
-        };
-    }, []);
-
-    // Auto-scroll terminal log
-    useEffect(() => {
-        if (terminalRef.current) {
-            terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
-        }
-    }, [terminalLogs]);
-
-    // Use props directly after routing in App.tsx
-    const executionEntries = codeEntries;
-    const terminalLogsFromSSE = terminalEntries;
+    const handleCopy = (text: string, section: string) => {
+        navigator.clipboard.writeText(text);
+        setCopiedSection(section);
+        setTimeout(() => setCopiedSection(null), 2000);
+    };
 
     return (
         <div className="w-[450px] bg-slate-950 h-screen border-r border-slate-800 flex flex-col font-sans text-slate-200 transition-all shadow-2xl z-30">
@@ -124,74 +62,127 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="px-3 py-2 border-b border-slate-800 bg-slate-950/50 shrink-0">
                  <div className="flex justify-between items-center text-[10px]">
                       <span className="text-slate-400 font-mono truncate max-w-[200px]">{currentModel}</span>
-                      {usage && (
-                          <span className="text-slate-600 font-mono">
-                              {usage.total_tokens} T
-                          </span>
-                      )}
                  </div>
             </div>
 
-            {/* MAIN DASHBOARD - Two stacked panels */}
-            <div className="flex-1 flex flex-col min-h-0 bg-black/20">
-
-                {/* TOP: Code Execution Results (from replEntries with style='code') */}
-                <div className="flex-1 min-h-0 flex flex-col border-b border-slate-700">
-                    <div className="px-3 py-1 bg-slate-900/80 text-[10px] font-bold text-blue-400 uppercase tracking-widest flex justify-between">
-                        <span>Code Execution</span>
-                        <span className="text-slate-600">{executionEntries.length} results</span>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] space-y-2 bg-[#0d1117]">
-                        {executionEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for code execution...</div>}
-                        {executionEntries.map((e, i) => (
-                            <div key={i} className="border-l-2 border-blue-900/30 pl-2">
-                                <div className="text-blue-300/50 text-[9px] mb-1">
-                                    {new Date(e.timestamp).toLocaleTimeString()}
-                                    {e.isStreaming && <span className="ml-2 animate-pulse text-blue-500">RUNNING</span>}
-                                </div>
-                                <pre className="whitespace-pre-wrap text-blue-100/90 break-words">{e.content.replace('[EXECUTION]', '').trim()}</pre>
-                            </div>
-                        ))}
-                    </div>
+            {/* MAIN DASHBOARD - Node Explorer */}
+            <div className="flex-1 flex flex-col min-h-0 bg-[#0a0a0a]">
+                <div className="px-3 py-1.5 bg-slate-900/80 text-[10px] font-bold text-indigo-400 uppercase tracking-widest border-b border-slate-800 flex items-center gap-2">
+                    <Activity size={12} />
+                    <span>Node Explorer</span>
                 </div>
 
-                {/* BOTTOM: Terminal Log (agent events from SSE) */}
-                <div className="flex-1 min-h-0 flex flex-col">
-                    <div className="px-3 py-1 bg-slate-900/80 text-[10px] font-bold text-emerald-400 uppercase tracking-widest flex justify-between">
-                        <span>Terminal Log</span>
-                        <span className="text-slate-600">{terminalEntries.length} events</span>
-                    </div>
-                    <div
-                        ref={terminalRef}
-                        className="flex-1 overflow-y-auto p-2 font-mono text-[9px] bg-[#0f1216]"
-                    >
-                        {/* Terminal Log: Now uses BOTH the raw Websocket logs AND the interactive replEntries for total visibility */}
-                        {terminalLogs.length === 0 && terminalEntries.length === 0 && <div className="text-slate-700 italic text-center mt-4">Waiting for system logs...</div>}
-
-                        {/* Backend System Logs (uvicorn/bash mirror) from separate WS if still needed */}
-                        {terminalLogs.map((log, i) => (
-                            <div key={`system-${i}`} className="text-slate-500 leading-tight whitespace-pre-wrap break-words border-b border-slate-950/20 py-0.5">
-                                {log}
+                {selectedNode ? (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-6">
+                        <div className="bg-slate-900/30 border border-slate-800 rounded-lg p-3">
+                            <div className="flex items-center gap-2 mb-3 text-slate-400">
+                                <Hash size={14} className="text-indigo-400" />
+                                <span className="text-xs font-mono font-bold text-slate-200">{selectedNode.id}</span>
                             </div>
-                        ))}
-
-                        {/* Routed Terminal Events from SSE (Agent Logic) */}
-                        {terminalLogsFromSSE.map((entry: any, i: number) => (
-                            <div key={`event-${i}`} className={`mb-1 leading-tight flex gap-2 ${entry.type === 'error' ? 'text-red-400' : 'text-slate-500'}`}>
-                                <span className="text-slate-700 shrink-0">[{new Date(entry.timestamp).toLocaleTimeString()}]</span>
-                                {entry.repl_id && <span className="text-blue-900 shrink-0">({entry.repl_id})</span>}
-                                <span className={`shrink-0 uppercase text-[8px] px-1 rounded ${
-                                    entry.style === 'report' ? 'bg-blue-900/30 text-blue-400' :
-                                    entry.style === 'code' ? 'bg-emerald-900/30 text-emerald-400' :
-                                    'bg-slate-900 text-slate-600'
+                            <div className="flex flex-wrap gap-2 text-[10px] uppercase font-bold tracking-wider">
+                                <span className={`px-2 py-1 rounded ${
+                                    selectedNode.status === 'success' ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-800/50' :
+                                    selectedNode.status === 'error' || selectedNode.status === 'failed' ? 'bg-red-900/40 text-red-400 border border-red-800/50' :
+                                    selectedNode.status === 'running' ? 'bg-blue-900/40 text-blue-400 border border-blue-800/50' :
+                                    'bg-slate-800 border border-slate-700 text-slate-400'
                                 }`}>
-                                    {entry.style || entry.type}
+                                    {selectedNode.status || 'UNKNOWN'}
                                 </span>
-                                <span className="text-slate-300 break-words flex-1">{entry.content}</span>
+                                {(selectedNode.turn_id !== undefined || selectedNode.round_id !== undefined) && (
+                                    <span className="bg-slate-800/50 border border-slate-700 text-slate-400 px-2 py-1 rounded">
+                                        Round {selectedNode.round_id || '?'} / Turn {selectedNode.turn_id ?? '?'}
+                                    </span>
+                                )}
                             </div>
-                        ))}
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                                    <BookOpen size={12} /> Prompt Context
+                                </div>
+                                {selectedNode.prompt && (
+                                    <button
+                                        onClick={() => handleCopy(selectedNode.prompt, 'prompt')}
+                                        className="text-slate-500 hover:text-indigo-400 transition-colors"
+                                        title="Copy Prompt"
+                                    >
+                                        {copiedSection === 'prompt' ? <Check size={12} /> : <Copy size={12} />}
+                                    </button>
+                                )}
+                            </div>
+                            <div className="bg-[#0d1117] border border-slate-800 rounded p-3 text-[11px] leading-relaxed text-slate-300 font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto custom-scrollbar shadow-inner">
+                                {selectedNode.prompt || 'No prompt recorded.'}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                                    <Code size={12} /> Execution Result
+                                </div>
+                                {selectedNode.result && (
+                                    <button
+                                        onClick={() => handleCopy(selectedNode.result, 'result')}
+                                        className="text-slate-500 hover:text-indigo-400 transition-colors"
+                                        title="Copy Result"
+                                    >
+                                        {copiedSection === 'result' ? <Check size={12} /> : <Copy size={12} />}
+                                    </button>
+                                )}
+                            </div>
+                            <div className="bg-[#0d1117] border border-slate-800 rounded p-3 text-[11px] leading-relaxed text-slate-300 font-mono whitespace-pre-wrap break-words max-h-64 overflow-y-auto custom-scrollbar shadow-inner">
+                                {selectedNode.result || 'No numeric or string result recorded.'}
+                            </div>
+                        </div>
+
+                        {(selectedNode.sheaf_score !== undefined || selectedNode.omcd_score !== undefined || selectedNode.repe_shakiness !== undefined) && (
+                            <div className="space-y-2">
+                                <div className="flex items-center gap-1.5 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
+                                    <Activity size={12} /> Observability Metrics
+                                </div>
+                                <div className="bg-slate-900/30 border border-slate-800 rounded p-3 text-[10px] font-mono grid grid-cols-2 gap-3">
+                                    {selectedNode.sheaf_score !== undefined && selectedNode.sheaf_score !== null && (
+                                        <div className="flex flex-col gap-1 p-2 bg-slate-900/50 rounded border border-slate-800/50">
+                                            <span className="text-slate-500 uppercase">Sheaf Consistency</span>
+                                            <span className="text-emerald-400 text-sm font-bold">{Number(selectedNode.sheaf_score).toFixed(3)}</span>
+                                        </div>
+                                    )}
+                                    {selectedNode.omcd_score !== undefined && selectedNode.omcd_score !== null && (
+                                        <div className="flex flex-col gap-1 p-2 bg-slate-900/50 rounded border border-slate-800/50">
+                                            <span className="text-slate-500 uppercase">oMCD Stop Prob</span>
+                                            <span className="text-blue-400 text-sm font-bold">{Number(selectedNode.omcd_score).toFixed(3)}</span>
+                                        </div>
+                                    )}
+                                    {selectedNode.repe_shakiness !== undefined && selectedNode.repe_shakiness !== null && (
+                                        <div className="flex flex-col gap-1 p-2 bg-slate-900/50 rounded border border-slate-800/50">
+                                            <span className="text-slate-500 uppercase">Shakiness</span>
+                                            <span className="text-yellow-400 text-sm font-bold">{Number(selectedNode.repe_shakiness).toFixed(3)}</span>
+                                        </div>
+                                    )}
+                                    {selectedNode.repe_evasion !== undefined && selectedNode.repe_evasion !== null && (
+                                        <div className="flex flex-col gap-1 p-2 bg-slate-900/50 rounded border border-slate-800/50">
+                                            <span className="text-slate-500 uppercase">Evasion</span>
+                                            <span className="text-red-400 text-sm font-bold">{Number(selectedNode.repe_evasion).toFixed(3)}</span>
+                                        </div>
+                                    )}
+                                    {selectedNode.h0_rank !== undefined && selectedNode.h0_rank !== null && (
+                                        <div className="flex flex-col gap-1 p-2 bg-slate-900/50 rounded border border-slate-800/50">
+                                            <span className="text-slate-500 uppercase">H0 Rank</span>
+                                            <span className="text-purple-400 text-sm font-bold">{selectedNode.h0_rank}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                </div>
+                ) : (
+                    <div className="flex flex-col items-center justify-center p-8 text-slate-500 h-full text-center">
+                        <Activity size={32} className="mb-4 opacity-30 text-indigo-400" />
+                        <p className="text-[11px] uppercase tracking-wider font-bold mb-3 text-slate-400">Awaiting Sub-Selection</p>
+                        <p className="text-[10px] leading-relaxed max-w-[250px]">To inspect historical state, click any structural node embedded in the active Topological Graph (Right Panel).</p>
+                    </div>
+                )}
             </div>
 
             {/* Token Usage Display */}
@@ -226,7 +217,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
              {/* User Profile */}
              <div className="p-3 border-t border-slate-800 bg-slate-950 shrink-0 flex items-center gap-3">
-                  <div className="w-6 h-6 rounded bg-gradient-to-br from-blue-900 to-indigo-900 flex items-center justify-center font-bold text-[10px] text-blue-200">TY</div>
+                  <div className="w-6 h-6 rounded bg-gradient-to-br from-indigo-900 to-purple-900 flex items-center justify-center font-bold text-[10px] text-indigo-200">TY</div>
                   <div className="text-[10px] text-slate-600">Local Admin</div>
              </div>
         </div>

@@ -14,10 +14,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
 import numpy as np
-import scipy.sparse as sp  # type: ignore
-import scipy.sparse.linalg as spla  # type: ignore
+import scipy.sparse as sp
+import scipy.sparse.linalg as spla
 from pydantic import BaseModel, Field
-from scipy.sparse.csgraph import connected_components  # type: ignore
+from scipy.sparse.csgraph import connected_components
 
 from .core import PythonREPL
 from .db import db
@@ -92,7 +92,9 @@ class SheafMonitor:
 
     def __init__(self):
         # Thresholds for "Pathology"
-        self.loop_threshold = 0.70  # Lowered from 0.75 for stricter detection
+        self.loop_threshold = (
+            0.88  # Raised from 0.70 — agents on the same topic naturally score > 0.70
+        )
         self.drift_threshold = 0.3
 
     def _normalize(self, vec: List[float]) -> np.ndarray:
@@ -363,63 +365,33 @@ class SheafMonitor:
 
     def calculate_h1_obstruction(self, thought_path: List[Dict[str, Any]]) -> float:
         """
-        Calculates the H1 Cohomology Obstruction (Logical Knot Strength).
-        Measures Cycle Inconsistency in (Prompt -> Code -> Result) chain.
+        Calculates the H1 Cohomology Obstruction (Logical Knot Strength) mathematically.
+        Uses the Sheaf Laplacian to measure Consistency Energy (topological defect).
 
         Returns:
             A score 0.0 - 1.0 (Higher = more obstructed/contradictory).
         """
-        if len(thought_path) < 2:
+        n = len(thought_path)
+        if n < 2:
             return 0.0
 
-        inconsistency_sum = 0.0
-        checks = 0
+        edges = [
+            (thought_path[i - 1]["id"], thought_path[i]["id"]) for i in range(1, n)
+        ]
+        laplacian = self.compute_sheaf_laplacian(thought_path, edges)
 
-        # Cycle Inconsistency (Sequential H1 Obstruction)
-        for i in range(1, len(thought_path)):
-            current = thought_path[i]
-            prev = thought_path[i - 1]
+        # In the Sheaf Laplacian (L = D - A), the trace is the sum of degrees,
+        # which is 2 * (sum of all edge weights).
+        # A perfectly consistent path (all weights = 1.0) has trace = 2 * (n - 1)
+        actual_weight_sum = np.trace(laplacian) / 2.0
+        ideal_weight_sum = float(n - 1)
 
-            curr_prompt = (current.get("prompt") or "").lower()
-            curr_result = (current.get("result") or "").lower()
-            prev_result = (prev.get("result") or "").lower()
-            prev_status = prev.get("status")
+        if ideal_weight_sum == 0.0:
+            return 0.0
 
-            # A. Error Ignorance (The "Insanity" Loop)
-            # Previous step failed, but current step doesn't mention "fix", "debug", "try", "retry"
-            if prev_status in ["failed", "error"] or "error" in prev_result:
-                is_fixing = any(
-                    w in curr_prompt
-                    for w in ["fix", "debug", "retry", "try", "approach", "correct"]
-                )
-                if not is_fixing:
-                    # Repeating same mistake or ignoring error
-                    inconsistency_sum += 0.5
-                    checks += 1
-
-            # B. Semantic Non-Sequitur (Embedding Discontinuity)
-            if current.get("embedding") and prev.get("embedding"):
-                sim = self._calculate_cosine_similarity(
-                    current["embedding"], prev["embedding"]
-                )
-                # Extremely low similarity implies a disjoint jump in reasoning.
-                # We add a small obstruction penalty if the jump is too abrupt.
-                if sim < 0.2:
-                    inconsistency_sum += 0.3
-                    checks += 1
-
-            # C. Verification Obstruction (Node-Local)
-            success_triggers = ["fix", "solve", "implement", "create", "generate"]
-            error_triggers = ["traceback", "not found", "importerror", "syntaxerror"]
-
-            claims_action = any(t in curr_prompt for t in success_triggers)
-            bears_error = any(t in curr_result for t in error_triggers)
-
-            if claims_action and bears_error and current.get("status") != "failed":
-                inconsistency_sum += 0.8
-                checks += 1
-
-        return min(1.0, inconsistency_sum / max(checks, 1)) if checks > 0 else 0.0
+        # Divergence from ideal consistency
+        inconsistency_energy = 1.0 - (actual_weight_sum / ideal_weight_sum)
+        return float(max(0.0, min(1.0, inconsistency_energy)))
 
     def _calculate_cosine_similarity(
         self, vec1: List[float], vec2: List[float]
@@ -433,16 +405,85 @@ class SheafMonitor:
             return 0.0
         return float(np.dot(v1, v2) / (norm1 * norm2))
 
+    def calculate_topological_stress(self, root_id: str, round_id: str = "") -> float:
+        """
+        Calculates the Topological Stress of the active session graph.
+        Formula: (Ghost Edges + Logic Drifts) / Total Nodes
+        Ghost Nodes = status in ['failed', 'error', 'reflexion']
+        Logic Drifts = nodes with sheaf_score >= 0.5 (high anomaly/loop).
+
+        Args:
+            root_id: Root session ID.
+            round_id: If provided, scope to current round only (prevents
+                      old/poisoned session data from contaminating analysis).
+        """
+        if not root_id:
+            return 0.0
+
+        # Scope to current round when available — same window as scratchpad
+        if round_id:
+            cypher = """
+            MATCH (n:Thought)
+            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+              AND n.round_id = $rid
+              AND n.status <> 'consolidated'
+            RETURN n.status as status, n.sheaf_score as sheaf_score
+            """
+            params = {"sid": root_id, "rid": round_id}
+        else:
+            cypher = """
+            MATCH (n:Thought)
+            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+              AND n.status <> 'consolidated'
+            RETURN n.status as status, n.sheaf_score as sheaf_score
+            """
+            params = {"sid": root_id}
+        try:
+            nodes = db.query(cypher, params)
+            if not nodes:
+                return 0.0
+
+            total_nodes = len(nodes)
+            if total_nodes == 0:
+                return 0.0
+
+            noisy_nodes = 0
+            for node in nodes:
+                status = ""
+                sheaf_score = None
+
+                if isinstance(node, dict):
+                    status = str(node.get("status", ""))
+                    sheaf_score = node.get("sheaf_score")
+                elif isinstance(node, (list, tuple)) and len(node) >= 2:
+                    status = str(node[0] if node[0] else "")
+                    sheaf_score = node[1]
+
+                if status in ["failed", "error", "reflexion", "system_intervention"]:
+                    noisy_nodes += 1
+                elif sheaf_score is not None and float(sheaf_score) >= 0.5:
+                    noisy_nodes += 1
+
+            return min(1.0, float(noisy_nodes) / float(total_nodes))
+        except Exception as e:
+            logger.error("Failed to calculate topological stress: %s", e)
+            return 0.0
+
     def diagnose_trace(
         self,
-        root_id: str,  # pylint: disable=unused-argument
+        root_id: str,
         hypothetical_node: Optional[Dict[str, Any]] = None,
         hypothetical_edges: Optional[List[Tuple[str, str]]] = None,
         goal_embedding: Optional[List[float]] = None,
+        round_id: str = "",
     ) -> Dict[str, Any]:
         """
         Calculates the 'Consistency Energy' of the current step relative to the Field.
         Higher energy = Lower consistency.
+
+        Args:
+            round_id: If provided, topological stress is scoped to current round
+                      (same window as scratchpad), preventing old data contamination.
         """
         if not hypothetical_node or not hypothetical_node.get("embedding"):
             logger.warning(
@@ -456,10 +497,13 @@ class SheafMonitor:
 
         current_vec = self._normalize(hypothetical_node["embedding"])
 
+        # Calculate topological stress scoped to current round (same window as scratchpad)
+        stress = self.calculate_topological_stress(root_id, round_id=round_id)
+
         # 1. Fetch Context (The "Tail" of the trajectory)
         frontier_ids = [e[0] for e in hypothetical_edges] if hypothetical_edges else []
         if not frontier_ids:
-            return {"status": "HEALTHY", "energy": 0.0}
+            return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
 
         cypher = """
         MATCH (n:Thought)
@@ -472,45 +516,36 @@ class SheafMonitor:
         history_nodes = db.query(cypher, {"fids": frontier_ids})
 
         if not history_nodes:
-            return {"status": "HEALTHY", "energy": 0.0}
+            return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
 
-        # --- DIAGNOSTIC 0: EMPIRICAL INTEGRITY (The Lie Detector) ---
-        # [NEW] Topological Grounding: Check if the trajectory is physically consistent.
-        # If the agent's logic machine (Thought) says "Done" or "Success" but the
-        # actual outcome (REPL Result) shows a crash or contradiction, it's an obstruction.
-        for node in history_nodes:
-            node_status = node.get("status")
-            node_result = (node.get("result") or "").lower()
-            node_prompt = (node.get("prompt") or "").lower()
+        # --- DIAGNOSTIC 0: TOPOLOGICAL GROUNDING (The Rulial Event Horizon) ---
+        # The Boundary of Chaos threshold: p(d+1)^8 <= 2^(-15) maps roughly to a 0.5 divergence boundary.
+        # We calculate the inconsistency energy of the trajectory via the Sheaf Laplacian.
+        path_nodes = list(reversed(history_nodes))
+        if hypothetical_node:
+            path_nodes.append(hypothetical_node)
 
-            # Pattern: Agent claims it solved it, but result is an error
-            is_success_claimed = any(
-                w in node_prompt for w in ["success", "completed", "solved", "fixed"]
+        inconsistency_energy = self.calculate_h1_obstruction(path_nodes)
+
+        if inconsistency_energy > 0.5:
+            trace_action(
+                "SHEAF",
+                "EMPIRICAL_CONTRADICTION",
+                result=f"Topological consistency energy spike: {inconsistency_energy:.2f}",
+                tag="SHEAF",
             )
-            is_error_found = any(
-                w in node_result for w in ["error", "failed", "traceback", "not found"]
-            )
-
-            if is_success_claimed and is_error_found and node_status != "failed":
-                trace_action(
-                    "SHEAF",
-                    "EMPIRICAL_CONTRADICTION",
-                    result=f"Node {node['id'][:8]} claims success but result has errors.",
-                    tag="SHEAF",
-                )
-                return {
-                    "status": "EMPIRICAL_CONTRADICTION",
-                    "energy": 1.0,
-                    "consistency_energy": 1.0,
-                    "critique": (
-                        f"Empirical Contradiction: Your previous thought ({node['id'][:8]}) "
-                        f"using REPL [{node.get('repl_id', 'unknown')}] claimed success, "
-                        "but the REPL returned an error. You are hallucinating "
-                        "progress. Review the actual output before proceeding."
-                    ),
-                    "should_halt": False,
-                    "loop_nodes": [node],
-                }
+            return {
+                "status": "EMPIRICAL_CONTRADICTION",
+                "energy": inconsistency_energy,
+                "consistency_energy": inconsistency_energy,
+                "critique": (
+                    f"Empirical Contradiction: Your reasoning path has exceeded the topological "
+                    f"stress threshold (Energy = {inconsistency_energy:.2f} > 0.5). You are likely stuck in a logic loop "
+                    f"where intent and outcome consistently diverge. Re-evaluate your approach entirely."
+                ),
+                "should_halt": False,
+                "topological_stress": stress,
+            }
 
         # [NEW] Check Hypothetical Node (Current Response) for obvious errors
         # If the agent is submitting a final response that contains a traceback, it's invalid.
@@ -541,10 +576,11 @@ class SheafMonitor:
                         "You cannot submit an error stack trace as a final answer. Fix the code."
                     ),
                     "should_halt": False,
+                    "topological_stress": stress,
                 }
         max_similarity = 0.0
         prev_vec: Optional[np.ndarray] = None
-
+        high_sim_count = 0
         for node in history_nodes:
             if not node.get("embedding"):
                 continue
@@ -553,16 +589,20 @@ class SheafMonitor:
             sim = np.dot(current_vec, hist_vec)
             if sim > max_similarity:
                 max_similarity = sim
+            if sim > self.loop_threshold:
+                high_sim_count += 1
 
             if prev_vec is None:
                 prev_vec = hist_vec
 
         # Loop Detection -> Trigger Reflexion (Not Stop)
-        if max_similarity > self.loop_threshold:
+        # Requires BOTH: high similarity AND multiple matching nodes (≥2)
+        # One similar response is normal; 2+ indicates a genuine loop.
+        if max_similarity > self.loop_threshold and high_sim_count >= 2:
             trace_action(
                 "SHEAF",
                 "HOLONOMY_DETECTED",
-                result=f"Loop Strength: {max_similarity:.2f}. Triggering Reflexion.",
+                result=f"Loop Strength: {max_similarity:.2f} ({high_sim_count} matches). Triggering Reflexion.",
                 tag="SHEAF",
             )
             return {
@@ -571,10 +611,11 @@ class SheafMonitor:
                 "consistency_energy": max_similarity,
                 "critique": (
                     f"Holonomy Detected: You are circling the same semantic point "
-                    f"(Similarity {max_similarity:.2f}). Break the loop."
+                    f"(Similarity {max_similarity:.2f}, {high_sim_count} matches). Break the loop."
                 ),
                 "should_halt": False,
                 "loop_nodes": history_nodes,
+                "topological_stress": stress,
             }
 
         # --- Semantic Echoing Check (Direct String Comparison with Normalization) ---
@@ -606,6 +647,7 @@ class SheafMonitor:
                         ),
                         "should_halt": False,
                         "loop_nodes": history_nodes,
+                        "topological_stress": stress,
                     }
 
         # --- DIAGNOSTIC 2: TELEOLOGY (The Goal Gradient) ---
@@ -646,6 +688,7 @@ class SheafMonitor:
                     f"(Gradient {gradient:.2f}). Re-read the task."
                 ),
                 "should_halt": False,  # Changed to False to allow Self-Healing
+                "topological_stress": stress,
             }
 
         # Trigger H1 Obstruction Check
@@ -668,6 +711,7 @@ class SheafMonitor:
                     "while claiming success. Resolve the contradiction."
                 ),
                 "should_halt": False,
+                "topological_stress": stress,
             }
 
         return {
@@ -676,6 +720,7 @@ class SheafMonitor:
             "consistency_energy": total_energy,
             "confidence": max(0.0, min(1.0, float(1.0 - total_energy))),  # oMCD P_c
             "should_halt": False,
+            "topological_stress": stress,
         }
 
     def compute_sheaf_surprise_score(
