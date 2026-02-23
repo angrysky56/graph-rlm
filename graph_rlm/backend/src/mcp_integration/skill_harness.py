@@ -312,19 +312,34 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         if skill:
             logger.info("Axiom found in DB: %s", skill_name)
 
+    py_script = None
     if skill:
         # DB path - ensure file exists
-        if skill.get("type", "python") == "python":
-            # Just verify it's registered
-            pass
-
-        # Distinguish between skills and axioms in module path
         if "axiom_" in skill_name or skill.get("axiom_type"):
-            module_name = f"axioms_dir.{skill_name}"
+            prefix = "axioms_dir"
         else:
-            module_name = f"skills.{skill_name}"
+            prefix = "skills"
 
+        module_name = f"{prefix}.{skill_name}"
         function_name = skill["function_name"]
+
+        # Determine py_script path from module_name
+        module_safe = skill_name.replace("-", "_")
+        skill_dir = BACKEND_ROOT / prefix / skill_name
+        scripts_dir = skill_dir / "scripts"
+
+        # Check folder-based first
+        folder_script = scripts_dir / f"{module_safe}.py"
+        file_script = BACKEND_ROOT / prefix / f"{skill_name}.py"
+
+        if folder_script.exists():
+            py_script = folder_script
+            module_name = f"{prefix}.{module_safe}.scripts.{module_safe}"
+        elif file_script.exists():
+            py_script = file_script
+        else:
+            # Fallback: check if the name itself is the function or if it has an __init__
+            pass
     else:
         # 3. File fallback path - check skill/axiom directories
         skills_root = BACKEND_ROOT / "skills"
@@ -333,33 +348,48 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         skill_file = skills_root / f"{skill_name}.py"
         axiom_file = axioms_root / f"{skill_name}.py"
 
-        # Also check spec-compliant directories with scripts/ subdir
         module_safe = skill_name.replace("-", "_")
         spec_skill_script = skills_root / skill_name / "scripts" / f"{module_safe}.py"
         spec_axiom_script = axioms_root / skill_name / "scripts" / f"{module_safe}.py"
 
         if skill_file.exists():
-            logger.info("Skill found in file: %s", skill_file)
+            py_script = skill_file
             module_name = f"skills.{skill_name}"
             function_name = None
         elif spec_skill_script.exists():
-            logger.info("Spec skill found: %s", spec_skill_script)
-            module_name = f"skills.{skill_name}"
+            py_script = spec_skill_script
+            module_name = f"skills.{module_safe}.scripts.{module_safe}"
             function_name = None
         elif axiom_file.exists():
-            logger.info("Axiom found in file: %s", axiom_file)
+            py_script = axiom_file
             module_name = f"axioms_dir.{skill_name}"
             function_name = None
         elif spec_axiom_script.exists():
-            logger.info("Spec axiom found: %s", spec_axiom_script)
-            module_name = f"axioms_dir.{skill_name}"
+            py_script = spec_axiom_script
+            module_name = f"axioms_dir.{module_safe}.scripts.{module_safe}"
             function_name = None
         else:
             # Check for package (OpenCode style)
             skill_dir = skills_root / skill_name
+            if not skill_dir.exists():
+                skill_dir = axioms_root / skill_name
+                prefix = "axioms_dir"
+            else:
+                prefix = "skills"
+
             if skill_dir.exists():
-                module_name = f"skills.{skill_name}"
-                function_name = None
+                scripts_dir = skill_dir / "scripts"
+                py_script_candidate = scripts_dir / f"{module_safe}.py"
+
+                if py_script_candidate.exists():
+                    py_script = py_script_candidate
+                    module_name = f"{prefix}.{module_safe}.scripts.{module_safe}"
+                    function_name = None
+                else:
+                    # Final fallback to standard package structure
+                    py_script = skill_dir / "__init__.py"  # May not exist
+                    module_name = f"{prefix}.{module_safe}"
+                    function_name = None
             else:
                 raise ValueError(
                     f"Skill/Axiom '{skill_name}' not found in DB or local directories"
@@ -367,10 +397,9 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
 
     # Verify importability before attempting import
     # Determine the search root based on the module name prefix
-    search_dir = BACKEND_ROOT / module_name.split(".")[0]
+    search_dir = BACKEND_ROOT / module_name.split(".", maxsplit=1)[0]
 
     if not verify_skill_importable(skill_name, str(search_dir)):
-        # Check if it is an instructional skill (SKILL.md only)
         # Check if it is an instructional skill (SKILL.md only)
         # We check the directory for SKILL.md
         skills_root = BACKEND_ROOT / "skills"
@@ -394,11 +423,18 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
 
     # Import the module
     try:
-        # Ensure current directory is in path (for local imports if any)
-        if str(Path.cwd()) not in sys.path:
-            sys.path.insert(0, str(Path.cwd()))
+        # Use path-based loading to handle hyphens in directory names
+        module_name_cleaned = module_name.replace(".", "_").replace("-", "_")
+        spec = importlib.util.spec_from_file_location(
+            module_name_cleaned, str(py_script)
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Could not load spec for {py_script}")
 
-        module = __import__(module_name, fromlist=["*"])
+        module = importlib.util.module_from_spec(spec)
+        # Ensure we add it to sys.modules for any relative imports
+        sys.modules[module_name_cleaned] = module
+        spec.loader.exec_module(module)
 
         # Inject proxies into module namespace
         module.__dict__["rlm"] = RLMProxy()

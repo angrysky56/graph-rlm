@@ -1,5 +1,8 @@
 # Self-Healing Recursive Language Model (Graph-RLM)
 
+> [!WARNING]
+> **Code written by Google Gemini** (and a non-coder).
+
 ## Current Status: Mostly functional.
 
 > **"Unshackled" Reasoning**: A system that replaces linear context windows with a persistent, recursive, and self-correcting Graph of Thoughts. Implements the **Ralph Protocol** (Wake -> Sleep -> Wake).

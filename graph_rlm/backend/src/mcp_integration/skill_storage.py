@@ -87,7 +87,28 @@ class SkillsManager:
             # Case B: Folder-Based Skill (Instructional/Complex)
             elif item.is_dir():
                 skill_md = item / "SKILL.md"
-                if skill_md.exists():
+                # Check for spec-compliant script in scripts/ dir
+                module_safe = item.name.replace("-", "_")
+                scripts_dir = item / "scripts"
+                py_script = scripts_dir / f"{module_safe}.py"
+
+                if not py_script.exists() and scripts_dir.exists():
+                    # Fallback: get the first .py in scripts/
+                    for f in scripts_dir.iterdir():
+                        if f.suffix == ".py" and not f.name.startswith("__"):
+                            py_script = f
+                            break
+
+                if py_script.exists():
+                    # Executable folder skill - handle as python skill
+                    # BUT we might want to use metadata from SKILL.md if present
+                    synced_name = await self._sync_python_skill(
+                        py_script, name_override=_spec_name(item.name)
+                    )
+                    if synced_name:
+                        count += 1
+                        seen_names.add(synced_name)
+                elif skill_md.exists():
                     synced_name = await self._sync_instructional_skill(item, skill_md)
                     if synced_name:
                         count += 1
@@ -107,10 +128,12 @@ class SkillsManager:
             total,
         )
 
-    async def _sync_python_skill(self, file_path: Path) -> str | None:
+    async def _sync_python_skill(
+        self, file_path: Path, name_override: str | None = None
+    ) -> str | None:
         try:
             code = file_path.read_text(encoding="utf-8").strip()
-            name = _spec_name(file_path.stem)
+            name = name_override or _spec_name(file_path.stem)
 
             # Optimization: Check if content changed before parsing/embedding
             existing = self.get_skill(name)
