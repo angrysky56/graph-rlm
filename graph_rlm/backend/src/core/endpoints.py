@@ -374,6 +374,22 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.delete("/chat/thoughts/{thought_id}")
+async def delete_thought(thought_id: str):
+    """
+    Delete a single thought node.
+    """
+    try:
+        db.delete_thought_node(thought_id)
+        return {"status": "success", "message": f"Thought {thought_id} deleted"}
+    except (
+        redis.exceptions.RedisError,
+        redis.exceptions.ResponseError,
+        AttributeError,
+    ) as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/system/prune")
 async def prune_orphans(hours: int = 1):
     """

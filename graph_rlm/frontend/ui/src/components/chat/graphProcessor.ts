@@ -84,22 +84,26 @@ export const processGraphData = (
       }
     });
 
-    // 2. Metrics: Betweenness Centrality
+    // 2. Metrics: Betweenness Centrality (Skipped for performance if graph is large)
     let centralityScores: any = {};
-    try {
-        centralityScores = betweenness(graph);
-    } catch (metricError) {
-        console.warn("Graph metrics calculation failed:", metricError);
-        // Fallback to empty scores
+    const isLargeGraph = rawNodes.length > 500;
+
+    if (!isLargeGraph) {
+        try {
+            centralityScores = betweenness(graph);
+        } catch (metricError) {
+            console.warn("Graph metrics calculation failed:", metricError);
+        }
     }
 
-    // 3. Communities: Louvain
+    // 3. Communities: Louvain (Skipped if large)
     let communities: any = {};
-    try {
-        communities = louvain(graph);
-    } catch (commError) {
-        console.warn("Community detection failed:", commError);
-        // Fallback
+    if (!isLargeGraph) {
+        try {
+            communities = louvain(graph);
+        } catch (commError) {
+            console.warn("Community detection failed:", commError);
+        }
     }
 
     // 5. Reconstruct processed data

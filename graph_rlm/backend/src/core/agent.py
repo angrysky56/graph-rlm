@@ -43,6 +43,7 @@ from .reflexion import intelli_synth
 from .repe import repe
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
+from .semantic_summarizer import summarize_event
 from .services.circuit import protected_llm_generate
 from .sheaf import sheaf
 from .state import (
@@ -51,7 +52,7 @@ from .state import (
     broadcast_trace,
     execution_events,
 )
-from .thimac_memory import ThimacMemory
+from .thimac_memory import ThimacIntention, ThimacMemory
 from .trace import register_monitor, trace_action
 
 if TYPE_CHECKING:
@@ -553,7 +554,7 @@ class Agent:
             logger.error("Scratchpad refresh failed: %s", e)
             return f"Error: Scratchpad unavailable ({e})"
 
-    def _sync_thimac(
+    async def _sync_thimac(
         self,
         thought_id: str,
         prompt: str,
@@ -563,7 +564,9 @@ class Agent:
         repl_id: Optional[str] = None,
         logical_id: Optional[str] = None,
         tool_calls: Optional[List[str]] = None,
-    ) -> Optional[Dict[str, str]]:
+        is_branching: bool = False,
+        intent_type: Optional[ThimacIntention] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Helper to ingest a thought node into Thimac memory and return classification."""
         try:
             # Calculate MDL Compression Gain (Phase 4 Gestalt)
@@ -584,10 +587,27 @@ class Agent:
                 "step_id": step,
                 "repl_id": repl_id,
                 "logical_id": logical_id,
-                "execution_summary": None,  # Dropped in favor of topological graph footprints
+                "execution_summary": None,  # Dropped in favor of topological graph footprints (step_summary)
                 "compression_gain": compression_gain,
             }
-            event = self.morph_memory.ingest_thought(thimac_thought_data, tool_calls)
+
+            # Generate Semantic Gist (Phase 4.6)
+            semantic_gist = ""
+            if status == "success" and result:
+                summary_model = getattr(
+                    settings, "SUMMARY_MODEL", "google/gemini-2.0-flash-lite"
+                )
+                semantic_gist = await summarize_event(
+                    prompt, result, model=summary_model
+                )
+
+            event = self.morph_memory.ingest_thought(
+                thimac_thought_data,
+                tool_calls,
+                is_branching=is_branching,
+                semantic_gist=semantic_gist,
+                intent_type=intent_type,
+            )
 
             # Persistent Homology Pipeline: If compression > 0, we can autonomously codify it as an Axiom.
             # (In a fully autonomous setup, the Dreamer handles this, but Thimac flags it here).
@@ -601,6 +621,10 @@ class Agent:
             return {
                 "operation": event.operation.value,
                 "level": event.level.value,
+                "summary": event.summary,
+                "intent": event.intent_type.value,
+                "operation_reason": event.operation_reason,
+                "level_reason": event.level_reason,
             }
         except (AttributeError, ValueError, TypeError, KeyError) as e:
             logger.error(
@@ -611,7 +635,7 @@ class Agent:
             )
             return None
 
-    def _create_system_node(
+    async def _create_system_node(
         self,
         logical_id: str,
         summary: str,
@@ -626,11 +650,24 @@ class Agent:
         result: Optional[str] = None,
         analysis: Optional[Dict] = None,
         validate: bool = False,
+        is_branching: bool = False,
     ):
         """Standardized helper for materializing system-level reasoning in the graph."""
-        thought_id = "unknown"
+        thought_id = str(uuid.uuid4())
         try:
-            thought_id = str(uuid.uuid4())
+            # Sync system node to Thimac first to get metadata
+            classification = await self._sync_thimac(
+                thought_id=thought_id,
+                prompt=summary,
+                status=status,
+                result=result,
+                step=step_id,
+                repl_id=repl_id,
+                logical_id=logical_id,
+                tool_calls=None,
+                is_branching=is_branching,
+            )
+
             self.db.create_thought_node(
                 thought_id=thought_id,
                 prompt=summary,
@@ -645,18 +682,17 @@ class Agent:
                 step_id=step_id,
                 repl_id=repl_id,
                 dreamer_analysis=json.dumps(analysis) if analysis else None,
+                thimac_op=classification.get("operation") if classification else None,
+                thimac_level=classification.get("level") if classification else None,
+                thimac_intent=classification.get("intent") if classification else None,
+                thimac_op_reason=(
+                    classification.get("operation_reason") if classification else None
+                ),
+                thimac_level_reason=(
+                    classification.get("level_reason") if classification else None
+                ),
+                step_summary=classification.get("summary") if classification else None,
                 validate=validate,
-            )
-
-            # Sync system node to Thimac
-            self._sync_thimac(
-                thought_id=thought_id,
-                prompt=summary,
-                status=status,
-                result=result,
-                step=step_id,
-                repl_id=repl_id,
-                logical_id=logical_id,
             )
         except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error(
@@ -1132,7 +1168,7 @@ class Agent:
         # System prompt is built fresh each iteration at the system_prompt assignment
         # inside the loop, combining build_system_prompt() with the dynamic scratchpad.
 
-        max_steps = 1000
+        max_steps = 100
         step = 0
 
         # Track previous status for topological resolution
@@ -1165,6 +1201,8 @@ class Agent:
             sheaf_diag = {"status": "HEALTHY", "consistency_energy": 0.0}
             vec = None
             repl_id = self.active_repls.get(session_id)
+            rlm_ctx = None
+            tool_calls_snapshot = []
 
             # --- THIMAC MEMORY UPDATE ---
             try:
@@ -1294,7 +1332,10 @@ class Agent:
                        n.repe_evasion as repe_evasion,
                        n.repe_confluence as repe_confluence,
                        n.repe_freedom as repe_freedom,
-                       n.omcd_score as omcd_score
+                       n.omcd_score as omcd_score,
+                       n.semantic_gist as semantic_gist,
+                       n.thimac_op as thimac_op,
+                       n.thimac_level as thimac_level
                 ORDER BY n.created_at DESC
                 LIMIT 1
                 """
@@ -1317,6 +1358,9 @@ class Agent:
                             "repe_confluence",
                             "repe_freedom",
                             "omcd_score",
+                            "semantic_gist",
+                            "thimac_op",
+                            "thimac_level",
                         ]
                         dashboard_data = {}
                         for i, v in enumerate(row):
@@ -1324,6 +1368,13 @@ class Agent:
                                 dashboard_data[cols[i]] = (
                                     f"{v:.2f}" if isinstance(v, (float, int)) else v
                                 )
+
+                # Inject branching state from execution state
+                if exec_state:
+                    dashboard_data["branching_state"] = getattr(
+                        exec_state, "branching_state", "STABLE"
+                    )
+
             except Exception as e:
                 logger.warning("Failed to fetch dashboard metrics for prompt: %s", e)
 
@@ -1380,7 +1431,7 @@ class Agent:
                         comp_progress,
                     )
 
-                self._create_system_node(
+                await self._create_system_node(
                     nav_lid,
                     f"Navigator: Monitoring history compression (Ratio: {comp_ratio:.4f}, Progress: {comp_progress:.4f})",
                     status="navigator",
@@ -1562,6 +1613,33 @@ class Agent:
             # --- NAVIGATOR UPDATE ---
             if self.navigator:
                 self.navigator.update_history(response_text)
+
+            # --- LIDA INTENTION PARSING ---
+            distal = re.search(
+                r"<distal_intention>(.*?)</distal_intention>", response_text, re.DOTALL
+            )
+            proximal = re.search(
+                r"<proximal_intention>(.*?)</proximal_intention>",
+                response_text,
+                re.DOTALL,
+            )
+            motor = re.search(
+                r"<motor_intention>(.*?)</motor_intention>", response_text, re.DOTALL
+            )
+
+            current_intent = None
+            if motor:
+                current_intent = ThimacIntention.MOTOR
+                if rlm_ctx:
+                    rlm_ctx.proximal_intention = motor.group(1).strip()
+            elif proximal:
+                current_intent = ThimacIntention.PROXIMAL
+                if rlm_ctx:
+                    rlm_ctx.proximal_intention = proximal.group(1).strip()
+            elif distal:
+                current_intent = ThimacIntention.DISTAL
+                if rlm_ctx:
+                    rlm_ctx.distal_intention = distal.group(1).strip()
 
             # 4. Extract Code
             code = self._extract_code(response_text)
@@ -1745,7 +1823,7 @@ class Agent:
 
                 # [Universal Traceability] Materialize Sheaf Reasoning
                 shf_lid = f"{session_id}:T{self.current_turn}:S{step}:SHF"
-                self._create_system_node(
+                await self._create_system_node(
                     shf_lid,
                     f"Sheaf Diagnosis: {sheaf_diag.get('status', 'HEALTHY')} (Energy: {sheaf_diag.get('energy', 0.0):.3f})",
                     status="sheaf",
@@ -1760,12 +1838,36 @@ class Agent:
                     validate=False,
                 )
 
+                # 3. Navigator (Topological Transition: Branching Channels)
+                # Detects if the state space is destabilizing (Xu et al., 2025)
+                nav_diag = self.navigator.detect_branching_point(
+                    current_embedding=vec,
+                    sheaf_energy=sheaf_diag.get("energy", 0.0),
+                )
+                exec_state.branching_state = nav_diag["status"]
+
+                nav_lid = f"{session_id}:T{self.current_turn}:S{step}:NAV"
+                await self._create_system_node(
+                    nav_lid,
+                    f"Navigator: {nav_diag['status']} (Sensitivity: {nav_diag.get('sensitivity', 0.0):.3f})",
+                    status="navigator",
+                    session_id=session_id,
+                    root_session_id=final_root_id,
+                    round_id=current_round_id,
+                    turn_id=self.current_turn,
+                    step_id=step,
+                    repl_id="NAV",
+                    result=f"Curvature: {nav_diag.get('curvature', 0.0):.3f}, Stress: {nav_diag.get('stress', 0.0):.3f}",
+                    analysis=nav_diag,
+                    validate=False,
+                )
+
                 # --- oMCD OPTIMAL STOPPING GATE (Hamiltonian Bounded) ---
                 # Evaluate whether to commit (stop) or continue deliberating.
                 confidence = sheaf_diag.get("confidence", 0.5)
 
-                # Calculate Potential Energy (Semantic distance to the goal)
-                potential_energy = 1.0
+                # physics-unified Potential Energy: Goal Distance + Sheaf Consistency Energy
+                goal_dist = 1.0
                 goal_vec = self.session_cache.get("task_embedding")
                 if current_vec and goal_vec:
                     try:
@@ -1776,15 +1878,24 @@ class Agent:
                         n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
                         if n1 > 0 and n2 > 0:
                             sim = float(np.dot(v1, v2) / (n1 * n2))
-                            potential_energy = max(0.0, 1.0 - sim)
+                            goal_dist = max(0.0, 1.0 - sim)
                     except (ImportError, ValueError, TypeError, ZeroDivisionError) as e:
-                        logger.warning("Failed to compute OMCD potential energy: %s", e)
+                        logger.warning("Failed to compute OMCD goal distance: %s", e)
+
+                # Formalize H = T + V where V includes Sheaf Consistency Energy
+                # If in a BRANCHING state, we add a sensitivity penalty to V to prevent
+                # premature stopping (Hamiltonian destabilization preparation).
+                consistency_energy = sheaf_diag.get("energy", 0.0)
+                branching_bonus = (
+                    0.5 if exec_state.branching_state == "BRANCHING" else 0.0
+                )
+                potential_energy = goal_dist + consistency_energy + branching_bonus
 
                 omcd_decision = omcd.evaluate_step(step, confidence, potential_energy)
 
                 # [Universal Traceability] Materialize oMCD Reasoning
                 omc_lid = f"{session_id}:T{self.current_turn}:S{step}:OMC"
-                self._create_system_node(
+                await self._create_system_node(
                     omc_lid,
                     f"oMCD Decision: Q_stop={omcd_decision['q_stop']:.3f} (Benefit: {omcd_decision['benefit']:.3f}, Cost: {omcd_decision['cost']:.3f})",
                     status="omcd",
@@ -1978,22 +2089,23 @@ class Agent:
                     )
 
                     # Inject the intervention as a new 'Thought' node (The "Superego" voice)
-                    intervention_id = str(uuid.uuid4())
                     intervention_lid = f"{logical_id}:INT"
-                    self.db.create_thought_node(
-                        intervention_id,
+                    await self._create_system_node(
+                        intervention_lid,
                         intervention_prompt,
-                        logical_id=intervention_lid,
-                        session_id=session_id,
-                        root_session_id=final_root_id,
                         parent_id=self.current_thought_id,
                         status="reflexion",
+                        session_id=session_id,
+                        root_session_id=final_root_id,
                         round_id=current_round_id,
-                        prompt_embedding=vec,
                         turn_id=self.current_turn,
                         step_id=step,
-                        dreamer_analysis=dream_critique,
-                        repl_id=repl_id,
+                        repl_id=repl_id or "SYS",
+                        analysis=(
+                            {"dreamer_analysis": dream_critique}
+                            if dream_critique
+                            else None
+                        ),
                     )
 
                     # Steering Action: Record the pointer so the intervention
@@ -2003,6 +2115,23 @@ class Agent:
                     # forward progress, which keeps sheaf energy high → more interventions
                     # → death spiral. Let the code run; the result will inform the next step.
                     exec_state.intervention_count += 1
+                    exec_state.consecutive_interventions += 1
+
+                    if exec_state.consecutive_interventions >= 5:
+                        logger.critical(
+                            "🛑 [HARD BREAK] Redundant Loop Detected in Session %s. "
+                            "Interventions: %d consecutive. Forcing termination.",
+                            session_id,
+                            exec_state.consecutive_interventions,
+                        )
+                        self.emit_event(
+                            "error",
+                            content=f"Critical: Infinite reasoning loop detected ({exec_state.consecutive_interventions} consecutive interventions). Forcing stop.",
+                        )
+                        self.stop_requested = True
+                        break
+                else:
+                    exec_state.consecutive_interventions = 0
 
             # 7. Act (Execute Code)
             # repl_id lookup moved to start of block
@@ -2072,6 +2201,12 @@ class Agent:
                 if execution_failed:
                     thought_status = "failed"
 
+                # Fetch and Clear Session Logs for empirical Thimac detection
+                tool_calls_snapshot = self.execution_logs.get(session_id, [])
+
+                # [Rule 5] Structural Verification Detection
+                self._check_verification(code, tool_calls_snapshot)
+
             # 8. UPDATE / FINAL COMMIT (Write to Graph)
             full_content = response_text
             if output:
@@ -2130,13 +2265,12 @@ class Agent:
                     if is_class_4:
                         nav_insight = f"CLASS 4 | {nav_insight}"
 
-                # Fetch and Clear Session Logs for empirical Thimac detection
-                tool_calls = self.execution_logs.get(session_id, [])
+                # Fetch and Clear Session Logs (Already fetched above for Rule 5)
                 if session_id in self.execution_logs:
                     self.execution_logs[session_id] = []
 
                 # Sync with Thimac and get precise classification
-                classification = self._sync_thimac(
+                classification = await self._sync_thimac(
                     thought_id=thought_id,
                     prompt=full_content,
                     status=thought_status,
@@ -2144,7 +2278,9 @@ class Agent:
                     step=step,
                     repl_id=repl_id,
                     logical_id=logical_id,
-                    tool_calls=tool_calls,
+                    tool_calls=tool_calls_snapshot,
+                    is_branching=exec_state.branching_state == "BRANCHING",
+                    intent_type=current_intent,
                 )
 
                 # Update the node with full content, status, and execution metadata
@@ -2214,6 +2350,20 @@ class Agent:
                     ),
                     thimac_level=(
                         classification.get("level") if classification else None
+                    ),
+                    thimac_intent=(
+                        classification.get("intent") if classification else None
+                    ),
+                    thimac_op_reason=(
+                        classification.get("operation_reason")
+                        if classification
+                        else None
+                    ),
+                    thimac_level_reason=(
+                        classification.get("level_reason") if classification else None
+                    ),
+                    step_summary=(
+                        classification.get("summary") if classification else None
                     ),
                     navigator_insight=nav_insight,
                 )
@@ -2335,7 +2485,7 @@ class Agent:
 
             # --- THIMAC MEMORY INGESTION ---
             # Feed the committed thought into Thimac for Existence/Subsistence tracking
-            self._sync_thimac(
+            await self._sync_thimac(
                 thought_id=thought_id,
                 prompt=full_content,
                 status=thought_status,
@@ -2343,6 +2493,9 @@ class Agent:
                 step=step,
                 repl_id=repl_id,
                 logical_id=logical_id,
+                tool_calls=[],
+                is_branching=exec_state.branching_state == "BRANCHING",
+                intent_type=current_intent,
             )
 
             # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
@@ -2574,7 +2727,7 @@ class Agent:
                         )
 
                         # Sync rejection to Thimac
-                        self._sync_thimac(
+                        await self._sync_thimac(
                             thought_id=feedback_id,
                             prompt=feedback_prompt,
                             status="reflexion",
@@ -2582,6 +2735,9 @@ class Agent:
                             step=step,
                             repl_id=repl_id,
                             logical_id=feedback_lid,
+                            tool_calls=[],
+                            is_branching=exec_state.branching_state == "BRANCHING",
+                            intent_type=None,
                         )
 
                         # [Self-Healing Fix] Update agent state for Hot Seat recovery
@@ -2750,14 +2906,17 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
                     )
 
                     # Sync reflection to Thimac
-                    self._sync_thimac(
+                    await self._sync_thimac(
                         thought_id=reflexion_id,
                         prompt=reflexion_content,
-                        status="success",
+                        status="reflexion",
                         result=None,
                         step=step,
                         repl_id=repl_id,
                         logical_id=reflexion_lid,
+                        tool_calls=[],
+                        is_branching=exec_state.branching_state == "BRANCHING",
+                        intent_type=None,
                     )
 
                     # Update pointer and track intervention
@@ -2897,6 +3056,44 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
 
         self.emit_event("RLM_FINAL_OUTPUT", content=content)
         self._final_output_emitted = True
+
+    def _check_verification(self, code: str, tool_calls: Optional[List[str]] = None):
+        """Scans code and tools for explicit verification patterns (Rule 5)."""
+        state = agent_state.get()
+        if not state or not state.pending_side_effects:
+            return
+
+        # Verification patterns
+        verification_patterns = [
+            r"os\.path\.exists",
+            r"Path\.exists",
+            r"os\.stat",
+            r"os\.path\.getsize",
+            r"view_file",
+            r"ls ",
+            r"list_dir",
+            r"grep_search",
+        ]
+
+        code_verified = any(re.search(p, code) for p in verification_patterns)
+        tools_verified = False
+        if tool_calls:
+            verification_tools = [
+                "view_file",
+                "list_dir",
+                "grep_search",
+                "find_by_name",
+            ]
+            tools_verified = any(
+                any(vt in t.lower() for vt in verification_tools) for t in tool_calls
+            )
+
+        if code_verified or tools_verified:
+            logger.info(
+                "[Rule 5] Verification detected. Clearing pending side-effects: %s",
+                state.pending_side_effects,
+            )
+            state.pending_side_effects.clear()
 
     def _extract_code(self, text: str) -> str:
         """Extracts python code blocks from LLM response text."""

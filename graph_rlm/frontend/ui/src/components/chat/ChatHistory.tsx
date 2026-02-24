@@ -1,9 +1,11 @@
 
 import React, { useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { User, Bot, AlertTriangle, CheckCircle, Terminal } from 'lucide-react';
+import { User, Bot, AlertTriangle, CheckCircle, Terminal, Trash2 } from 'lucide-react';
+import { api } from '../../api';
 
 interface ChatEntry {
+    id?: string;
     type: 'input' | 'output' | 'info' | 'error';
     content: string;
     timestamp: number;
@@ -16,9 +18,10 @@ interface ChatEntry {
 
 interface ChatHistoryProps {
     entries: ChatEntry[];
+    onDelete?: (id: string) => void;
 }
 
-export const ChatHistory: React.FC<ChatHistoryProps> = ({ entries }) => {
+export const ChatHistory: React.FC<ChatHistoryProps> = ({ entries, onDelete }) => {
     const bottomRef = useRef<HTMLDivElement>(null);
 
     const displayEntries = entries.filter(e => {
@@ -138,8 +141,21 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({ entries }) => {
                                     </div>
                                 )}
                             </div>
-                            <div className={`mt-1.5 text-[10px] font-medium tracking-wide text-slate-500 ${isUser ? 'text-right' : 'text-left'}`}>
-                                {new Date(entry.timestamp).toLocaleTimeString()}
+                            <div className={`mt-1.5 text-[10px] font-medium tracking-wide text-slate-500 ${isUser ? 'text-right' : 'text-left'} flex items-center gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+                                <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                                {entry.id && onDelete && (
+                                    <button
+                                        onClick={() => {
+                                            if (confirm("Delete this thought node?")) {
+                                                onDelete(entry.id!);
+                                            }
+                                        }}
+                                        className="text-slate-700 hover:text-red-400 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        title="Delete Message"
+                                    >
+                                        <Trash2 size={10} />
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

@@ -219,7 +219,8 @@ class ContextIndex:
                        n.session_id as session_id,
                        n.turn_id as turn_id,
                        n.step_id as step_id,
-                       n.code_hash as code_hash
+                       n.code_hash as code_hash,
+                       n.semantic_gist as semantic_gist
                 ORDER BY n.created_at ASC
                 """
             else:
@@ -240,7 +241,8 @@ class ContextIndex:
                        n.session_id as session_id,
                        n.turn_id as turn_id,
                        n.step_id as step_id,
-                       n.code_hash as code_hash
+                       n.code_hash as code_hash,
+                       n.semantic_gist as semantic_gist
                 ORDER BY n.created_at ASC
                 """
 

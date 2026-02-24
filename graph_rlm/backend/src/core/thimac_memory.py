@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 logger = logging.getLogger("graph_rlm.thimac")
 
@@ -43,6 +43,14 @@ class ThimacLevel(str, Enum):
     SUBSISTENCE = "SUBSISTENCE"  # Potential, planned, or knowledge state
 
 
+class ThimacIntention(str, Enum):
+    """LIDA-inspired hierarchy of intentions."""
+
+    DISTAL = "DISTAL"  # Long-term goal, agential agenda
+    PROXIMAL = "PROXIMAL"  # Readiness for action, current step plan
+    MOTOR = "MOTOR"  # Executory action, REPL command
+
+
 @dataclass
 class ThimacEvent:
     """A single event classified by the Thimac ontology."""
@@ -51,14 +59,20 @@ class ThimacEvent:
     operation: ThimacOperation
     level: ThimacLevel
     status: str
+    operation_reason: str = ""
+    level_reason: str = ""
+    full_data: str = ""  # Untruncated prompt + result
     timestamp: Optional[int] = None  # epoch ms
     summary: str = ""
+    semantic_gist: str = ""
     turn_id: Optional[int] = None
     step_id: Optional[int] = None
     repl_id: Optional[str] = None
     logical_id: Optional[str] = None
     tool_calls: Optional[List[str]] = None
     compression_gain: float = 0.0
+    is_branching: bool = False
+    intent_type: ThimacIntention = ThimacIntention.MOTOR
 
 
 class ThimacMemory:
@@ -102,41 +116,43 @@ class ThimacMemory:
     # ------------------------------------------------------------------
 
     def ingest_thought(
-        self, thought: Dict, tool_calls: Optional[List[str]] = None
+        self,
+        thought: Dict,
+        tool_calls: Optional[List[str]] = None,
+        is_branching: bool = False,
+        semantic_gist: str = "",
+        intent_type: Optional[ThimacIntention] = None,
     ) -> ThimacEvent:
-        """
-        Classify and store a thought node by its Thimac operation and level.
-        Updates state tracking for Skills, Files, and Knowledge Horizon.
-
-        Args:
-            thought: Dict with keys from the Thought node
-            tool_calls: Optional list of tools actually executed (empirical trace)
-
-        Returns:
-            The created ThimacEvent.
-        """
-        operation = self._classify_operation(thought, tool_calls)
-        level = self._classify_level(thought)
+        """Classifies a thought and updates session state."""
+        op, op_reason = self._classify_operation(thought, tool_calls)
+        lvl, lvl_reason = self._classify_level(thought)
         summary = self._extract_summary(thought, tool_calls)
+        full_data = f"{thought.get('prompt', '')}\n{thought.get('result', '')}"
 
         event = ThimacEvent(
             thought_id=thought.get("id", ""),
-            operation=operation,
-            level=level,
+            operation=op,
+            level=lvl,
             status=thought.get("status", "unknown"),
+            operation_reason=op_reason,
+            level_reason=lvl_reason,
+            full_data=full_data,
             timestamp=thought.get("created_at"),
             summary=summary,
+            semantic_gist=semantic_gist or summary,
             turn_id=thought.get("turn_id"),
             step_id=thought.get("step_id"),
             repl_id=thought.get("repl_id"),
             logical_id=thought.get("logical_id"),
             tool_calls=tool_calls,
             compression_gain=thought.get("compression_gain", 0.0),
+            is_branching=is_branching,
+            intent_type=intent_type or self._align_intent(op, lvl, tool_calls),
         )
 
         self._all_events.append(event)
 
-        if level == ThimacLevel.EXISTENCE:
+        if lvl == ThimacLevel.EXISTENCE:
             self.existence.append(event)
             # Update Knowledge/Material State
             self._update_state_tracking(event, thought)
@@ -144,13 +160,33 @@ class ThimacMemory:
             self.subsistence.append(event)
 
         logger.debug(
-            "Thimac: %s %s [%s] — %s",
+            "Thimac: %s (%s) %s (%s) [%s] — %s",
             event.operation.value,
+            event.operation_reason,
             event.level.value,
+            event.level_reason,
             event.status,
             event.summary[:600],
         )
         return event
+
+    def _align_intent(
+        self, op: ThimacOperation, lvl: ThimacLevel, tool_calls: Optional[List[str]]
+    ) -> ThimacIntention:
+        """Aligns Thimac Operation with LIDA Intention hierarchy."""
+        if op == ThimacOperation.ACCEPT:
+            # Acceptance of a goal or validation is a Distal alignment
+            return ThimacIntention.DISTAL
+        if tool_calls or op == ThimacOperation.TRANSFER:
+            # Direct action in the world
+            return ThimacIntention.MOTOR
+        if op == ThimacOperation.RELEASE and lvl == ThimacLevel.EXISTENCE:
+            # Final delivery
+            return ThimacIntention.DISTAL
+        if op == ThimacOperation.PROCESS or op == ThimacOperation.ARRIVE:
+            # Reasoning or ingestion for planning
+            return ThimacIntention.PROXIMAL
+        return ThimacIntention.PROXIMAL
 
     def _update_state_tracking(self, event: ThimacEvent, thought: Dict) -> None:
         """Analyze successful results to update the Known State."""
@@ -196,8 +232,8 @@ class ThimacMemory:
 
     def get_gestalt_string(self) -> str:
         """
-        Human-readable session overview using the two-level ontology.
-        Enhanced with Stability Anchor and Lupascian Logic.
+        Human-readable session overview using pure Structural Information Theory.
+        Replaces LLM-based text summaries with MDL-grounded metrics.
         """
         if not self._all_events:
             return "No session events tracked yet."
@@ -205,8 +241,6 @@ class ThimacMemory:
         lines = []
 
         # --- Stability Anchor: Bernshteyn-LLL Bound ---
-        # p(d+1)^8 <= 2^-15
-        # We estimate p (error prob) and d (dependency/complexity) from session stats
         total = len(self._all_events)
         failed = sum(1 for e in self._all_events if e.status != "success")
         p = (failed / total) if total > 0 else 0
@@ -215,7 +249,23 @@ class ThimacMemory:
         threshold = 2**-15
         stability = "STABLE" if bound <= threshold else "CHAOTIC"
 
-        lines.append(f"### 🌐 Cog-State: {stability}")
+        # MDL Entropy (Structural Information)
+        avg_gain = (
+            sum(e.compression_gain for e in self._all_events) / total
+            if total > 0
+            else 0.0
+        )
+
+        lines.append(f"### 🌐 Cog-State: {stability} (MDL Gain: {avg_gain:+.3f})")
+
+        # Branching awareness
+        recent_branching = any(e.is_branching for e in self._all_events[-5:])
+        if recent_branching:
+            lines.append("> [!WARNING]")
+            lines.append(
+                "> **TOPOLOGICAL BRANCHING DETECTED**: The state space is currently destabilized (sensitive). Strategy shift likely."
+            )
+
         lines.append(f"**Math Anchor**: $p(d+1)^8 = {bound:.6f} \\le 2^{{-15}}$")
         lines.append("")
 
@@ -229,50 +279,41 @@ class ThimacMemory:
         last_file = self.known_files[-1] if self.known_files else "None"
         lines.append(f"- **Last File Action**: `{last_file}`")
 
-        horizon = (
-            " | ".join(self.knowledge_horizon) if self.knowledge_horizon else "Clear"
-        )
-        lines.append(f"- **Arrival Horizon**: {horizon}")
+        # --- EXISTENCE & SUBSISTENCE GESTALT ---
+        # Instead of listing summaries (which are now footprints), we show the structural distribution
+        e_ops = [e.operation.value for e in self.existence[-10:]]
+        s_ops = [s.operation.value for s in self.subsistence[-10:]]
 
-        # Lupascian Logic: Negative Events (Formal absence as state)
-        if self.subsistence:
-            neg_events = [
-                s.summary
-                for s in self.subsistence
-                if s.status in ["failed", "rejected"]
-            ][-3:]
-            if neg_events:
-                lines.append(
-                    f"- **Negative States (Lupascian)**: {', '.join(neg_events)}"
-                )
-
-        lines.append("")
-
-        # --- EXISTENCE: What has actually materialized ---
-        if self.existence:
-            lines.append("**Existence** (Materialized Results):")
-            for e in self.existence[-3:]:
-                ts_str = self._format_ts(e.timestamp)
-                lines.append(f"  {e.operation.value}: {e.summary} [{ts_str}]")
-        else:
-            lines.append("**Existence**: No materialized results yet.")
-
-        # --- SUBSISTENCE: Knowledge / potential ---
-        if self.subsistence:
-            lines.append("**Subsistence** (Potential/Footprints):")
-            for s in self.subsistence[-3:]:
-                ts_str = self._format_ts(s.timestamp)
-                lines.append(f"  {s.operation.value}: {s.summary} [{ts_str}]")
-        else:
-            lines.append("**Subsistence**: No knowledge state captured yet.")
-
-        # --- Counts ---
-        exist_pct = (len(self.existence) / total * 100) if total else 0
         lines.append(
-            f"\n*{total} total events | "
-            f"{exist_pct:.0f}% existence | "
-            f"{100 - exist_pct:.0f}% subsistence*"
+            f"- **Existence Ops (Recency)**: {', '.join(e_ops) if e_ops else 'None'}"
         )
+        lines.append(
+            f"- **Subsistence Ops (Recency)**: {', '.join(s_ops) if s_ops else 'None'}"
+        )
+
+        # Persistent Homology: Nodes survived pruning cycles
+        survivors = [
+            f"{s.thought_id[:8]} ({s.intent_type.value})"
+            for s in self.subsistence
+            if s.compression_gain > 0.15
+        ]
+        if survivors:
+            lines.append(
+                f"- **Persistent Homology (Stable Clusters)**: {', '.join(survivors)}"
+            )
+
+        # --- SEMANTIC GROUNDING: Directive Gists ---
+        # Show recent semantic gists to provide "Directive" context for the agent
+        recent_events = self._all_events[-3:]
+        if recent_events:
+            lines.append("\n### 📜 Recent Directive Gists")
+            for e in recent_events:
+                # Reconcile math (operation) with semantics (gist)
+                intent_info = f" | Intent: {e.intent_type.value}"
+                reason_info = f" ({e.operation_reason})"
+                lines.append(
+                    f"- **{e.operation.value}**{reason_info}: {e.semantic_gist}{intent_info}"
+                )
 
         return "\n".join(lines)
 
@@ -284,64 +325,55 @@ class ThimacMemory:
 
     def adapt_to_stress(self, topological_stress: float) -> None:
         """
-        Dynamically compresses the session memory if topological stress is high.
-        Aggressively drops 'PROCESS' nodes and trims the history buffers to prevent
-        the context window from filling with noisy dead-ends.
+        Dynamically compresses the session memory using Persistent Homology.
+        Nodes that mathematically compress the state space survive pruning rounds.
         """
         if topological_stress < 0.15:
-            # Baseline maintenance: keep arrays from ballooning indefinitely
-            if len(self.existence) > 40:
-                self.existence = self.existence[-40:]
-            if len(self.subsistence) > 40:
-                self.subsistence = self.subsistence[-40:]
-            if len(self._all_events) > 100:
-                self._all_events = self._all_events[-100:]
+            # Baseline maintenance
+            if len(self.existence) > 30:
+                self.existence = self.existence[-30:]
+            if len(self.subsistence) > 30:
+                self.subsistence = self.subsistence[-30:]
             return
 
         logger.info(
-            "Thimac: High stress detected (%.2f). Compressing memory...",
+            "Thimac: High stress (%.2f). Pruning non-persistent structures...",
             topological_stress,
         )
 
-        # High Stress Compression:
-        # 1. Keep only the last 10 'EXISTENCE' (hard facts)
+        # 1. EXISTENCE: Keep last 10 hard facts
         self.existence = self.existence[-10:]
 
-        # 2. Aggressively filter 'SUBSISTENCE' (thoughts/plans)
-        # Keep only ACCEPT/ARRIVE operations, drop speculative PROCESS loops.
-        filtered_sub = [
+        # 2. SUBSISTENCE (Persistent Homology):
+        # We define survival based on MDL gain. Nodes with high gain represent
+        # structural 'Closure' and are preserved as persistent homology.
+        persistent = [s for s in self.subsistence if s.compression_gain > 0.1]
+
+        # We also keep recent ARRIVE/ACCEPT nodes for grounding
+        grounding = [
             s
             for s in self.subsistence
             if s.operation in [ThimacOperation.ACCEPT, ThimacOperation.ARRIVE]
         ]
-        # Always keep the very last 2 nodes regardless of type so we don't lose immediate context
-        last_two = (
+
+        # Always keep the absolute last 2 steps
+        latest = (
             self.subsistence[-2:] if len(self.subsistence) >= 2 else self.subsistence
         )
 
-        # Merge and deduplicate (preserving order)
-        new_sub = []
+        # Merge, deduplicate, and sort by original timestamp (implied by insertion order)
         seen_ids = set()
-
-        # Phase 4 Gestalt: Persistent Homology
-        # Nodes that mathematically compress the state space (MDL gain > 0)
-        # survive the pruning wave natively, becoming formalized persistent structures.
-        persistent_homology_nodes = [
-            s
-            for s in self.subsistence
-            if s.compression_gain > 0.1 and s not in filtered_sub
-        ]
-
-        for s in filtered_sub + persistent_homology_nodes + last_two:
+        new_sub = []
+        for s in persistent + grounding + latest:
             if s.thought_id not in seen_ids:
                 new_sub.append(s)
                 seen_ids.add(s.thought_id)
 
         self.subsistence = new_sub[-15:]
 
-        # Sync master list
-        all_kept_ids = {e.thought_id for e in self.existence + self.subsistence}
-        self._all_events = [e for e in self._all_events if e.thought_id in all_kept_ids]
+        # Sync all_events
+        kept_ids = {e.thought_id for e in self.existence + self.subsistence}
+        self._all_events = [e for e in self._all_events if e.thought_id in kept_ids]
 
     # ------------------------------------------------------------------
     # Classification Logic
@@ -349,45 +381,33 @@ class ThimacMemory:
 
     def _classify_operation(
         self, thought: Dict, tool_calls: Optional[List[str]] = None
-    ) -> ThimacOperation:
+    ) -> Tuple[ThimacOperation, str]:
         """
-        Classify the Thimac operation based on empirical tool calls (priority)
-        or keyword heuristics (fallback).
+        Classify the Thimac operation and provide an objective reason.
         """
         # 0. Empirical Detection (Priority)
         if tool_calls:
-            # Map tool names to operations
             for tool in tool_calls:
                 t = tool.lower()
-                # ARRIVE: Reading/Searching
                 if any(
-                    k in t
-                    for k in [
-                        "recall",
-                        "search",
-                        "history",
-                        "read",
-                        "list",
-                        "view",
-                        "grep",
-                        "fd",
-                        "ls",
-                    ]
+                    k in t for k in ["recall", "search", "read", "view", "ls", "grep"]
                 ):
-                    return ThimacOperation.ARRIVE
-                # RELEASE: Externalizing/Saving
-                if any(
-                    k in t for k in ["save", "done", "write", "create", "notify_user"]
-                ):
-                    return ThimacOperation.RELEASE
-                # TRANSFER: Moving context/IPC
-                if any(
-                    k in t for k in ["run_skill", "delegate", "ipc", "repl", "call"]
-                ):
-                    return ThimacOperation.TRANSFER
+                    return (
+                        ThimacOperation.ARRIVE,
+                        f"Triggered by ingestion tool: {tool}",
+                    )
+                if any(k in t for k in ["save", "done", "write", "notify"]):
+                    return (
+                        ThimacOperation.RELEASE,
+                        f"Triggered by externalization tool: {tool}",
+                    )
+                if any(k in t for k in ["run_skill", "delegate", "ipc", "repl"]):
+                    return (
+                        ThimacOperation.TRANSFER,
+                        f"Triggered by delegation tool: {tool}",
+                    )
 
-            # If tools were called but didn't match specific categories, it's a PROCESS
-            return ThimacOperation.PROCESS
+            return ThimacOperation.PROCESS, "Tools called for transformation/analysis"
 
         # 1. Keyword Heuristics (Fallback)
         prompt = (thought.get("prompt") or "").lower()
@@ -395,26 +415,28 @@ class ThimacMemory:
         status = (thought.get("status") or "").lower()
         combined = prompt + " " + result
 
-        # 1. TRANSFER: Movement to other machines (Delegation/MCP)
         if any(
             k in combined
             for k in ["sub_repl", "transfer", "delegate", "mcp", "ipc", "repl_id"]
         ):
-            return ThimacOperation.TRANSFER
+            return ThimacOperation.TRANSFER, "Heuristic: Delegation keywords detected"
 
         # 2. RELEASE: Output generation or state externalization
         if any(
             k in combined
             for k in ["final_response", "write(", "save(", "create_file", "notify_user"]
         ):
-            return ThimacOperation.RELEASE
+            return (
+                ThimacOperation.RELEASE,
+                "Heuristic: Externalization keywords detected",
+            )
 
         # 3. ACCEPT: Validation success or grounding
         if status == "success" and (
             not result
             or any(k in combined for k in ["verified", "grounded", "confirmed"])
         ):
-            return ThimacOperation.ACCEPT
+            return ThimacOperation.ACCEPT, "Heuristic: Grounding verification detected"
 
         # 4. ARRIVE: Ingestion (Initial thought or search result)
         if any(
@@ -436,38 +458,34 @@ class ThimacMemory:
                 "check_path",
             ]
         ):
-            return ThimacOperation.ARRIVE
+            return ThimacOperation.ARRIVE, "Heuristic: Ingestion keywords detected"
 
         # 5. PROCESS: Transformation/Reasoning (Default)
-        return ThimacOperation.PROCESS
+        return ThimacOperation.PROCESS, "Default: Inner reasoning/transformation"
 
-    def _classify_level(self, thought: Dict) -> ThimacLevel:
+    def _classify_level(self, thought: Dict) -> Tuple[ThimacLevel, str]:
         """
         Classify whether a thought has materialized (existence) or
         remains in potential/knowledge state (subsistence).
-
-        Existence = verified concrete result.
-        Subsistence = plan, knowledge, failed attempt, pending.
         """
         status = (thought.get("status") or "").lower()
+        result = thought.get("result")
 
         # Concrete, verified results → EXISTENCE
-        if status == "success":
-            return ThimacLevel.EXISTENCE
+        if status == "success" and result:
+            return ThimacLevel.EXISTENCE, "Result materialized in execution environment"
 
-        # Everything else → SUBSISTENCE (potential/knowledge)
-        # "failed" = learned what doesn't work (footprint of event)
-        # "pending" = planned but not yet materialized
-        # "rejected" = dreamer invalidated (subsists as knowledge)
-        # "wake" = system intervention (subsists as context)
-        return ThimacLevel.SUBSISTENCE
+        if status == "success":
+            return ThimacLevel.EXISTENCE, "Action confirmed as completed (Axiomatic)"
+
+        # Everything else → SUBSISTENCE
+        return ThimacLevel.SUBSISTENCE, "Thought remains in latent/potential state"
 
     def _extract_summary(
         self, thought: Dict, tool_calls: Optional[List[str]] = None
     ) -> str:
         """
         Extracts a purely topological footprint of the event.
-        Replaces LLM text lossy summaries with structural MDL graphs.
         """
         status = (thought.get("status") or "").lower()
         compression = thought.get("compression_gain", 0.0)

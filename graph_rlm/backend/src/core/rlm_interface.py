@@ -45,11 +45,33 @@ class RLMInterface:
         # Attach lazy MCP tools to the interpreter namespace
         self.mcp = LazyMCPNamespace(self)
 
+        # LIDA Intentions (State-based)
+        self._distal_intention: Optional[str] = None
+        self._proximal_intention: Optional[str] = None
+
     @property
     def kb(self) -> "KnowledgeBaseStructure":
         """Provides semantic access to the Project Knowledge Base folders."""
 
         return KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
+
+    @property
+    def distal_intention(self) -> Optional[str]:
+        """Provides the current distal intention (long-term goal)."""
+        return self._distal_intention
+
+    @distal_intention.setter
+    def distal_intention(self, value: str):
+        self._distal_intention = value
+
+    @property
+    def proximal_intention(self) -> Optional[str]:
+        """Provides the current proximal intention (readiness for action)."""
+        return self._proximal_intention
+
+    @proximal_intention.setter
+    def proximal_intention(self, value: str):
+        self._proximal_intention = value
 
     def get_mcp_config(self, server_name: str) -> dict:
         """Retrieves raw configuration for a specific MCP server from mcp_servers.json."""
@@ -99,6 +121,20 @@ class RLMInterface:
         if self.session_id not in self.agent.execution_logs:
             self.agent.execution_logs[self.session_id] = []
         self.agent.execution_logs[self.session_id].append(name)
+
+        # Track side-effects for Structural Verification (Rule 5)
+        side_effect_tools = [
+            "write_to_file",
+            "save_skill",
+            "save_instructional_skill",
+            "replace_file",
+            "multi_replace_file",
+        ]
+        if any(tool in name.lower() for tool in side_effect_tools):
+            state = agent_state.get()
+            if state:
+                state.pending_side_effects.append(name)
+                logger.info("[VERIFICATION] Added pending side-effect: %s", name)
 
     async def history(self, limit: int = 1000):
         """Retrieve recent thought history for the current session."""
@@ -607,6 +643,20 @@ class RLMInterface:
         The UI stop button (global_stop_event) remains an immediate kill switch.
         """
         self.record_tool_use("rlm.done")
+
+        # [Rule 5] Structural Verification Enforcement
+        state = agent_state.get()
+        if state and state.pending_side_effects:
+            unverified = ", ".join(state.pending_side_effects)
+            msg = (
+                f"REJECTED: Structural Verification Violation (Rule 5). "
+                f"You have unverified side-effects: {unverified}. "
+                "You MUST explicitly verify these (e.g., using os.path.exists) "
+                "in a separate code block before calling rlm.done()."
+            )
+            logger.warning("[Rule 5] %s", msg)
+            self.agent.emit_event("error", content=msg)
+            return msg
 
         # Store the candidate as a string for consistency
         if final_answer is not None:

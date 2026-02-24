@@ -168,6 +168,16 @@ export const api = {
         }
     },
 
+    deleteThought: async (thoughtId: string) => {
+        try {
+            const res = await apiClient.delete(`/chat/thoughts/${thoughtId}`);
+            return res.data;
+        } catch (e) {
+            console.error("Failed to delete thought", e);
+            throw e;
+        }
+    },
+
     pruneOrphans: async (hours: number = 1) => {
          try {
              // using params for query params if GET, but here POST with query params is fine or body.

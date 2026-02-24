@@ -173,6 +173,7 @@ function App() {
           }
 
           return {
+            id: msg.id,
             type: finalType,
             content: finalContent,
             timestamp: msg.created_at ? new Date(msg.created_at).getTime() : Date.now(),
@@ -198,6 +199,19 @@ function App() {
     await api.stopGeneration();
     setIsProcessing(false);
     setChatEntries(prev => [...prev, { role: 'system', content: '**Stopped by user**', timestamp: Date.now() }]);
+  }, []);
+
+  const handleDeleteThought = useCallback(async (thoughtId: string) => {
+    try {
+      await api.deleteThought(thoughtId);
+      setChatEntries(prev => prev.filter(e => e.id !== thoughtId));
+      setGraphData(prev => ({
+        nodes: prev.nodes.filter((n: any) => n.id !== thoughtId),
+        links: prev.links.filter((l: any) => l.source !== thoughtId && l.target !== thoughtId)
+      }));
+    } catch (e) {
+      console.error("Failed to delete thought", e);
+    }
   }, []);
 
   const handleExecute = useCallback((query: string) => {
@@ -356,7 +370,10 @@ function App() {
       <div className="flex h-full relative flex-col">
         {/* Center: Chat History (Was Scratchpad) */}
         <div className="flex-1 min-h-0 relative flex flex-col">
-          <ChatHistory entries={chatEntries} />
+          <ChatHistory
+              entries={chatEntries}
+              onDelete={handleDeleteThought}
+          />
         </div>
         {/* Input Area */}
         <div className="shrink-0">

@@ -54,6 +54,54 @@ class Navigator:
         self.sheaf = sheaf_monitor
         self.history_buffer: List[str] = []
         self._last_compression_ratio = 1.0
+        self._embedding_history: List[List[float]] = []
+
+    def detect_branching_point(
+        self,
+        current_embedding: List[float],
+        sheaf_energy: float,
+        threshold_curvature: float = 0.4,
+    ) -> Dict[str, Any]:
+        """
+        Detects if the agent is entering a 'Branching Channel' (Xu et al., 2025).
+        Returns a signal indicating stability vs sensitivity.
+        """
+        import numpy as np
+
+        if not self._embedding_history:
+            self._embedding_history.append(current_embedding)
+            return {"status": "STABLE", "sensitivity": 0.0}
+
+        # 1. Semantic Curvature (Change in direction)
+        prev_vec = np.array(self._embedding_history[-1])
+        curr_vec = np.array(current_embedding)
+
+        # Cosine distance as proxy for angular change
+        norm_product = np.linalg.norm(prev_vec) * np.linalg.norm(curr_vec)
+        if norm_product == 0:
+            curvature = 0.0
+        else:
+            similarity = np.dot(prev_vec, curr_vec) / norm_product
+            curvature = 1.0 - float(similarity)
+
+        # 2. Integrate with Sheaf Energy (Topological Stress)
+        # Higher stress + high curvature = definite branching point
+        sensitivity = (curvature * 0.7) + (sheaf_energy * 0.3)
+
+        self._embedding_history.append(current_embedding)
+        if len(self._embedding_history) > 10:
+            self._embedding_history.pop(0)
+
+        if sensitivity > threshold_curvature:
+            logger.info("BRANCHING POINT DETECTED: Sensitivity %.2f", sensitivity)
+            return {
+                "status": "BRANCHING",
+                "sensitivity": sensitivity,
+                "curvature": curvature,
+                "stress": sheaf_energy,
+            }
+
+        return {"status": "STABLE", "sensitivity": sensitivity}
 
     def compute_compression_size(self, data: str) -> int:
         """Calculates the compressed size of a string using LZMA."""
@@ -192,13 +240,12 @@ class Navigator:
             force = temperature * grad_s
 
             # 5. Thermodynamic Penalty (Cost of Determinism)
-            # If the trajectory is artificially collapsed (Freedom approaches 0),
-            # we apply a penalty to prevent the agent from locking into a
-            # deterministic, zero-entropy path without exploring alternatives.
-            # Threshold: 0.3. Max penalty: 0.6.
+            # Subtract a 'Determinism Penalty' when the agent forces a deterministic bottleneck,
+            # restricting freedom rapidly compared to the baseline state.
             thermodynamic_penalty = 0.0
-            if current_s_tau < 0.3:
-                thermodynamic_penalty = (0.3 - current_s_tau) * 2.0
+            if current_s_tau < (baseline_s_tau * 0.6):
+                # Penalty scales with the divergence from baseline freedom
+                thermodynamic_penalty = (baseline_s_tau - current_s_tau) * 2.0
 
             # Total Curiosity Score
             # Weighting: 40% Compression Progress, 60% Causal Entropic Force

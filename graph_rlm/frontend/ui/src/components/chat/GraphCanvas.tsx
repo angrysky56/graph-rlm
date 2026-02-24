@@ -88,7 +88,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = React.memo(({
         nodeId="id"
         linkSource="source"
         linkTarget="target"
-        nodeColor={(node: any) => node.color || "#64748b"}
+        nodeColor={(node: any) => node.color || "#94a3b8"} // Brighter default
         onNodeHover={(node: any) => {
           setHoveredNode(node);
           if (node) {
@@ -98,14 +98,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = React.memo(({
         }}
         nodePointerAreaPaint={(node: any, color: string, ctx: CanvasRenderingContext2D) => {
           ctx.fillStyle = color;
-          const r = node.val ? Math.sqrt(node.val) * 3 : 15;
+          const r = node.val ? Math.sqrt(node.val) * 5 : 20; // Increased pointer area
           ctx.beginPath(); ctx.arc(node.x, node.y, r + 5, 0, 2 * Math.PI, false); ctx.fill();
         }}
         linkLabel={() => "Relation"}
         linkColor={() => "#475569"}
         backgroundColor="transparent"
-        nodeRelSize={7}
-        nodeVal={(node: any) => node.val || 5}
+        nodeRelSize={9} // Increased relative size
+        nodeVal={(node: any) => node.val || 8} // Increased base value
         // Interaction
         enablePointerInteraction={true}
         onNodeClick={handleInternalClick}

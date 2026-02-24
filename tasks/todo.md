@@ -23,40 +23,40 @@
 - [x] **Summarize changes:** Document how topological defects automatically trigger stress metrics.
 - [x] **Record lessons:** Update `tasks/lessons.md`.
 
-## [/] Phase 2: The "Rosetta Stone" (Hamiltonian Dynamics)
+## [x] Phase 2: The "Rosetta Stone" (Hamiltonian Dynamics) (Complete)
 
-- [ ] **Restate goal:** Unify `omcd.py` and `sheaf.py` to evaluate thought continuation as a Hamiltonian energy conservation problem.
-- [ ] **Locate existing:** `src/core/omcd.py`, `src/core/agent.py`.
-- [ ] **Design:**
-  - $V$ (Potential Energy) = Semantic distance to the global goal.
+- [x] **Restate goal:** Unify `omcd.py` and `sheaf.py` to evaluate thought continuation as a Hamiltonian energy conservation problem.
+- [x] **Locate existing:** `src/core/omcd.py`, `src/core/agent.py`.
+- [x] **Design:**
+  - $V$ (Potential Energy) = Semantic distance to the global goal + Sheaf Consistency Energy.
   - $T$ (Kinetic Energy) = Computational cost exerted.
   - Enforce energy conservation: reject thoughts requiring a massive "energy jump" (hallucinations/unearned leaps).
-- [ ] **Implement smallest safe slice:** Update `omcd.evaluate_step` to calculate a Hamiltonian invariant $H = T + V$, failing states where $H$ diverges illegally.
-- [ ] **Add/adjust tests:** Simulate an agent hallucinating a massive, unjustified leap in logic (like FalkorDBProxy) and verify rejection.
-- [ ] **Run verification:** Run test suite against Hamiltonian constraints.
-- [ ] **Summarize changes:** Document mapping of Gradient Descent to Principle of Least Action.
-- [ ] **Record lessons:** Update `tasks/lessons.md`.
+- [x] **Implement smallest safe slice:** Update `omcd.evaluate_step` to calculate a Hamiltonian invariant $H = T + V$, failing states where $H$ diverges illegally.
+- [x] **Add/adjust tests:** Simulate an agent hallucinating a massive, unjustified leap in logic (like FalkorDBProxy) and verify rejection.
+- [x] **Run verification:** Run test suite against Hamiltonian constraints.
+- [x] **Summarize changes:** Document mapping of Gradient Descent to Principle of Least Action.
+- [x] **Record lessons:** Update `tasks/lessons.md`.
 
-## Phase 3: Thermodynamic Cost of Determinism
+## [x] Phase 3: Thermodynamic Cost of Determinism (Complete)
 
-- [ ] **Restate goal:** Penalize Intrinsic Reward in `navigator.py` when the agent forces a deterministic bottleneck, restricting freedom rapidly.
-- [ ] **Locate existing:** `src/core/navigator.py` (compute_interest_gradient).
-- [ ] **Design:** Subtract a "Determinism Penalty" from the Curiosity Score if `current_s_tau` (Freedom) drops severely compared to `baseline_s_tau` across consecutive steps.
-- [ ] **Implement smallest safe slice:** Introduce the scalar penalty to `raw_score` in `compute_interest_gradient`.
-- [ ] **Add/adjust tests:** Provide mock histories where `Freedom` crashes to 0; verify the Navigator discourages that path.
-- [ ] **Run verification:** Lint, typecheck, run REPL simulations.
-- [ ] **Summarize changes:** Document how agent now naturally follows the geodesic of the Multiway Graph.
-- [ ] **Record lessons:** Update `tasks/lessons.md`.
+- [x] **Restate goal:** Penalize Intrinsic Reward in `navigator.py` when the agent forces a deterministic bottleneck, restricting freedom rapidly.
+- [x] **Locate existing:** `src/core/navigator.py` (compute_interest_gradient).
+- [x] **Design:** Subtract a "Determinism Penalty" from the Curiosity Score if `current_s_tau` (Freedom) drops severely compared to `baseline_s_tau` across consecutive steps.
+- [x] **Implement smallest safe slice:** Introduce the scalar penalty to `raw_score` in `compute_interest_gradient`.
+- [x] **Add/adjust tests:** Provide mock histories where `Freedom` crashes to 0; verify the Navigator discourages that path.
+- [x] **Run verification:** Lint, typecheck, run REPL simulations.
+- [x] **Summarize changes:** Document how agent now naturally follows the geodesic of the Multiway Graph.
+- [x] **Record lessons:** Update `tasks/lessons.md`.
 
-## Phase 4: Gestalt Formalization via MDL and Persistent Homology
+## [x] Phase 4: Gestalt Formalization (MDL Summarization & Persistent Homology)
 
-- [ ] **Restate goal:** Replace LLM Gestalt summarization with Structural Information Theory (MDL via LZMA) and Persistent Homology for memory caching.
-- [ ] **Locate existing:** `src/core/thimac_memory.py`, `src/core/navigator.py` (compute_compression_size).
-- [ ] **Design:**
+- [x] **Restate goal:** Replace LLM Gestalt summarization with Structural Information Theory (MDL via LZMA) and Persistent Homology for memory caching.
+- [x] **Locate existing:** `src/core/thimac_memory.py`, `src/core/navigator.py` (compute_compression_size).
+- [x] **Design:**
   - Utilize compression ratios as the sole heuristic for the "Law of Prägnanz".
   - Track nodes via Persistent Homology over multiple pruning cycles; survivors define "Closure" and are promoted to `AXIOMS`.
-- [ ] **Implement smallest safe slice:** Refactor `_sync_thimac` to rely on `navigator` compression progress to bucket insights rather than extracting summaries natively.
-- [ ] **Add/adjust tests:** Verify empirical grounding drops noisy processes but preserves highly compressible sequences natively.
-- [ ] **Run verification:** Run `verify_empirical_grounding.py`.
-- [ ] **Summarize changes:** Document translation of psychological Gestalt into pure computation.
-- [ ] **Record lessons:** Update `tasks/lessons.md`.
+- [x] **Implement smallest safe slice:** Refactor `_sync_thimac` to rely on `navigator` compression progress to bucket insights rather than extracting summaries natively.
+- [x] **Add/adjust tests:** Verify empirical grounding drops noisy processes but preserves highly compressible sequences natively.
+- [x] **Run verification:** Run `verify_empirical_grounding.py`.
+- [x] **Summarize changes:** Document translation of psychological Gestalt into pure computation.
+- [x] **Record lessons:** Update `tasks/lessons.md`.

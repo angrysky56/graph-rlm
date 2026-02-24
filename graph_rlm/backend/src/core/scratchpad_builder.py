@@ -11,20 +11,12 @@ Raw code and full outputs are SAVED in the graph and accessible via rlm.recall(r
 but NOT included in immediate context to prevent bloat.
 """
 
-import asyncio
-import json
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-import httpx
-import redis
-
-from .circuit import generate_correlation_id, get_correlation_id
-from .config import settings
 from .db import GraphClient, db
 from .logger import get_logger
-from .services.circuit import CircuitOpenError, protected_llm_generate
 
 logger = get_logger("graph_rlm.scratchpad_builder")
 
@@ -128,85 +120,18 @@ class ScratchpadBuilder:
         if completed_rounds:
             lines.append("## Previous Rounds (Compressed Context)")
 
-            # Prepare summaries (Parallel execution for missing ones)
-            final_summaries = []
-            generation_tasks = []
-            task_metadata = []  # (index_in_rounds, field_name)
-
-            for i, r in enumerate(completed_rounds):
-                p_sum = r.get("prompt_summary")
-                r_sum = r.get("result_summary")
-
-                # We need two slots per round in the final re-assembled list
-                if p_sum:
-                    p_final = p_sum
-                else:
-                    p_final = None  # Placeholder
-                    generation_tasks.append(
-                        self._summarize_content(
-                            r.get("user_prompt") or "", "User Prompt"
-                        )
-                    )
-                    task_metadata.append((i, "prompt_summary"))
-
-                # Handle result summary separately to ensure both are checked
-                if r_sum:
-                    r_final = r_sum
-                else:
-                    r_final = None  # Placeholder
-                    generation_tasks.append(
-                        self._summarize_content(
-                            r.get("final_response") or "", "Agent Result"
-                        )
-                    )
-                    task_metadata.append((i, "result_summary"))
-
-                final_summaries.append({"prompt": p_final, "result": r_final})
-
-            # Execute missing summaries
-            if generation_tasks:
-                generated_vals = await asyncio.gather(*generation_tasks)
-
-                # Map back and persist
-                for val, (round_idx, field) in zip(
-                    generated_vals, task_metadata, strict=True
-                ):
-                    if field == "prompt_summary":
-                        final_summaries[round_idx]["prompt"] = val
-                    else:
-                        final_summaries[round_idx]["result"] = val
-
-                    # Persist if BOTH are now present (to avoid multiple DB calls, or just do it individually)
-                    current_r = completed_rounds[round_idx]
-                    rid = current_r.get("round_id")
-                    if rid:
-                        p_val = final_summaries[round_idx]["prompt"]
-                        r_val = final_summaries[round_idx]["result"]
-                        if p_val and r_val:
-                            try:
-                                self.db.update_round_summaries(rid, p_val, r_val)
-                            except Exception as db_e:
-                                logger.warning(
-                                    "Failed to persist round summaries for %s: %s",
-                                    rid,
-                                    db_e,
-                                )
-
             # Re-assemble for display
             for i, r in enumerate(completed_rounds, 1):
                 rid = r.get("round_id") or "unknown"
                 repl_ids = r.get("repl_ids") or []
                 repls_str = ", ".join(repl_ids) if repl_ids else "None"
 
-                prompt_summary = final_summaries[i - 1]["prompt"] or "(summary failed)"
-                result_summary = final_summaries[i - 1]["result"] or "(summary failed)"
-
                 lines.append(f"### Round {i} (ID: `{rid}`)")
-                lines.append("**User Prompt**:")
-                lines.append(prompt_summary)
+                lines.append("**User Prompt (Raw)**:")
+                lines.append(r.get("user_prompt") or "(empty)")
                 lines.append("")
-                lines.append("**Agent Result**:")
-                lines.append(result_summary)
+                lines.append("**Agent Result (Raw)**:")
+                lines.append(r.get("final_response") or "(empty)")
                 lines.append("")
                 lines.append(f"**REPLs**: `{repls_str}`")
                 lines.append("")
@@ -274,73 +199,9 @@ class ScratchpadBuilder:
 
         return "\n".join(lines)
 
-    async def _summarize_content(self, text: str, label: str) -> str:
-        """
-        Summarize content using the LLM with the "Chain of Density" technique.
-        Generates increasingly entity-dense summaries and returns the final iteration.
-        """
-        if not text:
-            return "(empty)"
-
-        # Threshold: Don't waste LLM calls on short text
-        if len(text) < 2000:
-            return text.strip()
-
-        try:
-            summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
-
-            prompt = (
-                f"You will generate increasingly concise, entity-dense summaries of the following {label}.\n\n"
-                f"INPUT: \n---\n{text[:100000]}\n---\n\n"
-                "Repeat the following 2 steps 4 times.\n"
-                "Step 1. Identify 1-3 informative Entities ('; ' delimited) from the Input which are missing from the previously generated summary.\n"
-                "Step 2. Write a new, denser summary that covers every entity and detail from the previous summary plus the new Missing Entities.\n\n"
-                "Guidelines:\n"
-                "- The first summary should be comprehensive but broadly written (4-5 sentences, roughly 70-90 words).\n"
-                "- Make every word count: iteratively rewrite to improve flow and make space for additional entities.\n"
-                "- Compress the text by fusing ideas and removing redundant phrases.\n"
-                "- READABILITY: The summaries must remain highly readable and grammatically coherent.\n"
-                "- LENGTH: Keep the length strictly between 70 and 90 words for every summary.\n\n"
-                'Answer in JSON. The JSON should be a list (length 4) of dictionaries whose keys are "Missing_Entities" and "Denser_Summary".'
-            )
-
-            response = await protected_llm_generate(
-                prompt,
-                model=summary_model,
-                correlation_id=get_correlation_id() or generate_correlation_id(),
-            )
-
-            # Extract the densest summary from the JSON response
-            try:
-                # Handle potential markdown code blocks in the response
-                json_str = response.strip()
-                match = re.search(r"```(?:json)?\n(.*?)\n```", json_str, re.DOTALL)
-                if match:
-                    json_str = match.group(1).strip()
-                elif json_str.find("[") != -1 and json_str.rfind("]") != -1:
-                    json_str = json_str[json_str.find("[") : json_str.rfind("]") + 1]
-
-                data = json.loads(json_str)
-                if isinstance(data, list) and len(data) > 0:
-                    # Return the last (densest) summary
-                    final_summary = data[-1].get("Denser_Summary", "")
-                    if final_summary:
-                        return final_summary.strip()
-
-            except (json.JSONDecodeError, KeyError, IndexError, TypeError) as je:
-                logger.debug(
-                    "JSON parsing of CoD summary failed: %s. Falling back to raw response.",
-                    je,
-                )
-                # Fallback: if it's not JSON but looks like a summary, use it
-                if len(response) > 50 and "{" not in response:
-                    return response.strip()
-
-            return response.strip()
-
-        except (httpx.RequestError, ValueError, RuntimeError) as e:
-            logger.warning("Summary generation failed: %s", e)
-            return text[:500] + "... [Truncated due to summary error]"
+    async def _summarize_content(self, text: str) -> str:
+        """Structural summarization: placeholder for pure MDL gists."""
+        return text[:500] + "..." if len(text) > 500 else text
 
     async def _build_current_round_progress(
         self, session_id: str, root_session_id: str, current_round_id: str
@@ -373,7 +234,8 @@ class ScratchpadBuilder:
                    n.omcd_score as omcd_score,
                    n.thimac_op as thimac_op,
                    n.thimac_level as thimac_level,
-                   n.navigator_insight as navigator_insight
+                   n.navigator_insight as navigator_insight,
+                   n.semantic_gist as semantic_gist
             ORDER BY n.created_at ASC
             LIMIT 2000
             """
@@ -437,6 +299,8 @@ class ScratchpadBuilder:
                     base_data["thimac_level"] = row[17]
                 if len(row) > 18:
                     base_data["navigator_insight"] = row[18]
+                if len(row) > 19:
+                    base_data["semantic_gist"] = row[19]
 
                 processed_data.append(base_data)
 
@@ -447,20 +311,11 @@ class ScratchpadBuilder:
         # Split into gist groups (old, compressed) + leaf rows (recent, detailed)
         gist_chunks, leaf_rows = self._build_rtm_tree(processed_data)
 
-        # Generate summaries: gist chunks get ONE summary per group,
-        # leaf rows get individual summaries (same as before)
-        gist_tasks = [self._generate_gist_summary(chunk) for chunk in gist_chunks]
-        leaf_tasks = [self._generate_step_summary(row) for row in leaf_rows]
-
-        gist_summaries = await asyncio.gather(*gist_tasks) if gist_tasks else []
-        leaf_summaries = await asyncio.gather(*leaf_tasks)
-
-        # Merge into unified view: gist rows first, then leaf rows
-        # windowed_data and summaries are rebuilt from the RTM tree
+        # Merged summaries (pure structural)
         windowed_data = []
         summaries = []
 
-        for i, chunk in enumerate(gist_chunks):
+        for chunk in gist_chunks:
             # Create a synthetic "gist row" from chunk metadata
             first = chunk[0]
             last = chunk[-1]
@@ -493,12 +348,12 @@ class ScratchpadBuilder:
                 "_gist_count": len(chunk),
             }
             windowed_data.append(gist_row)
-            summaries.append(gist_summaries[i])
+            summaries.append(self._generate_gist_structural_summary(chunk))
 
         # Append leaf rows as-is
-        for i, row in enumerate(leaf_rows):
+        for row in leaf_rows:
             windowed_data.append(row)
-            summaries.append(leaf_summaries[i])
+            summaries.append(self._get_structural_step_summary(row))
 
         # Build Table with Row Collapsing (Deduplication)
         lines = []
@@ -760,139 +615,33 @@ class ScratchpadBuilder:
 
         return chunks, leaf_rows
 
-    async def _generate_gist_summary(self, chunk: List[Dict]) -> str:
-        """
-        Generate a single compressed summary for a group of RTM steps.
-
-        This is the RTM "interior node" — a gist that compresses K steps
-        into one summary, preserving key outcomes and actions.
-        """
-        # Build a condensed representation of the chunk
-        step_briefs = []
-        for row in chunk:
-            prompt = (row.get("prompt") or "")[:10000]
-            result = (row.get("result") or "")[:10000]
-            status = row.get("status", "?")
-
-            # Use execution_summary if available (cheaper)
-            if row.get("execution_summary"):
-                brief = str(row["execution_summary"])[:500]
-            elif prompt:
-                brief = f"[{status}] {prompt[:5000]}"
-                if result:
-                    brief += f" → {result[:5000]}"
-            else:
-                brief = f"[{status}] (no prompt)"
-            step_briefs.append(brief)
-
-        combined = "\n".join(step_briefs)
+    def _generate_gist_structural_summary(self, chunk: List[Dict]) -> str:
+        """Structural Gist: Summarizes multiple units using mathematical metadata."""
         count = len(chunk)
+        total_mdl = sum(float(r.get("compression_gain", 0.0) or 0.0) for r in chunk)
+        ops = [r.get("thimac_op", "?") for r in chunk if r.get("thimac_op")]
+        op_counts = {op: ops.count(op) for op in set(ops)}
+        op_str = ", ".join(
+            f"{v}x{k}" for k, v in sorted(op_counts.items(), reverse=True)
+        )
 
-        try:
-            summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
-            llm_prompt = f"""Compress these {count} agent steps into ONE dense summary (max 200 chars).
-Focus on: what was DONE, what WORKED, what FAILED. Be specific with file names and values.
-Do NOT use filler phrases. This is a memory compression for the agent's scratchpad.
+        return f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f} | Ops: {op_str}"
 
-STEPS:
-{combined[:30000]}
+    def _get_structural_step_summary(self, row: Dict) -> str:
+        """Retrieves the dense semantic gist or pre-computed MDL footprint."""
+        gist = row.get("semantic_gist")
+        if gist:
+            return str(gist)
 
-Compressed summary:"""
+        summary = row.get("step_summary")
+        if summary:
+            return str(summary)
 
-            summary = await protected_llm_generate(
-                llm_prompt,
-                model=summary_model,
-                correlation_id=get_correlation_id() or generate_correlation_id(),
-            )
-            return f"[{count} steps] {summary.strip()[:150].replace(chr(10), ' ')}"
-        except (httpx.RequestError, ValueError, RuntimeError):
-            # Fallback: just list statuses
-            statuses = [r.get("status", "?") for r in chunk]
-            return f"[{count} steps] {', '.join(statuses)}"
-
-    async def _generate_step_summary(self, row: Dict) -> str:
-        """
-        Use SUMMARY_MODEL to generate an entity-dense summary of the step.
-        """
-        prompt = row.get("prompt") or ""
-        status = row.get("status")
-
-        if status in [
-            "navigator",
-            "omcd",
-            "sheaf",
-            "repe",
-            "reflexion",
-            "system",
-            "fragment",
-        ]:
-            return prompt.strip()[:100]
-
-        # Use cached step_summary if available from DB
-        cached_summary = row.get("step_summary")
-        if cached_summary:
-            return str(cached_summary).strip()[:120].replace("\n", " ")
-
-        # Use execution_summary if available from DB (cheaper second-best)
-        if row.get("execution_summary"):
-            summary = str(row.get("execution_summary"))
-            if len(summary) > 80 and "/" in summary:
-                parts = summary.split("/")
-                if len(parts) > 3:
-                    # Keep the root and the filename, compress the middle
-                    summary = f"{parts[0]}/.../{parts[-2]}/{parts[-1]}"
-            return summary[:120].replace("\n", " ")
-
-        prompt = row.get("prompt") or ""
-        result = row.get("result") or ""
-        status = row.get("status")
-
-        # Fast path for very short items
-        if len(prompt) < 60 and len(result) < 60:
-            return prompt.strip()[:80]
-
-        try:
-            summary_model = settings.SUMMARY_MODEL or "gemini-2.0-flash-lite"
-
-            llm_prompt = f"""Summarize this agent step professionally (max 100 chars).
-Focus on specific names, values, and the concrete outcome.
-BE DENSE: Avoid fillers like 'The agent...'.
-ACTION: {prompt[:50000]}
-RESULT: {result[:50000]}
-STATUS: {status}
-
-Summary:"""
-
-            summary = await protected_llm_generate(
-                llm_prompt,
-                model=summary_model,
-                correlation_id=get_correlation_id() or generate_correlation_id(),
-            )
-            final_summary = summary.strip()[:120].replace("\n", " ")
-
-            # Persist the newly generated summary to the DB
-            thought_id = row.get("id")
-            if thought_id:
-                try:
-                    self.db.update_thought_result(
-                        thought_id=thought_id,
-                        result=result,
-                        step_summary=final_summary,
-                        status=status,
-                    )
-                except (RuntimeError, ValueError, redis.exceptions.RedisError) as db_e:
-                    logger.warning(
-                        "Failed to persist step summary for %s: %s", thought_id, db_e
-                    )
-
-            return final_summary
-        except (CircuitOpenError, httpx.RequestError, ValueError, RuntimeError) as e:
-            logger.debug("Summarization failed: %s", e)
-            # Fallback
-            return prompt.strip()[:100].replace("\n", " ")
-        except (AttributeError, TypeError) as e:
-            logger.warning("Unexpected error in _generate_step_summary: %s", e)
-            return prompt.strip()[:100].replace("\n", " ")
+        # Fallback if both are missing (e.g. legacy nodes)
+        op = row.get("thimac_op") or "PROCESS"
+        lvl = row.get("thimac_level") or "SUBSISTENCE"
+        gain = float(row.get("compression_gain") or 0.0)
+        return f"{op} [{lvl}] (MDL: {gain:+.3f})"
 
     def _get_sub_repls(
         self, root_session_id: str, current_session_id: str

@@ -28,6 +28,7 @@ from .navigator import navigator
 from .omcd import omcd
 from .services.circuit import protected_llm_with_fallback
 from .sheaf import sheaf
+from .state import agent_state
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.dreamer")
@@ -42,7 +43,6 @@ class Dreamer:
 
     def __init__(self):
         self.db: GraphClient = db
-        self.llm = llm
         self.llm = llm
         self._is_codifying = False  # Recursion guard for axiom generation
         self._is_dreaming = False  # Main dream cycle lock
@@ -100,7 +100,9 @@ class Dreamer:
                 MATCH (t:Thought)
                 WHERE (t.session_id = $sid OR t.root_session_id = $sid) {turn_clause}
                 RETURN t.id as id, t.status as status, t.created_at as ts,
-                       t.repl_id as repl_id
+                       t.repl_id as repl_id, t.thimac_op as thimac_op,
+                       t.thimac_level as thimac_level, t.thimac_intent as thimac_intent,
+                       t.thimac_op_reason as thimac_op_reason, t.thimac_level_reason as thimac_level_reason
                 ORDER BY t.created_at DESC
                 LIMIT 10
                 """,
@@ -134,6 +136,13 @@ class Dreamer:
                         "status": r.get("status", "unknown"),
                         "ts": str(r.get("ts", "")),
                         "repl": r.get("repl_id", ""),
+                        "thimac": {
+                            "op": r.get("thimac_op"),
+                            "lvl": r.get("thimac_level"),
+                            "intent": r.get("thimac_intent"),
+                            "op_reason": r.get("thimac_op_reason"),
+                            "lvl_reason": r.get("thimac_level_reason"),
+                        },
                     }
                     for r in recent
                 ]
@@ -886,6 +895,14 @@ class Dreamer:
         rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
         rlm_compliance = any(p in context for p in rlm_patterns)
 
+        # ── 5.5 Structural Information Grounding (Rule 5 & Phase 5) ──
+        # Check if the session has pending side-effects (unverified writes)
+        exec_state = agent_state.get()
+        pending_effects = getattr(exec_state, "pending_side_effects", [])
+        grounding_status = (
+            "GROUNDED" if not pending_effects else "UNVERIFIED_SIDE_EFFECTS"
+        )
+
         # ── 6. Assemble metrics block for LLM classification ──
         metrics_block = (
             f"## Validation Metrics\n"
@@ -895,7 +912,11 @@ class Dreamer:
             f"- Recent timeline (newest first):\n"
         )
         for entry in trace.get("status_timeline", [])[:5]:
-            metrics_block += f"  - [{entry['id']}] {entry['status']} @ {entry['ts']} (REPL: {entry['repl']})\n"
+            t = entry.get("thimac", {})
+            thimac_info = f" | {t.get('op', 'PROC')}({t.get('intent', 'PROX')})"
+            if t.get("op_reason"):
+                thimac_info += f" [{t.get('op_reason')}]"
+            metrics_block += f"  - [{entry['id']}] {entry['status']} @ {entry['ts']} (REPL: {entry['repl']}){thimac_info}\n"
 
         def _fmt_axis(val: Any) -> str:
             """Format RepE axis value: numeric → 3dp, otherwise str."""
@@ -924,6 +945,9 @@ class Dreamer:
             f"- TODO markers: {has_todo}\n"
             f"- Output truncation: {has_truncation} | RLM compliant: {rlm_compliance}\n"
             f"- Empirical contradiction: {topo_status == 'EMPIRICAL_CONTRADICTION'}\n"
+            f"### Structural Information Grounding (Rule 5)\n"
+            f"- Grounding Status: {grounding_status}\n"
+            f"- Pending Side-Effects: {pending_effects if pending_effects else 'None'}\n"
             f"\n### Active Verification Results (REPL)\n"
             f"{verification_result}\n"
         )
@@ -947,6 +971,9 @@ class Dreamer:
             f"{metrics_block}\n"
             f"## Instructions\n"
             f"Perform a cold, factual evaluation. Do NOT hallucinate failures.\n"
+            f"Crucially, check for **STRUCTURAL GROUNDING**: If the agent claims to have written files, "
+            f"ensure they are verified (Grounding Status: GROUNDED). Reject if UNVERIFIED_SIDE_EFFECTS.\n"
+            f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
             f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
             f"- [PRESENCE] Ensure the response is not just a summary of failure. If the agent claims it completed the task, check the 'Active Verification Results' or 'Deterministic Flags'.\n"
             f"- [HARD FAILS] Mark INVALID ONLY if there are:\n"

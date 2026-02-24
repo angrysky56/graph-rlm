@@ -35,11 +35,16 @@ class ExecutionState:
 
     # --- Phase Awareness (C1) ---
     phase: str = "EXPLORING"  # EXPLORING | EXECUTING | VALIDATING | SYNTHESIZING
+    branching_state: str = "STABLE"  # STABLE | BRANCHING
     consecutive_failures: int = 0
     consecutive_successes: int = 0
     intervention_count: int = 0
+    consecutive_interventions: int = 0
     tools_used_this_turn: List[str] = field(default_factory=list)
     last_dreamer_critique: Optional[str] = None
+    pending_side_effects: List[str] = field(
+        default_factory=list
+    )  # Trails of unverified file writes
 
     # --- Momentum Tracking (C1) ---
     # Ring buffer of last N step outcomes for quick trajectory assessment

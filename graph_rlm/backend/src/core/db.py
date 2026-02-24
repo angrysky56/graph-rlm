@@ -99,9 +99,13 @@ class GraphClient:
         omcd_score: Optional[float] = None,
         thimac_op: Optional[str] = None,
         thimac_level: Optional[str] = None,
+        thimac_intent: Optional[str] = None,
+        thimac_op_reason: Optional[str] = None,
+        thimac_level_reason: Optional[str] = None,
         navigator_insight: Optional[str] = None,
         metadata_json: Optional[str] = None,
         step_summary: Optional[str] = None,
+        semantic_gist: Optional[str] = None,
         validate: bool = True,
     ):
         """
@@ -247,6 +251,26 @@ class GraphClient:
             params["reflexion_analysis"] = reflexion_analysis
             cypher += ", t.reflexion_analysis = $reflexion_analysis"
 
+        if thimac_op:
+            params["thimac_op"] = thimac_op
+            cypher += ", t.thimac_op = $thimac_op"
+
+        if thimac_level:
+            params["thimac_level"] = thimac_level
+            cypher += ", t.thimac_level = $thimac_level"
+
+        if thimac_intent:
+            params["thimac_intent"] = thimac_intent
+            cypher += ", t.thimac_intent = $thimac_intent"
+
+        if thimac_op_reason:
+            params["thimac_op_reason"] = thimac_op_reason
+            cypher += ", t.thimac_op_reason = $thimac_op_reason"
+
+        if thimac_level_reason:
+            params["thimac_level_reason"] = thimac_level_reason
+            cypher += ", t.thimac_level_reason = $thimac_level_reason"
+
         if final_response:
             params["final_response"] = final_response
             cypher += ", t.final_response = $final_response"
@@ -254,6 +278,10 @@ class GraphClient:
         if step_summary:
             params["step_summary"] = step_summary
             cypher += ", t.step_summary = $step_summary"
+
+        if semantic_gist:
+            params["semantic_gist"] = semantic_gist
+            cypher += ", t.semantic_gist = $semantic_gist"
 
         if turn_id is not None:
             params["turn_id"] = turn_id
@@ -370,6 +398,7 @@ class GraphClient:
         spectral_energy: Optional[float] = None,
         h0_rank: Optional[int] = None,
         step_summary: Optional[str] = None,
+        semantic_gist: Optional[str] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
@@ -408,6 +437,10 @@ class GraphClient:
         if step_summary:
             params["step_summary"] = step_summary
             cypher += ", t.step_summary = $step_summary"
+
+        if semantic_gist:
+            params["semantic_gist"] = semantic_gist
+            cypher += ", t.semantic_gist = $semantic_gist"
 
         self.query(cypher, params)
 
@@ -785,6 +818,7 @@ class GraphClient:
                n.thimac_op as thimac_op,
                n.thimac_level as thimac_level,
                n.navigator_insight as navigator_insight,
+               n.semantic_gist as semantic_gist,
                n.step_summary as step_summary
         """
         if limit:
