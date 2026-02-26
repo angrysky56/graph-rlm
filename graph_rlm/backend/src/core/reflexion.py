@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .guardrails import EmpiricalGuard, GuardrailError, extract_python_code
 from .llm import llm
 from .logger import get_logger
 from .omcd import omcd
@@ -140,8 +141,6 @@ class IntelliSynth:
                 # If the code changed, we consider it "Progress" and relax the repetition check
                 current_code_hash = ""
                 if "python" in response_text:
-                    from .guardrails import extract_python_code
-
                     code_str = extract_python_code(response_text)
                     if code_str:
                         current_code_hash = hashlib.sha256(
@@ -193,8 +192,6 @@ class IntelliSynth:
                         }
 
         # --- 2. Extract Code Blocks for Structural Validation ---
-        from .guardrails import EmpiricalGuard, GuardrailError, extract_python_code
-
         full_code = extract_python_code(response_text)
         if not full_code:
             return None

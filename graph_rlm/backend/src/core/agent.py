@@ -22,14 +22,13 @@ import httpx
 import redis
 
 from ..mcp_integration.runtime import AgentRuntime, set_stop_event
-from ..mcp_integration.skill_storage import get_axioms_manager, get_skills_manager
+from ..mcp_integration.skill_storage import get_skills_manager
 from .circuit import (
     CircuitOpenError,
     generate_correlation_id,
     get_correlation_id,
 )
 from .config import settings
-from .context_index import context_index
 from .db import GraphClient, db
 from .dream import dreamer
 from .exceptions import ValidationError
@@ -37,12 +36,10 @@ from .exceptions.codes import ErrorCode
 from .llm import llm
 from .logger import get_logger
 from .mcp_runtime import get_mcp_server_names, is_mcp_available
-from .meta_agents import Fragment, meta_agents
+from .meta_agents import meta_agents
 from .navigator import Navigator
-from .omcd import omcd
 from .prompts import build_system_prompt
 from .reflexion import intelli_synth
-from .repe import repe
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
 from .semantic_summarizer import summarize_event
@@ -54,7 +51,7 @@ from .state import (
     broadcast_trace,
     execution_events,
 )
-from .thimac_memory import ThimacIntention, ThimacMemory, ThimacOperation
+from .thimac_memory import ThimacIntention, ThimacMemory
 from .trace import register_monitor, trace_action
 
 if TYPE_CHECKING:
