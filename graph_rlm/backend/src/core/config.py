@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
 
     # Summary Model (lightweight model for step summaries in scratchpad)
-    SUMMARY_MODEL: str = "google/gemini-2.0-flash-lite"
+    SUMMARY_MODEL: str = "google/gemini-2.0-flash-lite-preview-02-05"
 
     def get_config_for_provider(self, provider: str) -> dict:
         """Returns the LLM configuration for a specific provider."""

@@ -440,6 +440,14 @@ async def execute_skill_internal(skill_name: str, kwargs: dict[str, Any]) -> Any
         module.__dict__["rlm"] = RLMProxy()
         module.__dict__["mcp"] = MCPProxy()
 
+        # Inject stealth utilities directly for convenience
+        try:
+            from graph_rlm.backend.src.core import stealth
+
+            module.__dict__["stealth"] = stealth
+        except ImportError:
+            logger.warning("Could not inject stealth utilities into skill namespace.")
+
         if not function_name:
             # Try to resolve function name
             if hasattr(module, skill_name):

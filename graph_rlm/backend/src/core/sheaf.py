@@ -363,7 +363,9 @@ class SheafMonitor:
             logger.warning("Spectral diagnosis/synthesis failed: %s", e)
             return {"status": "error", "error": str(e)}
 
-    def calculate_h1_obstruction(self, thought_path: List[Dict[str, Any]]) -> float:
+    def calculate_h1_obstruction(
+        self, thought_path: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
         """
         Calculates the H1 Cohomology Obstruction (Logical Knot Strength) mathematically.
         Uses the Sheaf Laplacian to measure Consistency Energy (topological defect).
@@ -373,7 +375,7 @@ class SheafMonitor:
         """
         n = len(thought_path)
         if n < 2:
-            return 0.0
+            return {"score": 0.0, "rationale": "Insufficient history (N < 2)."}
 
         edges = [
             (thought_path[i - 1]["id"], thought_path[i]["id"]) for i in range(1, n)
@@ -387,11 +389,20 @@ class SheafMonitor:
         ideal_weight_sum = float(n - 1)
 
         if ideal_weight_sum == 0.0:
-            return 0.0
+            return {"score": 0.0, "rationale": "Zero ideal weight sum."}
 
         # Divergence from ideal consistency
         inconsistency_energy = 1.0 - (actual_weight_sum / ideal_weight_sum)
-        return float(max(0.0, min(1.0, inconsistency_energy)))
+        score = float(max(0.0, min(1.0, inconsistency_energy)))
+
+        rationale = (
+            f"Consistency Energy: {score:.2f}. "
+            f"Actual Weights: {actual_weight_sum:.2f} (Ideal: {ideal_weight_sum:.2f})."
+        )
+        if score > 0.5:
+            rationale += " High structural contradiction detected (Logical Knot)."
+
+        return {"score": score, "rationale": rationale}
 
     def _calculate_cosine_similarity(
         self, vec1: List[float], vec2: List[float]
@@ -405,75 +416,101 @@ class SheafMonitor:
             return 0.0
         return float(np.dot(v1, v2) / (norm1 * norm2))
 
-    def calculate_topological_stress(self, root_id: str, round_id: str = "") -> float:
+    def calculate_topological_stress(
+        self,
+        root_id: str,
+        round_id: str = "",
+        memory_trajectory: Optional[List[Any]] = None,
+    ) -> Dict[str, Any]:
         """
         Calculates the Topological Stress of the active session graph.
-        Formula: (Ghost Edges + Logic Drifts) / Total Nodes
-        Ghost Nodes = status in ['failed', 'error', 'reflexion']
-        Logic Drifts = nodes with sheaf_score >= 0.5 (high anomaly/loop).
+        Formula: (Ghost Nodes + Logic Drifts) / Total Nodes
 
         Args:
-            root_id: Root session ID.
-            round_id: If provided, scope to current round only (prevents
-                      old/poisoned session data from contaminating analysis).
+            root_id: Root session ID (fallback).
+            round_id: Current round ID for scoping.
+            memory_trajectory: Optional list of ThimacEvent objects for in-memory analysis.
         """
-        if not root_id:
-            return 0.0
+        nodes = []
 
-        # Scope to current round when available — same window as scratchpad
-        if round_id:
-            cypher = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
-              AND n.round_id = $rid
-              AND n.status <> 'consolidated'
-            RETURN n.status as status, n.sheaf_score as sheaf_score
-            """
-            params = {"sid": root_id, "rid": round_id}
-        else:
-            cypher = """
-            MATCH (n:Thought)
-            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
-              AND n.status <> 'consolidated'
-            RETURN n.status as status, n.sheaf_score as sheaf_score
-            """
-            params = {"sid": root_id}
-        try:
-            nodes = db.query(cypher, params)
-            if not nodes:
-                return 0.0
+        # 1. Trajectory Discovery
+        if memory_trajectory:
+            # Use in-memory events (RAM Speed)
+            # We filter by round_id if provided
+            nodes = [
+                e.to_dict()
+                for e in memory_trajectory
+                if not round_id or e.round_id == round_id
+            ]
+        elif root_id:
+            # Fallback to Database Query (Global Context)
+            if round_id:
+                cypher = """
+                MATCH (n:Thought)
+                WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+                  AND n.round_id = $rid
+                  AND n.status <> 'consolidated'
+                RETURN n.status as status, n.sheaf_score as sheaf_score, n.epistemic_eros as epistemic_eros
+                """
+                params = {"sid": root_id, "rid": round_id}
+            else:
+                cypher = """
+                MATCH (n:Thought)
+                WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+                  AND n.status <> 'consolidated'
+                RETURN n.status as status, n.sheaf_score as sheaf_score, n.epistemic_eros as epistemic_eros
+                """
+                params = {"sid": root_id}
 
-            total_nodes = len(nodes)
-            if total_nodes == 0:
-                return 0.0
+            try:
+                results = db.query(cypher, params)
+                nodes = results if results else []
+            except Exception as e:
+                logger.error("Failed to calculate topological stress (DB): %s", e)
+                return {"score": 0.0, "rationale": f"Database error: {e}"}
 
-            noisy_nodes = 0
-            for node in nodes:
-                status = ""
-                sheaf_score = None
+        if not nodes:
+            return {"score": 0.0, "rationale": "No nodes found in trajectory."}
 
-                if isinstance(node, dict):
-                    status = str(node.get("status", ""))
-                    sheaf_score = node.get("sheaf_score")
-                elif isinstance(node, (list, tuple)) and len(node) >= 2:
-                    status = str(node[0] if node[0] else "")
-                    sheaf_score = node[1]
+        total_nodes = len(nodes)
+        noisy_nodes = 0
 
-                if status in ["failed", "error", "reflexion", "system_intervention"]:
+        # 2. Logic Drift & Failure Analysis
+        for node in nodes:
+            status = ""
+            sheaf_score = None
+            eros = 0.5
+
+            if isinstance(node, dict):
+                status = str(node.get("status", ""))
+                sheaf_score = node.get("sheaf_score")
+                eros = float(node.get("epistemic_eros", 0.5) or 0.5)
+            elif isinstance(node, (list, tuple)) and len(node) >= 2:
+                status = str(node[0] if node[0] else "")
+                sheaf_score = node[1]
+                eros = float(node[2] if len(node) > 2 and node[2] is not None else 0.5)
+
+            if status in ["failed", "error", "reflexion", "system_intervention"]:
+                noisy_nodes += 1
+            elif sheaf_score is not None and float(sheaf_score) >= 0.5:
+                # Modulate threshold by Epistemic Eros
+                effective_threshold = 0.5 + (0.3 * eros)
+                if float(sheaf_score) >= effective_threshold:
                     noisy_nodes += 1
-                elif sheaf_score is not None and float(sheaf_score) >= 0.5:
-                    noisy_nodes += 1
 
-            return min(1.0, float(noisy_nodes) / float(total_nodes))
-        except Exception as e:
-            logger.error("Failed to calculate topological stress: %s", e)
-            return 0.0
+        stress_score = min(1.0, float(noisy_nodes) / float(total_nodes))
+        rationale = (
+            f"Stress derived from {noisy_nodes}/{total_nodes} noisy nodes. "
+            f"Failures: {sum(1 for n in nodes if n.get('status') in ['failed', 'error'])}. "
+            f"Reflexions: {sum(1 for n in nodes if n.get('status') == 'reflexion')}."
+        )
+        return {"score": stress_score, "rationale": rationale}
 
     def diagnose_trace(
         self,
         root_id: str,
         hypothetical_node: Optional[Dict[str, Any]] = None,
-        hypothetical_edges: Optional[List[Tuple[str, str]]] = None,
+        memory_trajectory: Optional[List[Any]] = None,
         goal_embedding: Optional[List[float]] = None,
         round_id: str = "",
     ) -> Dict[str, Any]:
@@ -482,8 +519,10 @@ class SheafMonitor:
         Higher energy = Lower consistency.
 
         Args:
-            round_id: If provided, topological stress is scoped to current round
-                      (same window as scratchpad), preventing old data contamination.
+            root_id: Root session ID (fallback).
+            memory_trajectory: Optional list of ThimacEvent for in-memory analysis.
+            goal_embedding: Embedding of the target task.
+            round_id: Round scoping.
         """
         if not hypothetical_node or not hypothetical_node.get("embedding"):
             logger.warning(
@@ -497,23 +536,34 @@ class SheafMonitor:
 
         current_vec = self._normalize(hypothetical_node["embedding"])
 
-        # Calculate topological stress scoped to current round (same window as scratchpad)
-        stress = self.calculate_topological_stress(root_id, round_id=round_id)
+        # Calculate topological stress scoped to current round
+        stress_res = self.calculate_topological_stress(
+            root_id, round_id=round_id, memory_trajectory=memory_trajectory
+        )
+        stress = stress_res["score"]
+        stress_rationale = stress_res["rationale"]
 
         # 1. Fetch Context (The "Tail" of the trajectory)
-        frontier_ids = [e[0] for e in hypothetical_edges] if hypothetical_edges else []
-        if not frontier_ids:
-            return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
-
-        cypher = """
-        MATCH (n:Thought)
-        WHERE n.id IN $fids
-        RETURN n.id as id, n.embedding as embedding, n.status as status,
-               n.prompt as prompt, n.result as result, n.execution_summary as summary,
-               n.repl_id as repl_id
-        ORDER BY n.created_at DESC
-        """
-        history_nodes = db.query(cypher, {"fids": frontier_ids})
+        history_nodes = []
+        if memory_trajectory:
+            # Use RAM: Last 10 events from the same round
+            history_nodes = [
+                e.to_dict()
+                for e in memory_trajectory[-10:]
+                if not round_id or e.round_id == round_id
+            ]
+        elif root_id:
+            # Fallback to DB (Not recommended for real-time)
+            cypher = """
+            MATCH (n:Thought)
+            WHERE (n.root_session_id = $sid OR n.session_id = $sid)
+            RETURN n.id as id, n.embedding as embedding, n.status as status,
+                   n.prompt as prompt, n.result as result, n.execution_summary as summary,
+                   n.repl_id as repl_id
+            ORDER BY n.created_at DESC
+            LIMIT 10
+            """
+            history_nodes = db.query(cypher, {"sid": root_id})
 
         if not history_nodes:
             return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
@@ -525,7 +575,9 @@ class SheafMonitor:
         if hypothetical_node:
             path_nodes.append(hypothetical_node)
 
-        inconsistency_energy = self.calculate_h1_obstruction(path_nodes)
+        h1_res = self.calculate_h1_obstruction(path_nodes)
+        inconsistency_energy = h1_res["score"]
+        h1_rationale = h1_res["rationale"]
 
         if inconsistency_energy > 0.5:
             trace_action(
@@ -540,8 +592,9 @@ class SheafMonitor:
                 "consistency_energy": inconsistency_energy,
                 "critique": (
                     f"Empirical Contradiction: Your reasoning path has exceeded the topological "
-                    f"stress threshold (Energy = {inconsistency_energy:.2f} > 0.5). You are likely stuck in a logic loop "
-                    f"where intent and outcome consistently diverge. Re-evaluate your approach entirely."
+                    f"stress threshold (Energy = {inconsistency_energy:.2f} > 0.5). {h1_rationale} "
+                    f"You are likely stuck in a logic loop where intent and outcome consistently diverge. "
+                    f"Re-evaluate your approach entirely."
                 ),
                 "should_halt": False,
                 "topological_stress": stress,
@@ -692,7 +745,9 @@ class SheafMonitor:
             }
 
         # Trigger H1 Obstruction Check
-        h1_obstruction = self.calculate_h1_obstruction(history_nodes)
+        h1_check_res = self.calculate_h1_obstruction(history_nodes)
+        h1_obstruction = h1_check_res["score"]
+        h1_final_rationale = h1_check_res["rationale"]
         if h1_obstruction > 0.5:
             trace_action(
                 "SHEAF",
@@ -721,6 +776,7 @@ class SheafMonitor:
             "confidence": max(0.0, min(1.0, float(1.0 - total_energy))),  # oMCD P_c
             "should_halt": False,
             "topological_stress": stress,
+            "rationale": (f"Sheaf Healthy. {stress_rationale} | {h1_final_rationale}"),
         }
 
     def compute_sheaf_surprise_score(
@@ -728,14 +784,52 @@ class SheafMonitor:
         limit: int = 10,
         session_id: Optional[str] = None,
         turn_id: Optional[int] = None,
+        memory_trajectory: Optional[List[Any]] = None,
     ) -> List[Dict[str, Any]]:
         """
-        Queries the graph for edges with high surprise or failure status.
-
-        Resolution filter: uses OPTIONAL MATCH to exclude failures that have
-        a later healed node (status 'completed'/'success' with a newer
-        timestamp) in the same scope (turn > session > global).
+        Identifies edges with high surprise or failure status.
+        Uses in-memory trajectory for real-time speed, falling back to DB.
         """
+        # --- PHASE 1: RAM EVALUATION (Fast Track) ---
+        if memory_trajectory:
+            active_events = [
+                e
+                for e in memory_trajectory
+                if (
+                    not session_id
+                    or e.session_id == session_id
+                    or e.root_session_id == session_id
+                )
+                and (turn_id is None or e.turn_id == turn_id)
+            ]
+
+            unresolved_failures = []
+            for i, event in enumerate(active_events):
+                if event.status in ["failed", "error", "reflexion"]:
+                    # Healing Check: Is there a later success in the same round/turn?
+                    healed = False
+                    for successor in active_events[i + 1 :]:
+                        if successor.status in ["completed", "success"]:
+                            healed = True
+                            break
+
+                    if not healed:
+                        unresolved_failures.append(
+                            {
+                                "source": event.parent_id or "ROOT",
+                                "target": event.thought_id,
+                                "surprise_score": 1.0,
+                                "status": event.status,
+                                "timestamp": event.timestamp,
+                            }
+                        )
+
+            if unresolved_failures:
+                return sorted(
+                    unresolved_failures, key=lambda x: x["timestamp"], reverse=True
+                )[:limit]
+
+        # --- PHASE 2: DATABASE EVALUATION (Fallback) ---
         session_filter = ""
         turn_filter = ""
         params: Dict[str, Any] = {}
@@ -808,9 +902,9 @@ class SheafMonitor:
     async def check_axiomatic_consistency(
         self,
         proposed_code: str,
-        domain_context: Optional[str] = None,  # pylint: disable=unused-argument
+        domain_context: Optional[str] = None,
         task_tags: Optional[List[str]] = None,
-        repl_manager: Optional[Any] = None,  # pylint: disable=unused-argument
+        repl_manager: Optional[Any] = None,
         depth: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:

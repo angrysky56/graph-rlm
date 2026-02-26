@@ -756,6 +756,7 @@ class Dreamer:
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
         termination_reason: Optional[str] = None,
+        memory_trajectory: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         """
         Orchestrated Validation Phase (v3 Protocol).
@@ -807,10 +808,7 @@ class Dreamer:
             if verify_code and "pass" not in verify_code.lower():
                 # B) Execute in REPL
                 # Inject minimal context for verification
-                preamble = """import os
-                import sys
-                from pathlib import Path
-                """
+                preamble = "import os\n" "import sys\n" "from pathlib import Path\n"
                 from .core import KnowledgeBaseStructure
 
                 kb = KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
@@ -852,12 +850,7 @@ class Dreamer:
         # Positive = grounded / healthy on that axis
 
         # ── 3. Sheaf: Topological Diagnosis (with real edges!) ──
-        # Build hypothetical_edges from recent session nodes so diagnose_trace
-        # actually runs the lie detector, loop check, and drift check.
-        frontier_ids = trace.get("recent_node_ids", [])
-        hypothetical_edges = [
-            (fid, f"validation_{session_id or 'unknown'}") for fid in frontier_ids[:5]
-        ]
+        # Uses memory_trajectory or DB trace to run loop and drift checks.
         diagnosis = sheaf.diagnose_trace(
             root_id=str(session_id) if session_id else "unknown",
             hypothetical_node={
@@ -866,7 +859,7 @@ class Dreamer:
                 "role": "assistant",
                 "embedding": candidate_vec,
             },
-            hypothetical_edges=hypothetical_edges,
+            memory_trajectory=memory_trajectory,
             goal_embedding=goal_embedding,
         )
         topo_status = diagnosis.get("status", "HEALTHY")
@@ -972,9 +965,11 @@ class Dreamer:
             f"## Instructions\n"
             f"Perform a cold, factual evaluation. Do NOT hallucinate failures.\n"
             f"Crucially, check for **STRUCTURAL GROUNDING**: If the agent claims to have written files, "
-            f"ensure they are verified (Grounding Status: GROUNDED). Reject if UNVERIFIED_SIDE_EFFECTS.\n"
+            f"ensure they are verified (Grounding Status: GROUNDED). Reject as invalid if Grounding Status is 'UNVERIFIED_SIDE_EFFECTS'.\n"
+            f"**IMPORTANT**: If the grounding status is unverified, YOU MUST list the specific 'Pending Side-Effects' in your 'instruction' field so the agent knows what to verify next.\n"
             f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
             f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
+            f"- [META-COGNITION] Meta-cognitive analysis (reflection, simulation results) is explicitly allowed as long as it lead to actionable conclusions or verification.\n"
             f"- [PRESENCE] Ensure the response is not just a summary of failure. If the agent claims it completed the task, check the 'Active Verification Results' or 'Deterministic Flags'.\n"
             f"- [HARD FAILS] Mark INVALID ONLY if there are:\n"
             f"    1. Unresolved Tracebacks or obvious placeholders (e.g., 'TODO', '...') in the final output.\n"
@@ -1181,15 +1176,42 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
 
     async def _mine_knowledge(self, text: str, domain: str) -> List[Dict[str, Any]]:
         """Extract multi-tier knowledge (Validators, Solvers, Advisors) from text."""
+
+        # [BLOAT CONTROL] Fetch existing axioms to prevent redundant mining
+        existing_axioms_text = ""
+        try:
+            mgr = get_axioms_manager()
+            existing = mgr.list_axioms()
+            if existing:
+                context_list = []
+                for name, meta in list(existing.items())[
+                    :50
+                ]:  # Cap at 50 for prompt window
+                    context_list.append(f"- {name}: {meta.get('description', '')}")
+                existing_axioms_text = (
+                    "\n\n[EXISTING AXIOMS - DO NOT DUPLICATE THESE]\n"
+                    + "\n".join(context_list)
+                )
+        except (AttributeError, RuntimeError, ValueError) as e:
+            logger.warning(
+                "Failed to fetch existing axioms for context-aware mining: %s", e
+            )
+
         prompt = (
-            '[{"name": "string", "type": "validator|solver|advisor", '
-            '"description": "precise requirement", "healing_hint": "optional prompt for the solver logic"}]\n\n'
-            f"Text content:\n{text[:50000]}"
+            "Extract structured domain knowledge (Validators, Solvers, Advisors) as JSON. "
+            "A 'validator' is a Python function that returns True if a condition is met. "
+            "A 'solver' is a function that can fix a problem. "
+            "An 'advisor' provides heuristics.\n\n"
+            'Desired Format: [{"name": "string", "type": "validator|solver|advisor", '
+            '"description": "precise requirement", "healing_hint": "optional prompt"}]\n\n'
+            f"Text content:\n{text[:40000]}"
+            f"{existing_axioms_text}"
         )
         res, was_fallback = await protected_llm_with_fallback(
             prompt=prompt,
             fallback_message="Knowledge mining unavailable",
-            system=f"Extract structured domain knowledge for the {domain} domain as JSON.",
+            system=f"You are the {domain} Domain Expert. Extract UNIQUE, ACTIONABLE knowledge. "
+            "If the knowledge is already covered by an existing axiom, SKIP IT.",
             stream=False,
         )
         if was_fallback:
@@ -1213,7 +1235,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
 
     async def _codify_axiom(
         self, knowledge: Dict[str, Any], domain: str
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, Optional[str], str]:
         """Codify knowledge into a main Axiom and an optional Healing Script."""
         k_type = knowledge.get("type", "validator")
         desc = knowledge.get("description", "")
@@ -1230,13 +1252,16 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             f"1. Name the main function descriptively based on: {knowledge.get('name')}.\n"
             "2. Validators must return True/False. Solvers/Advisors should perform the action.\n"
             "3. Use raw strings (r'pattern') for regex.\n"
+            "4. Provide a detailed markdown documentation block (NOT in a python block) containing Rationale, Capabilities, Usage, Examples, and Common Pitfalls.\n"
         )
         res, was_fallback = await protected_llm_with_fallback(
             prompt=prompt,
             fallback_message="Axiom codification unavailable",
             system=(
-                "Generate Python code blocks only. "
-                "Block 1 is the Axiom, Block 2 is the optional Healing Script. "
+                "Generate EXACTLY TWO python code blocks and ONE markdown block. "
+                "Python Block 1: The Axiom Code. "
+                "Python Block 2: The optional Healing Script (leave empty or use 'pass' if not needed). "
+                "Markdown Block: Detailed SKILL_DOCUMENTATION. "
                 "CRITICAL: Every block MUST contain a module-level docstring, "
                 "descriptive function docstrings, type hints, and follow PEP 8. "
                 "FORBIDDEN: Do NOT use mutable objects (list, dict, set) as default arguments; "
@@ -1248,18 +1273,37 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 "existing logic in the domain, extend the existing patterns. "
                 "DOCSTRINGS: The module-level docstring must be the first statement in the file. "
                 "Function docstrings must be the FIRST statement in the function body."
-                "NO trailing whitespace. Ensure exactly one newline at the end of each block."
+                "NO trailing whitespace. Ensure exactly one newline at the end of each block. "
+                "AGENTIAL GRACE: If the skill involves browser automation (playwright), "
+                "you MUST import `graph_rlm.backend.src.core.stealth` and use its utilities "
+                "(human_type, realistic_click, random_sleep) to avoid bot detection."
             ),
             stream=False,
         )
         if was_fallback:
             logger.warning("dream_codify_fallback_used", extra={"domain": domain})
 
-        blocks = re.findall(r"```python(.*?)```", res, re.DOTALL)
-        axiom_code = blocks[0].strip() if blocks else ""
-        healing_code = blocks[1].strip() if len(blocks) > 1 else None
+        python_blocks = re.findall(r"```python(.*?)```", res, re.DOTALL)
+        markdown_blocks = re.findall(r"```markdown(.*?)```", res, re.DOTALL)
+        if not markdown_blocks:
+            # Fallback for plain markdown or different headers
+            markdown_match = re.search(
+                r"## SKILL_DOCUMENTATION\n(.*?)(?=\n##|$)",
+                res,
+                re.DOTALL | re.IGNORECASE,
+            )
+            if not markdown_match:
+                # If no specific block found, use the whole non-python text
+                doc_text = re.sub(r"```python.*?```", "", res, flags=re.DOTALL).strip()
+            else:
+                doc_text = markdown_match.group(1).strip()
+        else:
+            doc_text = markdown_blocks[0].strip()
 
-        return axiom_code, healing_code
+        axiom_code = python_blocks[0].strip() if python_blocks else ""
+        healing_code = python_blocks[1].strip() if len(python_blocks) > 1 else None
+
+        return axiom_code, healing_code, doc_text
 
     async def _verify_axiom_async(self, code: str, invariant: str) -> bool:
         test_prompt = (
@@ -1384,6 +1428,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         domain: str,
         axiom_type: str = "validator",
         healing_code: str | None = None,
+        markdown_body: str | None = None,
         session_id: str | None = None,
         root_session_id: str | None = None,
     ) -> str:
@@ -1398,10 +1443,41 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             tags=[domain],
             axiom_type=axiom_type,
             healing_code=healing_code,
+            markdown_body=markdown_body,
             session_id=session_id,
             root_session_id=root_session_id,
         )
         return axiom_name
+
+    async def _log_axiom_lifecycle_event(
+        self,
+        event_name: str,
+        axiom_name: str,
+        rationale: str,
+        session_id: Optional[str] = None,
+        root_session_id: Optional[str] = None,
+    ):
+        """Materializes an axiom lifecycle event (codification/pruning) in the graph."""
+        try:
+            thought_id = str(uuid.uuid4())
+            logical_id = f"axiom:{axiom_name}:{event_name.lower()}"
+
+            self.db.create_thought_node(
+                thought_id=thought_id,
+                prompt=f"AXIOM {event_name.upper()}: {axiom_name}",
+                logical_id=logical_id,
+                result=rationale,
+                status="reflexion",
+                session_id=session_id or "dream_cycle",
+                root_session_id=root_session_id or session_id or "system",
+                repl_id="DREAM",
+                execution_summary=f"Automated {event_name} performed by Dreamer",
+            )
+            logger.info(
+                "📡 [Dreamer] Logged Axiom %s event for %s", event_name, axiom_name
+            )
+        except (AttributeError, RuntimeError, ValueError) as e:
+            logger.error("Failed to log axiom lifecycle event: %s", e)
 
     async def _auto_codify_from_insight(
         self,
@@ -1431,15 +1507,27 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 and isinstance(codified_axioms, list)
                 and len(codified_axioms) > 0
             ):
-                return codified_axioms[0]
+                axiom_name = codified_axioms[0]
+                await self._log_axiom_lifecycle_event(
+                    "Codification",
+                    axiom_name,
+                    f"Insight: {insight[:200]}...",
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                )
+                return axiom_name
             return None
         finally:
             self._is_codifying = False
 
     async def _perform_axiom_quality_control(self, session_id: Optional[str]):
         """
-        Post-Mortem: Scan the session for repeating axiomatic failures.
+        Post-Mortem: Scan the session for repeating axiomatic failures and global redundancy.
         """
+        # 1. Redundancy Pruning (Global Bloat Control)
+        await self._prune_redundant_axioms()
+
+        # 2. Failure-based Archival (Session Specific)
         if not session_id:
             return
 
@@ -1473,9 +1561,87 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                         count,
                     )
                     await axioms_mgr.disable_axiom(axiom_name)
+                    await self._log_axiom_lifecycle_event(
+                        "QualityControl_Archival",
+                        axiom_name,
+                        f"Archived due to {count} failures in session {session_id}.",
+                        session_id=session_id,
+                    )
 
         except (RuntimeError, ValueError, TypeError) as e:
             logger.error("Axiom Quality Control failed: %s", e)
+
+    async def _prune_redundant_axioms(self, threshold: float = 0.95):
+        """
+        Find and archive axioms that are semantically identical to prevent node bloat.
+        Uses cosine similarity of embeddings.
+        """
+        logger.info("🧹 [Axiom GC] Scanning for redundant axioms...")
+        try:
+            axioms_mgr = get_axioms_manager()
+            # Fetch all axioms with embeddings from DB
+            q = "MATCH (a:Axiom) WHERE a.embedding IS NOT NULL AND a.name STARTS WITH 'axiom-' RETURN a.name as name, a.embedding as vec"
+            results = self.db.query(q)
+            if not results or len(results) < 2:
+                return
+
+            axioms = []
+            for row in results:
+                name = row.get("name")
+                vec = row.get("vec")
+                if name and vec:
+                    # Convert vec to numpy array for efficiency
+                    axioms.append({"name": name, "vec": np.array(vec)})
+
+            to_archive = set()
+            for i in range(len(axioms)):
+                if axioms[i]["name"] in to_archive:
+                    continue
+
+                for j in range(i + 1, len(axioms)):
+                    if axioms[j]["name"] in to_archive:
+                        continue
+
+                    # Calculate Cosine Similarity
+                    v1 = axioms[i]["vec"]
+                    v2 = axioms[j]["vec"]
+                    # Normalize if not already (llm.get_embedding usually is, but let's be safe)
+                    norm1 = np.linalg.norm(v1)
+                    norm2 = np.linalg.norm(v2)
+                    if norm1 > 0 and norm2 > 0:
+                        sim = np.dot(v1, v2) / (norm1 * norm2)
+                        if sim > threshold:
+                            # Keep the one with the shorter name or older timestamp (simplified here: keep i)
+                            logger.info(
+                                "♻️ [Axiom GC] Redundancy detected: '%s' is %.2f similar to '%s'. Archiving '%s'.",
+                                axioms[i]["name"],
+                                sim,
+                                axioms[j]["name"],
+                                axioms[j]["name"],
+                            )
+                            to_archive.add(axioms[j]["name"])
+
+            for name in to_archive:
+                await axioms_mgr.disable_axiom(name)
+                # We don't have a specific session_id for global pruning, but we log it
+                await self._log_axiom_lifecycle_event(
+                    "Redundancy_Pruned",
+                    name,
+                    "Archived due to high semantic similarity with existing axioms during global GC cycle.",
+                )
+
+            if to_archive:
+                logger.info(
+                    "✅ [Axiom GC] Archived %d redundant axioms.", len(to_archive)
+                )
+                # Cleanup DB nodes that might be stale in other labels
+                self.db.query(
+                    "MATCH (a:Axiom) WHERE a.name IN $names DELETE a",
+                    {"names": list(to_archive)},
+                )
+
+        except (RuntimeError, ValueError, TypeError, ZeroDivisionError) as e:
+            logger.error("Axiom redundancy pruning failed: %s", e)
 
     async def _classify_domain(self, insight: str) -> str:
         prompt = (
@@ -1506,7 +1672,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         codified = []
         for item in knowledge_items:
             try:
-                axiom_code, healing_code = await self._codify_axiom(item, domain)
+                axiom_code, healing_code, markdown_body = await self._codify_axiom(
+                    item, domain
+                )
                 if await self._verify_axiom_async(axiom_code, item["description"]):
                     axiom_name = await self._save_axiom(
                         code=axiom_code,
@@ -1514,6 +1682,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                         domain=domain,
                         axiom_type=item["type"],
                         healing_code=healing_code,
+                        markdown_body=markdown_body,
                         session_id=session_id,
                         root_session_id=root_session_id,
                     )

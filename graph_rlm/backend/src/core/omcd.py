@@ -181,6 +181,15 @@ class OmcdController:
             "hamiltonian": hamiltonian,
             "potential_energy": potential_energy,
             "kinetic_energy": kinetic_energy,
+            "rationale": (
+                f"Stop={q_stop >= self.params.omega}. q_stop={q_stop:.3f} (Benefit={benefit:.2f}, Cost={kinetic_energy:.2f}). "
+                f"Bernshteyn={penalty:.2f}. "
+                + (
+                    "Hallucination detected (Kinetic < Progress)."
+                    if is_non_physical
+                    else "Physics consistent."
+                )
+            ),
         }
 
         # Record for calibration

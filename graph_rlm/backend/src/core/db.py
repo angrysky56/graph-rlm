@@ -106,6 +106,11 @@ class GraphClient:
         metadata_json: Optional[str] = None,
         step_summary: Optional[str] = None,
         semantic_gist: Optional[str] = None,
+        inference_pressure: Optional[float] = None,
+        relational_gravity: Optional[float] = None,
+        free_energy: Optional[float] = None,
+        epistemic_eros: Optional[float] = None,
+        metabolic_state: Optional[str] = None,
         validate: bool = True,
     ):
         """
@@ -350,6 +355,26 @@ class GraphClient:
             params["metadata_json"] = metadata_json
             cypher += ", t.metadata_json = $metadata_json"
 
+        if inference_pressure is not None:
+            params["inf_p"] = float(inference_pressure)
+            cypher += ", t.inference_pressure = $inf_p"
+
+        if relational_gravity is not None:
+            params["rel_g"] = float(relational_gravity)
+            cypher += ", t.relational_gravity = $rel_g"
+
+        if epistemic_eros is not None:
+            params["ep_eros"] = float(epistemic_eros)
+            cypher += ", t.epistemic_eros = $ep_eros"
+
+        if free_energy is not None:
+            params["free_e"] = float(free_energy)
+            cypher += ", t.free_energy = $free_e"
+
+        if metabolic_state is not None:
+            params["m_state"] = metabolic_state
+            cypher += ", t.metabolic_state = $m_state"
+
         self.query(cypher, params)
 
         # Link to parent if exists
@@ -361,6 +386,17 @@ class GraphClient:
             MERGE (parent)-[:DECOMPOSES_INTO]->(child)
             """
             self.query(edge_cypher, edge_params)
+
+        # --- RESONATES_WITH: Topological Similarity Edge (Phase 8 TLTG) ---
+        if prompt_embedding:
+            similar = self.find_similar_thoughts(prompt_embedding, limit=2)
+            for hit in similar:
+                if hit["id"] != thought_id and hit["score"] > 0.85:
+                    self.query(
+                        "MATCH (t:Thought {id: $tid}), (m:Thought {id: $mid}) "
+                        "MERGE (t)-[:RESONATES_WITH {similarity: $score}]->(m)",
+                        {"tid": thought_id, "mid": hit["id"], "score": hit["score"]},
+                    )
 
     def get_parent_id(self, thought_id: str) -> Optional[str]:
         """
@@ -390,7 +426,7 @@ class GraphClient:
     def update_thought_result(
         self,
         thought_id: str,
-        result: str,
+        result: Optional[str] = None,
         embedding: Optional[List[float]] = None,
         repl_id: Optional[str] = None,
         status: Optional[str] = "complete",
@@ -399,19 +435,24 @@ class GraphClient:
         h0_rank: Optional[int] = None,
         step_summary: Optional[str] = None,
         semantic_gist: Optional[str] = None,
+        inference_pressure: Optional[float] = None,
+        relational_gravity: Optional[float] = None,
+        free_energy: Optional[float] = None,
+        epistemic_eros: Optional[float] = None,
+        metabolic_state: Optional[str] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
         """
         params: Dict[str, Any] = {
             "tid": thought_id,
-            "result": result,
             "status": status,
         }
-        cypher = """
-        MATCH (t:Thought {id: $tid})
-        SET t.result = $result, t.status = $status, t.completed_at = timestamp()
-        """
+        cypher = "MATCH (t:Thought {id: $tid}) SET t.status = $status, t.completed_at = timestamp()"
+
+        if result is not None:
+            params["result"] = result
+            cypher += ", t.result = $result"
         if embedding:
             # Note: Storing vectors in FalkorDB enables vector search
             # We assume embedding is a list of floats
@@ -442,7 +483,38 @@ class GraphClient:
             params["semantic_gist"] = semantic_gist
             cypher += ", t.semantic_gist = $semantic_gist"
 
+        if inference_pressure is not None:
+            params["inf_p"] = float(inference_pressure)
+            cypher += ", t.inference_pressure = $inf_p"
+
+        if relational_gravity is not None:
+            params["rel_g"] = float(relational_gravity)
+            cypher += ", t.relational_gravity = $rel_g"
+
+        if epistemic_eros is not None:
+            params["ep_eros"] = float(epistemic_eros)
+            cypher += ", t.epistemic_eros = $ep_eros"
+
+        if free_energy is not None:
+            params["free_e"] = float(free_energy)
+            cypher += ", t.free_energy = $free_e"
+
+        if metabolic_state is not None:
+            params["m_state"] = metabolic_state
+            cypher += ", t.metabolic_state = $m_state"
+
         self.query(cypher, params)
+
+        # --- RESONATES_WITH: Topological Similarity Edge (Phase 8 TLTG) ---
+        if embedding:
+            similar = self.find_similar_thoughts(embedding, limit=2)
+            for hit in similar:
+                if hit["id"] != thought_id and hit["score"] > 0.85:
+                    self.query(
+                        "MATCH (t:Thought {id: $tid}), (m:Thought {id: $mid}) "
+                        "MERGE (t)-[:RESONATES_WITH {similarity: $score}]->(m)",
+                        {"tid": thought_id, "mid": hit["id"], "score": hit["score"]},
+                    )
 
     def find_similar_thoughts(
         self, query_embedding: list[float], limit: int = 5
@@ -772,6 +844,7 @@ class GraphClient:
         cypher = """
         MATCH (r:Round)
         WHERE r.root_session_id = $rsid
+        AND r.ended_at > 0
         RETURN r.round_id as round_id,
                r.user_prompt as user_prompt,
                r.repl_ids as repl_ids,
@@ -967,7 +1040,7 @@ class GraphClient:
                     )
                 return count, pruned_ids
             return 0, []
-        except Exception as e:
+        except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error("Failed to consolidate noisy branches: %s", e, exc_info=True)
             return 0, []
 

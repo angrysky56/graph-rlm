@@ -7,7 +7,6 @@ import asyncio
 import datetime
 import hashlib
 import importlib.util
-import json
 import queue
 import re
 import shutil
@@ -16,9 +15,10 @@ import sys
 import threading
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 import httpx
+import redis
 
 from ..mcp_integration.runtime import AgentRuntime, set_stop_event
 from ..mcp_integration.skill_storage import get_axioms_manager, get_skills_manager
@@ -52,7 +52,7 @@ from .state import (
     broadcast_trace,
     execution_events,
 )
-from .thimac_memory import ThimacIntention, ThimacMemory
+from .thimac_memory import ThimacIntention, ThimacMemory, ThimacOperation
 from .trace import register_monitor, trace_action
 
 if TYPE_CHECKING:
@@ -547,6 +547,9 @@ class Agent:
                 morph_gestalt=morph_gestalt,
                 current_repl_id=current_repl_id,
                 execution_state=execution_state,
+                memory_trajectory=(
+                    self.morph_memory.all_events if self.morph_memory else None
+                ),
             )
             self.emit_event("scratchpad_text", content=pad, is_internal=True)
             return pad
@@ -561,11 +564,19 @@ class Agent:
         status: str,
         result: Optional[str],
         step: int,
+        session_id: str,
+        round_id: str,
+        turn_id: Optional[int] = None,
         repl_id: Optional[str] = None,
         logical_id: Optional[str] = None,
         tool_calls: Optional[List[str]] = None,
         is_branching: bool = False,
         intent_type: Optional[ThimacIntention] = None,
+        embedding: Optional[List[float]] = None,
+        parent_id: Optional[str] = None,
+        sheaf_score: Optional[float] = None,
+        omcd_score: Optional[float] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Helper to ingest a thought node into Thimac memory and return classification."""
         try:
@@ -583,12 +594,15 @@ class Agent:
                 "created_at": int(
                     datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
                 ),
-                "turn_id": self.current_turn,
+                "session_id": session_id,
+                "round_id": round_id or "ROOT",
+                "turn_id": turn_id if turn_id is not None else self.current_turn,
                 "step_id": step,
                 "repl_id": repl_id,
                 "logical_id": logical_id,
-                "execution_summary": None,  # Dropped in favor of topological graph footprints (step_summary)
+                "execution_summary": None,  # Dropped in favor of graph footprints
                 "compression_gain": compression_gain,
+                "metadata": metadata or {},
             }
 
             # Generate Semantic Gist (Phase 4.6)
@@ -607,10 +621,16 @@ class Agent:
                 is_branching=is_branching,
                 semantic_gist=semantic_gist,
                 intent_type=intent_type,
+                embedding=embedding,
+                parent_id=parent_id,
+                sheaf_score=sheaf_score,
+                omcd_score=omcd_score,
             )
 
-            # Persistent Homology Pipeline: If compression > 0, we can autonomously codify it as an Axiom.
-            # (In a fully autonomous setup, the Dreamer handles this, but Thimac flags it here).
+            # NOTE: Thermodynamic persistence (update_thought_result) is deferred
+            # to the Batch Flush mechanism to prevent DB bottlenecks.
+
+            # Persistent Homology Pipeline
             if compression_gain > 0.1 and status == "success":
                 trace_action(
                     "THIMAC",
@@ -618,14 +638,9 @@ class Agent:
                     f"Node {thought_id[:8]} compressed state space significantly (+{compression_gain:.2f}). Flagged for survival.",
                 )
 
-            return {
-                "operation": event.operation.value,
-                "level": event.level.value,
-                "summary": event.summary,
-                "intent": event.intent_type.value,
-                "operation_reason": event.operation_reason,
-                "level_reason": event.level_reason,
-            }
+            res = event.to_dict()
+            res["operation_reason"] = event.operation_reason
+            return res
         except (AttributeError, ValueError, TypeError, KeyError) as e:
             logger.error(
                 "Thimac ingestion failed for thought %s: %s",
@@ -634,6 +649,74 @@ class Agent:
                 exc_info=True,
             )
             return None
+
+    async def _flush_memory_chain(self, final_event_id: Optional[str]):
+        """
+        Traverses the parent_id chain in RAM and flushes the successful branch
+        to the permanent global graph (FalkorDB).
+        """
+        if not self.morph_memory or not final_event_id:
+            return
+
+        # 1. Map all events for quick lookup
+        event_map = {e.thought_id: e for e in self.morph_memory.all_events}
+
+        # 2. Reconstruct the chain from final event upward
+        chain = []
+        curr_id: Optional[str] = final_event_id
+        while curr_id and curr_id in event_map:
+            ev = event_map[curr_id]
+            chain.append(ev)
+            curr_id = ev.parent_id
+            # Safety break for loops
+            if len(chain) > 100:
+                break
+
+        # 3. Flush chain in causal order (bottom-up)
+        flushed_ids = set()
+        for event in reversed(chain):
+            if event.thought_id in flushed_ids:
+                continue
+
+            try:
+                # We reuse create_thought_node which handles the Cypher MERGE/CREATE
+                self.db.create_thought_node(
+                    thought_id=event.thought_id,
+                    prompt=event.full_data,
+                    logical_id=event.logical_id,
+                    session_id=str(event.session_id),
+                    root_session_id=str(
+                        self.session_cache.get("root_session_id", event.session_id)
+                    ),
+                    prompt_embedding=event.embedding,
+                    repl_id=event.repl_id,
+                    status=event.status,
+                    parent_id=event.parent_id,
+                    turn_id=event.turn_id,
+                    step_id=event.step_id,
+                    epistemic_eros=event.epistemic_eros,
+                    inference_pressure=event.inference_pressure,
+                    relational_gravity=event.relational_gravity,
+                    free_energy=event.free_energy,
+                    metabolic_state=event.metabolic_state,
+                    semantic_gist=event.semantic_gist,
+                    step_summary=event.summary,
+                    validate=False,  # Skip guardrails during flush
+                )
+                flushed_ids.add(event.thought_id)
+            except (
+                redis.exceptions.RedisError,
+                redis.exceptions.ResponseError,
+                AttributeError,
+                ValueError,
+                TypeError,
+                KeyError,
+            ) as e:
+                logger.error("Failed to flush event %s to DB: %s", event.thought_id, e)
+
+        logger.info(
+            "Memory Flush: Consolidated %d nodes to final graph.", len(flushed_ids)
+        )
 
     async def _create_system_node(
         self,
@@ -646,54 +729,63 @@ class Agent:
         round_id: str = "unknown",
         turn_id: int = 1,
         step_id: int = 1,
-        repl_id: str = "SYS",
+        repl_id: Optional[str] = "SYS",
         result: Optional[str] = None,
+        thought_id: Optional[str] = None,
         analysis: Optional[Dict] = None,
         validate: bool = False,
         is_branching: bool = False,
-    ):
+        sheaf_score: Optional[float] = None,
+        omcd_score: Optional[float] = None,
+    ) -> str:
         """Standardized helper for materializing system-level reasoning in the graph."""
-        thought_id = str(uuid.uuid4())
+        thought_id = thought_id or str(uuid.uuid4())
         try:
             # Sync system node to Thimac first to get metadata
-            classification = await self._sync_thimac(
+            # NOTE: DB write is deferred to the Batch Flush mechanism.
+            await self._sync_thimac(
                 thought_id=thought_id,
                 prompt=summary,
                 status=status,
                 result=result,
                 step=step_id,
+                session_id=session_id,
+                round_id=round_id,
+                turn_id=turn_id,
                 repl_id=repl_id,
                 logical_id=logical_id,
                 tool_calls=None,
                 is_branching=is_branching,
+                parent_id=parent_id,
+                sheaf_score=sheaf_score,
+                omcd_score=omcd_score,
+                metadata={
+                    "analysis": analysis,
+                    "validate": validate,
+                    "root_session_id": root_session_id,
+                },
             )
 
-            self.db.create_thought_node(
-                thought_id=thought_id,
-                prompt=summary,
-                logical_id=logical_id,
-                result=result,
-                parent_id=parent_id or self.current_thought_id,
-                status=status,
-                session_id=session_id,
-                root_session_id=root_session_id,
-                round_id=round_id,
-                turn_id=turn_id,
-                step_id=step_id,
-                repl_id=repl_id,
-                dreamer_analysis=json.dumps(analysis) if analysis else None,
-                thimac_op=classification.get("operation") if classification else None,
-                thimac_level=classification.get("level") if classification else None,
-                thimac_intent=classification.get("intent") if classification else None,
-                thimac_op_reason=(
-                    classification.get("operation_reason") if classification else None
-                ),
-                thimac_level_reason=(
-                    classification.get("level_reason") if classification else None
-                ),
-                step_summary=classification.get("summary") if classification else None,
-                validate=validate,
+            # Note: The system node is now purely in Thimac RAM.
+            # It will be flushed to the DB if it is part of a successful branch
+            # during the Batch Consolidation phase (RELEASE/ACCEPT).
+
+            # Emit graph_update for UI visibility
+            self.emit_event(
+                "graph_update",
+                data={
+                    "action": "add_node",
+                    "node": {
+                        "id": thought_id,
+                        "label": summary[:50],
+                        "group": 3 if status == "system" else 2,
+                        "status": status,
+                    },
+                },
             )
+
+            return thought_id
+
         except (AttributeError, RuntimeError, KeyError, TypeError, ValueError) as e:
             logger.error(
                 "Failed to create system node %s (LID: %s): %s",
@@ -701,6 +793,7 @@ class Agent:
                 logical_id,
                 e,
             )
+            return thought_id
 
     def emit_event(
         self,
@@ -931,6 +1024,7 @@ class Agent:
         Executed in a worker thread.
         """
         final_root_id = root_session_id if root_session_id else session_id
+        self.session_cache["root_session_id"] = final_root_id
         trace_action(
             "AGENT",
             "QUERY_SYNC",
@@ -999,18 +1093,18 @@ class Agent:
                 current_round_id,
             )
 
-            self.db.create_thought_node(
+            # Sync root task to Thimac for real-time tracking
+            # NOTE: DB write is deferred to the Batch Flush mechanism.
+            await self._sync_thimac(
                 thought_id=task_id,
                 prompt=prompt,
-                logical_id=task_lid,
-                parent_id=parent_id,
-                prompt_embedding=None,
+                status="task",
+                result=None,
+                step=0,
                 session_id=session_id,
-                root_session_id=final_root_id,
                 round_id=current_round_id,
-                turn_id=self.current_turn,
-                step_id=0,  # Root task is step 0
                 repl_id=self.active_repls.get(session_id),
+                logical_id=task_lid,
             )
 
             # Update current pointer
@@ -1322,52 +1416,80 @@ class Agent:
             # --- DASHBOARD METRICS ---
             dashboard_data = {}
             try:
-                # [Universal Observability] Fetch latest metrics for this session to inject into prompt
-                latest_q = """
-                MATCH (n:Thought)
-                WHERE n.root_session_id = $rsid
-                AND n.session_id = $sid
-                RETURN n.sheaf_score as sheaf_energy,
-                       n.repe_shakiness as repe_shakiness,
-                       n.repe_evasion as repe_evasion,
-                       n.repe_confluence as repe_confluence,
-                       n.repe_freedom as repe_freedom,
-                       n.omcd_score as omcd_score,
-                       n.semantic_gist as semantic_gist,
-                       n.thimac_op as thimac_op,
-                       n.thimac_level as thimac_level
-                ORDER BY n.created_at DESC
-                LIMIT 1
-                """
-                latest_res = self.db.query(
-                    latest_q, {"rsid": final_root_id, "sid": session_id}
-                )
-                if latest_res:
-                    row = latest_res[0]
-                    if isinstance(row, dict):
-                        dashboard_data = {
-                            k: f"{v:.2f}" if isinstance(v, (float, int)) else v
-                            for k, v in row.items()
-                        }
-                    else:
-                        # Raw driver list-based fallback
-                        cols = [
-                            "sheaf_energy",
-                            "repe_shakiness",
-                            "repe_evasion",
-                            "repe_confluence",
-                            "repe_freedom",
-                            "omcd_score",
-                            "semantic_gist",
-                            "thimac_op",
-                            "thimac_level",
-                        ]
-                        dashboard_data = {}
-                        for i, v in enumerate(row):
-                            if i < len(cols):
-                                dashboard_data[cols[i]] = (
-                                    f"{v:.2f}" if isinstance(v, (float, int)) else v
-                                )
+                # [Universal Observability] RAM Speed: Check Thimac memory first for minimal latency
+                if self.morph_memory and self.morph_memory.all_events:
+                    latest_event = self.morph_memory.all_events[-1]
+                    dashboard_data = {
+                        "sheaf_energy": (
+                            f"{latest_event.sheaf_score:.2f}"
+                            if latest_event.sheaf_score
+                            else "0.00"
+                        ),
+                        "omcd_score": (
+                            f"{latest_event.omcd_score:.2f}"
+                            if latest_event.omcd_score
+                            else "0.00"
+                        ),
+                        "thimac_op": (
+                            latest_event.operation.value
+                            if hasattr(latest_event.operation, "value")
+                            else latest_event.operation
+                        ),
+                        "thimac_level": (
+                            latest_event.level.value
+                            if hasattr(latest_event.level, "value")
+                            else latest_event.level
+                        ),
+                        "semantic_gist": latest_event.semantic_gist or "",
+                        "metabolic_state": latest_event.metabolic_state or "STABLE",
+                    }
+                else:
+                    # Fallback to DB query if RAM is empty (e.g. session resume)
+                    latest_q = """
+                    MATCH (n:Thought)
+                    WHERE n.root_session_id = $rsid
+                    AND n.session_id = $sid
+                    RETURN n.sheaf_score as sheaf_energy,
+                           n.repe_shakiness as repe_shakiness,
+                           n.repe_evasion as repe_evasion,
+                           n.repe_confluence as repe_confluence,
+                           n.repe_freedom as repe_freedom,
+                           n.omcd_score as omcd_score,
+                           n.semantic_gist as semantic_gist,
+                           n.thimac_op as thimac_op,
+                           n.thimac_level as thimac_level
+                    ORDER BY n.created_at DESC
+                    LIMIT 1
+                    """
+                    latest_res = self.db.query(
+                        latest_q, {"rsid": final_root_id, "sid": session_id}
+                    )
+                    if latest_res:
+                        row = latest_res[0]
+                        if isinstance(row, dict):
+                            dashboard_data = {
+                                k: f"{v:.2f}" if isinstance(v, (float, int)) else v
+                                for k, v in row.items()
+                            }
+                        else:
+                            # Raw driver list-based fallback
+                            cols = [
+                                "sheaf_energy",
+                                "repe_shakiness",
+                                "repe_evasion",
+                                "repe_confluence",
+                                "repe_freedom",
+                                "omcd_score",
+                                "semantic_gist",
+                                "thimac_op",
+                                "thimac_level",
+                            ]
+                            dashboard_data = {}
+                            for i, v in enumerate(row):
+                                if i < len(cols):
+                                    dashboard_data[cols[i]] = (
+                                        f"{v:.2f}" if isinstance(v, (float, int)) else v
+                                    )
 
                 # Inject branching state from execution state
                 if exec_state:
@@ -1375,7 +1497,7 @@ class Agent:
                         exec_state, "branching_state", "STABLE"
                     )
 
-            except Exception as e:
+            except (AttributeError, ValueError, TypeError, KeyError) as e:
                 logger.warning("Failed to fetch dashboard metrics for prompt: %s", e)
 
             system_prompt = (
@@ -1628,6 +1750,7 @@ class Agent:
             )
 
             current_intent = None
+            classification = None
             if motor:
                 current_intent = ThimacIntention.MOTOR
                 if rlm_ctx:
@@ -1666,9 +1789,9 @@ class Agent:
 
                 # Commit Error Node to Graph so it's not "missing"
                 try:
-                    self.db.create_thought_node(
-                        thought_id,
-                        "[SYSTEM ERROR]: LLM returned an empty response. Circuit breaker triggered.",
+                    await self._create_system_node(
+                        thought_id=thought_id,
+                        summary="[SYSTEM ERROR]: LLM returned an empty response. Circuit breaker triggered.",
                         logical_id=logical_id,
                         session_id=session_id,
                         root_session_id=final_root_id,
@@ -1714,33 +1837,10 @@ class Agent:
             except (httpx.RequestError, ValueError, TypeError) as e:
                 logger.warning("Failed to embed thought: %s", e)
 
-            # 7. PRE-COMMIT (Atomic Traceability)
-            # Create the node as "running" before any monitors/execution
-            thimac_state = (
-                self.morph_memory.get_gestalt_string() if self.morph_memory else None
-            )
-            reflexion_analysis = (
-                None  # Placeholder for active reflexion state if needed
-            )
-
+            # 7. IN-MEMORY REGISTRATION (Atomic Traceability)
+            # We skip the database write here and rely on UI events for real-time visibility.
             try:
-                self.db.create_thought_node(
-                    thought_id,
-                    response_text,
-                    logical_id=logical_id,
-                    session_id=session_id,
-                    root_session_id=final_root_id,
-                    prompt_embedding=vec,
-                    repl_id=repl_id,
-                    status="running",
-                    parent_id=self.current_thought_id,
-                    round_id=current_round_id,
-                    turn_id=self.current_turn,
-                    step_id=step,
-                    thimac_state=thimac_state,
-                    reflexion_analysis=reflexion_analysis,
-                )
-                # Emit early graph update
+                # Emit early graph update for the UI
                 self.emit_event(
                     "graph_update",
                     data={
@@ -1763,8 +1863,8 @@ class Agent:
                         "parent_id": self.current_thought_id,
                     },
                 )
-            except (AttributeError, RuntimeError, KeyError) as e:
-                logger.error("Failed to pre-commit thought (DB error): %s", e)
+            except (AttributeError, ValueError, TypeError, KeyError) as e:
+                logger.error("Failed to emit pre-commit events: %s", e)
 
             # --- 6. EPISTEMIC HEALTH CHECK (Dual-Process Monitoring) ---
             # We run this BEFORE executing code to prevent "hallucinated actions."
@@ -1808,7 +1908,6 @@ class Agent:
 
                 # 2. Sheaf (External Trajectory: Logic/Goal)
                 # Checks: "Does this follow? Am I closer to the goal?"
-                hypothetical_edges = [(fid, thought_id) for fid in frontier_ids]
                 sheaf_diag = sheaf.diagnose_trace(
                     root_id=final_root_id,
                     hypothetical_node={
@@ -1816,10 +1915,14 @@ class Agent:
                         "prompt": response_text,
                         "id": thought_id,
                     },
-                    hypothetical_edges=hypothetical_edges,
+                    memory_trajectory=(
+                        self.morph_memory.subsistence if self.morph_memory else None
+                    ),
                     goal_embedding=self.session_cache.get("task_embedding"),
                     round_id=current_round_id,
                 )
+                exec_state.last_sheaf_energy = float(sheaf_diag.get("energy", 0.0))
+                exec_state.last_sheaf_rationale = sheaf_diag.get("rationale")
 
                 # [Universal Traceability] Materialize Sheaf Reasoning
                 shf_lid = f"{session_id}:T{self.current_turn}:S{step}:SHF"
@@ -1833,7 +1936,7 @@ class Agent:
                     turn_id=self.current_turn,
                     step_id=step,
                     repl_id="SHF",
-                    result=sheaf_diag.get("critique"),
+                    result=f"{sheaf_diag.get('critique')} | Rationale: {sheaf_diag.get('rationale')}",
                     analysis=sheaf_diag,
                     validate=False,
                 )
@@ -1892,6 +1995,8 @@ class Agent:
                 potential_energy = goal_dist + consistency_energy + branching_bonus
 
                 omcd_decision = omcd.evaluate_step(step, confidence, potential_energy)
+                exec_state.last_omcd_qstop = float(omcd_decision.get("q_stop", 0.0))
+                exec_state.last_omcd_rationale = omcd_decision.get("rationale")
 
                 # [Universal Traceability] Materialize oMCD Reasoning
                 omc_lid = f"{session_id}:T{self.current_turn}:S{step}:OMC"
@@ -1905,6 +2010,7 @@ class Agent:
                     turn_id=self.current_turn,
                     step_id=step,
                     repl_id="OMC",
+                    result=omcd_decision.get("rationale"),
                     analysis=omcd_decision,
                     validate=False,
                 )
@@ -2086,10 +2192,22 @@ class Agent:
                     self.emit_event(
                         "thinking",
                         content=f"⚠️ {intervention_type}: {intervention_prompt}",
+                        # Restored visibility to user so the Superego voice is heard
+                        is_internal=False,
                     )
 
                     # Inject the intervention as a new 'Thought' node (The "Superego" voice)
                     intervention_lid = f"{logical_id}:INT"
+                    await self._sync_thimac(
+                        thought_id=thought_id,
+                        prompt=intervention_prompt,
+                        status="reflexion",
+                        result=None,
+                        step=step,
+                        session_id=session_id,
+                        round_id=current_round_id,
+                    )
+
                     await self._create_system_node(
                         intervention_lid,
                         intervention_prompt,
@@ -2140,7 +2258,6 @@ class Agent:
 
             # [GUARDRAIL: RULE-TRANSPARENCY-ZERO]
             # Ensure Parent Metadata exists before execution.
-            exec_summary = None  # Init for Thimac
             if not self.current_thought_id:
                 logger.error(
                     "Atomic Transaction Alert: Missing Parent Thought ID. Defaulting to Task Root."
@@ -2177,7 +2294,7 @@ class Agent:
                 )
 
                 # Check code safety?
-                output, execution_failed, exec_summary = await self._execute_code(
+                output, execution_failed, _ = await self._execute_code(
                     code,
                     thought_id,
                     session_id,
@@ -2276,100 +2393,42 @@ class Agent:
                     status=thought_status,
                     result=output if output else None,
                     step=step,
+                    session_id=session_id,
+                    round_id=current_round_id,
                     repl_id=repl_id,
                     logical_id=logical_id,
                     tool_calls=tool_calls_snapshot,
                     is_branching=exec_state.branching_state == "BRANCHING",
                     intent_type=current_intent,
+                    embedding=final_vec,
+                    parent_id=final_parent_id,
                 )
 
-                # Update the node with full content, status, and execution metadata
-                self.db.create_thought_node(
-                    thought_id,
-                    full_content,
-                    logical_id=logical_id,
-                    session_id=session_id,
-                    root_session_id=final_root_id,
-                    prompt_embedding=final_vec,
-                    repl_id=repl_id,
-                    status=thought_status,
-                    parent_id=final_parent_id,
-                    execution_summary=exec_summary,
-                    result=output if output else None,
-                    round_id=current_round_id,
-                    turn_id=self.current_turn,
-                    step_id=step,
-                    code_hash=(
-                        hashlib.sha256(code.encode("utf-8")).hexdigest()
-                        if code
-                        else None
-                    ),
-                    validate=False,
-                    sheaf_score=(
-                        cast(Optional[float], sheaf_diag.get("consistency_energy"))
-                        if sheaf_diag
-                        else None
-                    ),
-                    spectral_energy=(
-                        cast(Optional[float], sheaf_diag.get("energy"))
-                        if sheaf_diag
-                        else None
-                    ),
-                    h0_rank=(
-                        cast(Optional[int], sheaf_diag.get("h0_rank"))
-                        if sheaf_diag
-                        else None
-                    ),
-                    repe_shakiness=(
-                        float(psych_profile.get("Shakiness", 0.0))
-                        if psych_profile
-                        else 0.0
-                    ),
-                    repe_evasion=(
-                        float(psych_profile.get("Evasion", 0.0))
-                        if psych_profile
-                        else 0.0
-                    ),
-                    repe_confluence=(
-                        float(psych_profile.get("Confluence", 0.0))
-                        if psych_profile
-                        else 0.0
-                    ),
-                    repe_freedom=(
-                        float(psych_profile.get("Freedom", 0.0))
-                        if psych_profile
-                        else 0.0
-                    ),
-                    omcd_score=(
-                        float(omcd_decision.get("q_stop", 0.0))
-                        if omcd_decision
-                        else 0.0
-                    ),
-                    thimac_op=(
-                        classification.get("operation") if classification else None
-                    ),
-                    thimac_level=(
-                        classification.get("level") if classification else None
-                    ),
-                    thimac_intent=(
-                        classification.get("intent") if classification else None
-                    ),
-                    thimac_op_reason=(
-                        classification.get("operation_reason")
-                        if classification
-                        else None
-                    ),
-                    thimac_level_reason=(
-                        classification.get("level_reason") if classification else None
-                    ),
-                    step_summary=(
-                        classification.get("summary") if classification else None
-                    ),
-                    navigator_insight=nav_insight,
-                )
+                # --- BATCH FLUSH GATE ---
+                # Only write to the global database if we reached an Accept/Release milestone.
+                # This automatically prunes noisy/failed exploratory paths from the permanent record.
+                if classification and classification.get("operation") in [
+                    ThimacOperation.ACCEPT.value,
+                    ThimacOperation.RELEASE.value,
+                ]:
+                    logger.info(
+                        "🚀 Thimac Milestone reached (%s). Flushing memory chain...",
+                        classification.get("operation"),
+                    )
+                    await self._flush_memory_chain(thought_id)
+                else:
+                    logger.debug(
+                        "Thimac: Step registered in RAM (%s). Deferred DB write.",
+                        classification.get("operation") if classification else "None",
+                    )
 
                 # Execute Pruning
                 if node_to_prune:
+                    # 1. Prune from RAM immediately to prevent it flushing during Batch Consolidation
+                    if hasattr(self, "morph_memory"):
+                        self.morph_memory.prune_event(node_to_prune)
+
+                    # 2. Delete from DB (in case it was already flushed in a previous turn)
                     try:
                         self.db.delete_thought_node(node_to_prune)
                     except (AttributeError, RuntimeError, KeyError) as e:
@@ -2483,20 +2542,20 @@ class Agent:
                 except (AttributeError, ValueError, TypeError) as ts_err:
                     logger.warning("Thimac stress adaptation failed: %s", ts_err)
 
-            # --- THIMAC MEMORY INGESTION ---
-            # Feed the committed thought into Thimac for Existence/Subsistence tracking
-            await self._sync_thimac(
-                thought_id=thought_id,
-                prompt=full_content,
-                status=thought_status,
-                result=output,
-                step=step,
-                repl_id=repl_id,
-                logical_id=logical_id,
-                tool_calls=[],
-                is_branching=exec_state.branching_state == "BRANCHING",
-                intent_type=current_intent,
-            )
+            # --- [PHASE 8] METABOLIC SYNC ---
+            # Using classification from earlier in the loop (line 2331)
+            if classification:
+                exec_state.inference_pressure = classification.get(
+                    "inference_pressure", 0.2
+                )
+                exec_state.relational_gravity = classification.get(
+                    "relational_gravity", 0.8
+                )
+                exec_state.epistemic_eros = classification.get("epistemic_eros", 0.5)
+                exec_state.free_energy = classification.get("free_energy", 0.4)
+                exec_state.metabolic_state = classification.get(
+                    "metabolic_state", "THETA"
+                )
 
             # --- TOPOLOGICAL FRAGMENTATION AWARENESS ---
             # If the Sheaf detected fragmented reasoning (h0_rank > 1),
@@ -2529,12 +2588,17 @@ class Agent:
             has_final_marker = any(t in response_text for t in ["RLM_FINAL_OUTPUT"])
 
             # [C3] Phase transition: agent is submitting a final response
-            if has_final_marker or self.awaiting_validation:
+            # Detection of finality even without explicit RLM_FINAL_OUTPUT marker
+            is_implicit_final = self.awaiting_validation and any(
+                p in response_text.lower()
+                for p in ["conclusion", "summary", "final result", "task complete"]
+            )
+            if has_final_marker or self.awaiting_validation or is_implicit_final:
                 exec_state.phase = "VALIDATING"
 
             # 2. Check if the Agent is trying to finish
             if (
-                has_final_marker or self.awaiting_validation
+                has_final_marker or self.awaiting_validation or is_implicit_final
             ) and thought_status == "success":
 
                 # A. EPISTEMIC CHECK (Baseline Sanity)
@@ -2551,9 +2615,9 @@ class Agent:
                         f"{session_id}:T{self.current_turn}:S{step}:EpistemicWarning"
                     )
                     feedback_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
+                    self.current_thought_id = await self._create_system_node(
                         thought_id=feedback_id,
-                        prompt=f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {', '.join(integrity_check['flags'])}",
+                        summary=f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {', '.join(integrity_check['flags'])}",
                         logical_id=feedback_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
@@ -2564,7 +2628,6 @@ class Agent:
                         repl_id=repl_id,
                         status="reflexion",
                     )
-                    self.current_thought_id = feedback_id
                     self.emit_event(
                         "warning",
                         content=f"Epistemic Failure: {', '.join(integrity_check['flags'])}",
@@ -2585,9 +2648,9 @@ class Agent:
                         f"{session_id}:T{self.current_turn}:S{step}:SynthesisRequired"
                     )
                     synth_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
+                    self.current_thought_id = await self._create_system_node(
                         thought_id=synth_id,
-                        prompt="SYSTEM: You provided code and results. You MUST now provide a COMPREHENSIVE Final Answer summarizing your findings.",
+                        summary="SYSTEM: You provided code and results. You MUST now provide a COMPREHENSIVE Final Answer summarizing your findings.",
                         logical_id=synth_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
@@ -2598,7 +2661,6 @@ class Agent:
                         repl_id=repl_id,
                         status="reflexion",
                     )
-                    self.current_thought_id = synth_id
                     continue
 
                 if not self.final_result:
@@ -2619,9 +2681,9 @@ class Agent:
                         f"{session_id}:T{self.current_turn}:S{step}:AxiomViolation"
                     )
                     feedback_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
+                    self.current_thought_id = await self._create_system_node(
                         thought_id=feedback_id,
-                        prompt=f"AXIOM VIOLATION: {axiom_critique}\nI MUST rewrite my final answer to match the governance requirements.",
+                        summary=f"AXIOM VIOLATION: {axiom_critique}\nI MUST rewrite my final answer to match the governance requirements.",
                         logical_id=feedback_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
@@ -2632,7 +2694,6 @@ class Agent:
                         repl_id=repl_id,
                         status="reflexion",
                     )
-                    self.current_thought_id = feedback_id
                     self.emit_event(
                         "warning", content=f"Axiom Violation: {axiom_critique}"
                     )
@@ -2649,6 +2710,7 @@ class Agent:
                         goal_embedding=self.session_cache.get("task_embedding"),
                         turn_id=self.current_turn,
                         root_session_id=final_root_id,
+                        memory_trajectory=self.morph_memory.all_events,
                     )
 
                     if validation.get("status") in ["valid", "forced_valid"]:
@@ -2662,9 +2724,9 @@ class Agent:
 
                         val_lid = f"{session_id}:T{self.current_turn}:S{step}:VALIDATED"
                         val_id = str(uuid.uuid4())
-                        self.db.create_thought_node(
+                        self.current_thought_id = await self._create_system_node(
                             thought_id=val_id,
-                            prompt=f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
+                            summary=f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
                             logical_id=val_lid,
                             parent_id=self.current_thought_id,
                             status="success",
@@ -2673,8 +2735,7 @@ class Agent:
                             round_id=current_round_id,
                             turn_id=self.current_turn,
                             step_id=step,
-                            dreamer_analysis=json.dumps(validation),
-                            final_response=self.final_result,
+                            result=self.final_result,
                         )
                         self.eval_success_count += 1
 
@@ -2711,9 +2772,9 @@ class Agent:
 
                         feedback_lid = f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection"
                         feedback_id = str(uuid.uuid4())
-                        self.db.create_thought_node(
+                        self.current_thought_id = await self._create_system_node(
                             thought_id=feedback_id,
-                            prompt=feedback_prompt,
+                            summary=feedback_prompt,
                             logical_id=feedback_lid,
                             session_id=session_id,
                             root_session_id=final_root_id,
@@ -2723,21 +2784,6 @@ class Agent:
                             step_id=step,
                             repl_id=repl_id,
                             status="reflexion",
-                            dreamer_analysis=json.dumps(validation),
-                        )
-
-                        # Sync rejection to Thimac
-                        await self._sync_thimac(
-                            thought_id=feedback_id,
-                            prompt=feedback_prompt,
-                            status="reflexion",
-                            result=None,
-                            step=step,
-                            repl_id=repl_id,
-                            logical_id=feedback_lid,
-                            tool_calls=[],
-                            is_branching=exec_state.branching_state == "BRANCHING",
-                            intent_type=None,
                         )
 
                         # [Self-Healing Fix] Update agent state for Hot Seat recovery
@@ -2889,14 +2935,11 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
                     reflexion_lid = (
                         f"{session_id}:T{self.current_turn}:S{step}:Reflexion"
                     )
-                    reflexion_id = str(uuid.uuid4())
-                    self.db.create_thought_node(
-                        thought_id=reflexion_id,
-                        prompt=reflexion_content,
+                    reflexion_id = await self._create_system_node(
+                        summary=reflexion_content,
                         logical_id=reflexion_lid,
                         session_id=session_id,
                         root_session_id=final_root_id,
-                        prompt_embedding=vec,
                         parent_id=self.current_thought_id,
                         round_id=current_round_id,
                         turn_id=self.current_turn,
@@ -2904,23 +2947,9 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
                         repl_id=repl_id,
                         status="reflexion",
                     )
-
-                    # Sync reflection to Thimac
-                    await self._sync_thimac(
-                        thought_id=reflexion_id,
-                        prompt=reflexion_content,
-                        status="reflexion",
-                        result=None,
-                        step=step,
-                        repl_id=repl_id,
-                        logical_id=reflexion_lid,
-                        tool_calls=[],
-                        is_branching=exec_state.branching_state == "BRANCHING",
-                        intent_type=None,
-                    )
+                    self.current_thought_id = reflexion_id
 
                     # Update pointer and track intervention
-                    self.current_thought_id = reflexion_id
                     exec_state.intervention_count += 1
 
                     # Emit concise warning to user, not the full directive
@@ -3023,6 +3052,14 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
                         "Failed to automatically save final output to disk: %s", e
                     )
 
+                # Final Consolidation: Flush the memory chain of the successful trajectory to DB
+                if self.current_thought_id:
+                    logger.info(
+                        "Consolidating successful trajectory for session %s...",
+                        session_id,
+                    )
+                    await self._flush_memory_chain(self.current_thought_id)
+
                 self.db.save_round(
                     round_id=current_round_id,
                     root_session_id=final_root_id,
@@ -3066,9 +3103,13 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
         # Verification patterns
         verification_patterns = [
             r"os\.path\.exists",
+            r"os\.path\.isfile",
+            r"os\.path\.isdir",
             r"Path\.exists",
             r"os\.stat",
             r"os\.path\.getsize",
+            r"json\.load",
+            r"\.read\(",
             r"view_file",
             r"ls ",
             r"list_dir",
@@ -3259,7 +3300,7 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
                         f"[Output truncated due to size ({len(output)} chars)].\n"
                         f"Full log: {log_path}\n"
                         f"--- Snippet Start ---\n{snippet_head}\n... [TRUNCATED] ...\n{snippet_tail}\n--- Snippet End ---\n"
-                        f"Use 'await rlm.recall_node(some_id)' or read the log file if you need details."
+                        f"Use 'await rlm.recall_node(\"{thought_id}\")' or read the log file if you need details."
                     )
 
                     # [THIMAC FIX] Ensure memory sees the content, not just the truncation message

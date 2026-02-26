@@ -61,7 +61,7 @@ def get_logger(name: str, level: int = logging.DEBUG) -> logging.Logger:
         return False
 
     if not has_handlers(logger):
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(ColorFormatterFactory())
         logger.addHandler(handler)
         # If we added our own handler, we might want to consider propagation

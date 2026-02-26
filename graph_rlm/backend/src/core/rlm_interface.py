@@ -876,6 +876,89 @@ class RLMInterface:
                 },
             }
 
+    async def recall_node(
+        self, node_id: str, offset: int = 0, limit: int = 5000
+    ) -> str:
+        """
+        Direct Node Recall: Fetches the FULL content (prompt + result) of a specific node by ID.
+        Use this when a previous step's output was [TRUNCATED] in the scratchpad.
+
+        Args:
+            node_id: Unified UUID or Logical ID (e.g. 'thought_123' or 'REPL_CHUNK_456')
+            offset: Start character position for result slicing
+            limit: Maximum number of characters to return
+        """
+        self.record_tool_use("rlm.recall_node")
+        node_id = node_id.strip("'\" ")
+
+        logger.info(
+            "[RLM] Direct node recall requested for %s (offset=%d, limit=%d)",
+            node_id,
+            offset,
+            limit,
+        )
+        self.agent.emit_event(
+            "thinking",
+            content=f"\n🧠 RLM: Fetching full record for node '{node_id}'...",
+        )
+
+        try:
+            # 1. Search Thimac Memory (In-RAM) first
+            if self.agent.morph_memory:
+                # Search both Existence (verified) and Subsistence (potential)
+                for ev in (
+                    self.agent.morph_memory.existence
+                    + self.agent.morph_memory.subsistence
+                ):
+                    if str(ev.thought_id) == node_id or str(ev.logical_id) == node_id:
+                        res = ev.to_dict()
+                        full_result = res.get("result", "") or ""
+                        prompt = res.get("prompt", "") or ""
+
+                        snippet = full_result[offset : offset + limit]
+                        indicator = ""
+                        if offset + limit < len(full_result):
+                            indicator = f"\n\n[... truncated {len(full_result) - (offset + limit)} remaining chars ... Use offset={offset + limit} to see more]"
+
+                        return (
+                            f"--- Node {node_id} (In-Memory) ---\n"
+                            f"Prompt: {prompt}\n"
+                            f"Full Result (chars {offset}-{offset + len(snippet)}/{len(full_result)}):\n"
+                            f"{snippet}{indicator}"
+                        )
+
+            # 2. Search Database
+            cypher = (
+                "MATCH (n:Thought) "
+                "WHERE n.id = $id OR n.logical_id = $id "
+                "RETURN n.id as id, n.prompt as prompt, n.result as result "
+                "LIMIT 1"
+            )
+            db_res = self.agent.db.query(cypher, {"id": node_id})
+
+            if not db_res:
+                return f"Node '{node_id}' not found in memory or database."
+
+            row = db_res[0]
+            full_result = row.get("result", "") or ""
+            prompt = row.get("prompt", "") or ""
+
+            snippet = full_result[offset : offset + limit]
+            indicator = ""
+            if offset + limit < len(full_result):
+                indicator = f"\n\n[... truncated {len(full_result) - (offset + limit)} remaining chars ... Use offset={offset + limit} to see more]"
+
+            return (
+                f"--- Node {node_id} (Database) ---\n"
+                f"Prompt: {prompt}\n"
+                f"Full Result (chars {offset}-{offset + len(snippet)}/{len(full_result)}):\n"
+                f"{snippet}{indicator}"
+            )
+
+        except Exception as e:
+            logger.error("Recall Node failed for %s: %s", node_id, e)
+            return f"Error recalling node {node_id}: {e}"
+
     def __getattr__(self, name: str):
         """
         Dynamic dispatch for user-defined skills.

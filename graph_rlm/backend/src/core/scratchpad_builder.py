@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from .db import GraphClient, db
 from .logger import get_logger
+from .semantic_summarizer import summarize_event
 
 logger = get_logger("graph_rlm.scratchpad_builder")
 
@@ -46,6 +47,7 @@ class ScratchpadBuilder:
         morph_gestalt: Optional[str] = None,
         current_repl_id: Optional[str] = None,
         execution_state: Optional[Any] = None,
+        memory_trajectory: Optional[List[Any]] = None,
     ) -> str:
         """
         Build a complete scratchpad for the agent.
@@ -72,7 +74,6 @@ class ScratchpadBuilder:
             omcd_q = getattr(
                 execution_state, "last_omcd_qstop", 0.0
             )  # noqa: F841 (used in mc_lines below)
-            critique = getattr(execution_state, "last_dreamer_critique", None)
             outcomes = getattr(execution_state, "step_outcomes", [])
 
             # Build momentum indicator from last 10 outcomes
@@ -107,14 +108,32 @@ class ScratchpadBuilder:
                 f"- **Successes/Failures**: {consec_ok} consecutive ✓ / {consec_fail} consecutive ✗",
                 f"- **Monitors**: Sheaf Energy={sheaf_e:.2f} | oMCD q_stop={omcd_q:.2f}",
             ]
+
+            # --- PHASE C3: Rationales ---
+            sheaf_rat = getattr(execution_state, "last_sheaf_rationale", None)
+            omcd_rat = getattr(execution_state, "last_omcd_rationale", None)
+            if sheaf_rat:
+                mc_lines.append(f"  - 📐 **Sheaf Rationale**: {sheaf_rat}")
+            if omcd_rat:
+                mc_lines.append(f"  - Ω **oMCD Rationale**: {omcd_rat}")
+
             if interventions > 0:
                 mc_lines.append(
                     f"- **Interventions**: {interventions} (Reflexion/HOT SEAT)"
                 )
-            if critique:
-                mc_lines.append(f"- **Last Dreamer Critique**: {critique[:200]}")
-            mc_lines.append("")
             lines.extend(mc_lines)
+
+        # Always append HUD Scale Legend for grounding
+        lines.append("")
+        lines.append("### 📊 HUD Scale Legend")
+        lines.append(
+            "- **Gestalt Metrics**: Ψ(S:Shaky, C:Confluent, E:Evasive, F:Free)"
+        )
+        lines.append(
+            "- **Consistency (📐)**: Energy (0.0=Stable, 1.0=Chaotic) | H0 (1=Unified, >1=Fragmented)"
+        )
+        lines.append("- **Termination (Ω)**: Stop Prob (0.0=Continue, 1.0=Converged)")
+        lines.append("")
 
         # === 1. Previous Rounds (Variable Length Summaries) — STATIC ===
         if completed_rounds:
@@ -138,7 +157,7 @@ class ScratchpadBuilder:
 
         # === 2. Current Round Progress (The Trace) — APPEND-ONLY ===
         progress = await self._build_current_round_progress(
-            session_id, root_session_id, current_round_id
+            session_id, root_session_id, current_round_id, memory_trajectory
         )
         lines.append("## Execution Trace (Current Round)")
         lines.append(progress)
@@ -200,11 +219,18 @@ class ScratchpadBuilder:
         return "\n".join(lines)
 
     async def _summarize_content(self, text: str) -> str:
-        """Structural summarization: placeholder for pure MDL gists."""
-        return text[:500] + "..." if len(text) > 500 else text
+        """Structural summarization using SemanticSummarizer."""
+        try:
+            return await summarize_event("", text)
+        except Exception:
+            return text[:500] + "..." if len(text) > 500 else text
 
     async def _build_current_round_progress(
-        self, session_id: str, root_session_id: str, current_round_id: str
+        self,
+        session_id: str,
+        root_session_id: str,
+        current_round_id: str,
+        memory_trajectory: Optional[List[Any]] = None,
     ) -> str:
         """
         Build progress for ONLY the current round (not archived rounds).
@@ -243,6 +269,78 @@ class ScratchpadBuilder:
                 q,
                 {"rsid": root_session_id, "sid": session_id, "rid": current_round_id},
             )
+
+            # --- MERGE IN-MEMORY TRAJECTORY ---
+            # This is critical because of the Batch Consolidation Flush.
+            # Thoughts remain in RAM until ACCEPT/RELEASE.
+            if memory_trajectory:
+                # Convert memory objects to result dicts for the formatter
+                mem_dicts = []
+                for ev in memory_trajectory:
+                    # Filter for only relevant round/session if trajectory contains more
+                    if (
+                        str(ev.session_id) != session_id
+                        or str(ev.round_id) != current_round_id
+                    ):
+                        continue
+
+                    d = ev.to_dict()
+                    # Ensure alignment with DB field names
+                    d["created_at"] = ev.timestamp
+                    d["prompt"] = ev.full_data
+                    d["thimac_op"] = (
+                        ev.operation.value
+                        if hasattr(ev.operation, "value")
+                        else str(ev.operation)
+                    )
+                    d["thimac_level"] = (
+                        ev.level.value if hasattr(ev.level, "value") else str(ev.level)
+                    )
+                    mem_dicts.append(d)
+
+                if not results:
+                    results = mem_dicts
+                else:
+                    # Merge and deduplicate by ID, prioritizing memory (latest status)
+                    merged = {r["id"]: r for r in results}
+                    for md in mem_dicts:
+                        merged[md["id"]] = md
+                    results = sorted(
+                        merged.values(), key=lambda x: x.get("created_at") or 0
+                    )
+
+            if not results:
+                # FALLBACK: If round-specific query fails, get most recent turns for this session
+                # This prevents "amnesia" during strategy shifts or round-id mismatches.
+                q_fallback = """
+                MATCH (n:Thought)
+                WHERE n.session_id = $sid
+                RETURN n.id as id,
+                       n.prompt as prompt,
+                       n.status as status,
+                       n.result as result,
+                       n.created_at as created_at,
+                       n.repl_id as repl_id,
+                       n.turn_id as turn_id,
+                       n.step_id as step_id,
+                       n.code_hash as code_hash,
+                       n.sheaf_score as sheaf_score,
+                       n.h0_rank as h0_rank,
+                       n.repe_shakiness as repe_shakiness,
+                       n.repe_evasion as repe_evasion,
+                       n.repe_confluence as repe_confluence,
+                       n.repe_freedom as repe_freedom,
+                       n.omcd_score as omcd_score,
+                       n.thimac_op as thimac_op,
+                       n.thimac_level as thimac_level,
+                       n.navigator_insight as navigator_insight,
+                       n.semantic_gist as semantic_gist
+                ORDER BY n.created_at DESC
+                LIMIT 50
+                """
+                results = self.db.query(q_fallback, {"sid": session_id})
+                # Re-sort for formatting
+                results = sorted(results, key=lambda x: x.get("created_at", 0))
 
             if not results:
                 return "No progress recorded yet."
@@ -358,9 +456,9 @@ class ScratchpadBuilder:
         # Build Table with Row Collapsing (Deduplication)
         lines = []
         lines.append(
-            "| Time | REPL | T.S | St | Gestalt (Ψ,📐,Ω,🧭) | Summary (Action & Outcome) | Recall ID |"
+            "| Time | REPL | T.S | St | Hash | Gestalt (Ψ,📐,Ω,🧭) | Summary (Action & Outcome) | Recall ID |"
         )
-        lines.append("|---|---|---|---|---|---|---|")
+        lines.append("|---|---|---|---|---|---|---|---|")
 
         skip_until = -1
         for idx, row in enumerate(windowed_data):
@@ -468,11 +566,11 @@ class ScratchpadBuilder:
 
             # Gestalt string with RepE axes + Sheaf Consistency + oMCD Stop Probability
             # S=Shakiness, C=Confluence, E=Evasion, F=Freedom
-            gestalt = f"Ψ(S:{shaky_str} C:{confluence_str} E:{evasion_str} F:{freedom_str}) | 📐(S:{sheaf_str} H0:{h0_rank_str}) | Ω:{omcd_str}"
+            gestalt = f"Ψ(S:{shaky_str} C:{confluence_str} E:{evasion_str} F:{freedom_str}) ‖ 📐(S:{sheaf_str} H0:{h0_rank_str}) ‖ Ω:{omcd_str}"
 
             nav_insight = row.get("navigator_insight")
             if nav_insight:
-                gestalt += f" | 🧭 {nav_insight}"
+                gestalt += f" ‖ 🧭 {nav_insight}"
 
             # --- ALERT DECORATION ---
             alerts = []
@@ -482,8 +580,8 @@ class ScratchpadBuilder:
                 alerts.append("!! EVASION !!")
             if isinstance(shaky, (int, float)) and shaky < -0.15:
                 alerts.append("!! UNCERTAIN !!")
-            if isinstance(h0_rank, (int, float)) and h0_rank > 0.7:
-                alerts.append("!! H0_RANK HIGH !!")
+            if isinstance(h0_rank, (int, float)) and h0_rank > 1:
+                alerts.append("!! FRAGMENTED !!")
 
             ratings = gestalt
             if alerts:

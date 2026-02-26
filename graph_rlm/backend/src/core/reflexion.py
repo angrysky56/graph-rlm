@@ -5,11 +5,9 @@ Implements the IntelliSynth Framework for breaking logical knots and stagnation
 using the Advancement Cycle (Truth -> Scrutiny -> Improvement) and mathematical reasoning.
 """
 
-import ast
 import hashlib
 import math
 import re
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -178,32 +176,36 @@ class IntelliSynth:
 
         full_code = "\n".join(code_blocks)
 
-        # --- 3. Syntax Check (AST) ---
+        # --- 3. Empirical Content Validation (Unified with Guardrails) ---
+        from .guardrails import EmpiricalGuard, GuardrailError
+
         try:
-            ast.parse(full_code)
-        except SyntaxError as e:
+            # Syntax & RLM Signatures
+            EmpiricalGuard.validate_syntax(full_code)
+            EmpiricalGuard.validate_rlm_signatures(full_code)
+            EmpiricalGuard.validate_mcp_imports(full_code)
+        except GuardrailError as e:
+            # Map GuardrailError back to the correction format for healing
+            error_msg = str(e)
+            severity = "CRITICAL"
+            error_type = "GUARDRAIL_VIOLATION"
+
+            if "Syntax Error" in error_msg:
+                error_type = "SYNTAX_ERROR"
+            elif "Async Error" in error_msg:
+                error_type = "ASYNC_ERROR"
+            elif "Import Error" in error_msg:
+                error_type = "IMPORT_ERROR"
+
             return {
-                "type": "SYNTAX_ERROR",
-                "message": f"Syntax error in your code: {e.msg} at line {e.lineno}",
-                "hint": "Check your indentation and bracket closures.",
-                "severity": "CRITICAL",
+                "type": error_type,
+                "message": error_msg,
+                "hint": "Check yourIndentation, bracket closures, or RLM/MCP naming.",
+                "severity": severity,
             }
 
-        # 3. Signature & Logical Check (Against RLM Interface)
+        # 3b. Signature & Logical Check (Contextual - remains in Reflexion)
         if rlm:
-            # Check for common mistakes:
-            # - calling rlm.done() without await
-            # - missing 'final_answer' keyword in rlm.done()
-            # - calling non-existent tools
-
-            if "rlm.done(" in full_code and "await rlm.done(" not in full_code:
-                return {
-                    "type": "ASYNC_ERROR",
-                    "message": "You called 'rlm.done()' without 'await'.",
-                    "hint": "All rlm methods are asynchronous. Use: await rlm.done(final_answer='...')",
-                    "severity": "CRITICAL",
-                }
-
             # Check for tool signatures if rlm.mcp is available
             if hasattr(rlm, "mcp"):
                 # Simple regex check for rlm.mcp calls to verify they exist
@@ -216,27 +218,6 @@ class IntelliSynth:
                             "hint": f"Available servers: {', '.join(rlm.mcp.list_servers())}",
                             "severity": "WARNING",
                         }
-
-            # [NEW] Check for imports from mcp_tools to catch common naming errors
-            mcp_import_matches = re.finditer(
-                r"from graph_rlm\.backend\.mcp_tools\.(\w+) import", full_code
-            )
-            mcp_tools_dir = Path(__file__).parent.parent / "mcp_tools"
-            for match in mcp_import_matches:
-                module_name = match.group(1)
-                module_file = mcp_tools_dir / f"{module_name}.py"
-                if not module_file.exists():
-                    available = [
-                        f.stem
-                        for f in mcp_tools_dir.glob("*.py")
-                        if not f.name.startswith("__")
-                    ]
-                    return {
-                        "type": "IMPORT_ERROR",
-                        "message": f"Module 'graph_rlm.backend.mcp_tools.{module_name}' does not exist.",
-                        "hint": f"Did you mean one of these available modules?: {', '.join(available)}",
-                        "severity": "CRITICAL",
-                    }
 
         return None
 

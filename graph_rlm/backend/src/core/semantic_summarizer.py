@@ -10,6 +10,7 @@ import re
 from typing import Optional
 
 from .circuit import generate_correlation_id, get_correlation_id
+from .config import settings
 from .services.circuit import protected_llm_generate
 
 logger = logging.getLogger("graph_rlm.summarizer")
@@ -30,21 +31,22 @@ async def summarize_event(
             f"USER/AGENT PROMPT:\n{prompt_text}\n\nRESULT/OUTPUT:\n{result_text}"
         )
 
-        # truncated text to avoid token overflow in summary model
-        # lightweight models usually have smaller context or we want speed
-        context = full_text[:8000]
+        context = full_text[:150000]
 
         # 1. Hierarchical Chain-of-Density Prompt
         # This prompt asks the model to iteratively refine the summary for density.
         cod_prompt = f"""Summarize the following interaction into a DENSE SEMANTIC GIST.
-Focus on identifying:
-- Exact identifiers (variable names, file paths, UUIDs, function names)
-- Core result of the operation (success/fail/error code)
-- Current cognitive state (waiting for input/branching/finished)
+You are the Agent's "Attention Schema" - your goal is to prevent information amnesia.
+
+Focus on identifying and retaining:
+- EXACT IDENTIFIERS: UUIDs, variable names, file paths, function signatures.
+- ATOMIC OUTCOMES: "Created X", "Read Y", "Error: [Specific Code]", "Fixed Z".
+- COGNITIVE CONTEXT: "Branching to solve X", "Refinement of Y", "Validating Z".
+- GROUNDING DATA: Specific values or data points found in the output.
 
 Format: JSON list of objects [{{"Summary": "...", "Denser_Summary": "..."}}]
-The list should contain 2-3 iterations, with each "Denser_Summary" being progressively
-more information-dense but of similar length to the previous iteration.
+The list should contain 2 iterations. The "Denser_Summary" MUST contain more specific details
+(like UUIDs or paths) than the "Summary" while remaining under 1000 characters.
 
 Input:
 ---
@@ -53,7 +55,7 @@ Input:
 
         response = await protected_llm_generate(
             cod_prompt,
-            model=model or "google/gemini-2.0-flash-lite",
+            model=model or settings.SUMMARY_MODEL,
             correlation_id=get_correlation_id() or generate_correlation_id(),
         )
 

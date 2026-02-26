@@ -780,20 +780,36 @@ class AxiomsManager:
         """
         count = 0
         seen_names = set()
+
+        # Group items by spec_name to prevent double-processing flat vs directory
+        items_by_name: Dict[str, List[Path]] = {}
         for item in self.axioms_dir.iterdir():
-            if item.name == "__init__.py" or item.name.startswith("__"):
+            if (
+                item.name == "__init__.py"
+                or item.name.startswith("__")
+                or item.name == "_disabled"
+            ):
                 continue
 
+            name = _spec_name(item.stem if item.is_file() else item.name)
+            if name not in items_by_name:
+                items_by_name[name] = []
+            items_by_name[name].append(item)
+
+        for name, items in items_by_name.items():
+            # Prioritize directory over flat file
+            target_item = next((i for i in items if i.is_dir()), items[0])
+
             # Case A: Legacy flat .py file
-            if item.is_file() and item.suffix == ".py":
-                if await self._sync_axiom(item):
+            if target_item.is_file() and target_item.suffix == ".py":
+                if await self._sync_axiom(target_item):
                     count += 1
-                seen_names.add(_spec_name(item.stem))
+                seen_names.add(name)
 
             # Case B: Spec-compliant directory with SKILL.md
-            elif item.is_dir():
-                skill_md = item / "SKILL.md"
-                scripts_dir = item / "scripts"
+            elif target_item.is_dir():
+                skill_md = target_item / "SKILL.md"
+                scripts_dir = target_item / "scripts"
                 if skill_md.exists():
                     # Find the .py script inside scripts/
                     py_file = None
@@ -805,10 +821,10 @@ class AxiomsManager:
                     if py_file:
                         if await self._sync_axiom(py_file):
                             count += 1
-                        seen_names.add(_spec_name(item.name))
+                        seen_names.add(name)
                     else:
                         # Instructional axiom (no code)
-                        seen_names.add(_spec_name(item.name))
+                        seen_names.add(name)
 
         # Cleanup Stale Axioms
         all_axioms = self.list_axioms()
@@ -937,6 +953,7 @@ class AxiomsManager:
         tags: list[str] | None = None,
         axiom_type: str = "validator",
         healing_code: str | None = None,
+        markdown_body: str | None = None,
         session_id: str | None = None,
         root_session_id: str | None = None,
     ) -> str:
@@ -1041,6 +1058,15 @@ class AxiomsManager:
 
             # SKILL.md with spec frontmatter
             tag_str = ", ".join(f'"{t}"' for t in (tags or ["general"]))
+
+            # Default body if none provided
+            final_markdown_body = markdown_body or (
+                f"# {name}\n\n"
+                f"{desc}\n\n"
+                f"## Usage\n\n"
+                f"Entry function: `{function_name}` in `scripts/{module_safe}.py`.\n"
+            )
+
             skill_md = axiom_dir / "SKILL.md"
             skill_md.write_text(
                 f"---\n"
@@ -1052,10 +1078,7 @@ class AxiomsManager:
                 f"  tags: [{tag_str}]\n"
                 + (f"  session-id: {session_id}\n" if session_id else "")
                 + f"---\n\n"
-                f"# {name}\n\n"
-                f"{desc}\n\n"
-                f"## Usage\n\n"
-                f"Entry function: `{function_name}` in `scripts/{module_safe}.py`.\n",
+                f"{final_markdown_body}",
                 encoding="utf-8",
             )
             logger.info(
@@ -1187,16 +1210,35 @@ class AxiomsManager:
         Move an axiom to the _disabled directory and remove from DB.
         """
         try:
+            # 1. Identify physical location (Directory, Hyphenated file, or Legacy underscore file)
+            axiom_dir = self.axioms_dir / name
             axiom_file = self.axioms_dir / f"{name}.py"
+            legacy_file = self.axioms_dir / f"{name.replace('-', '_')}.py"
+
             disabled_dir = self.axioms_dir / "_disabled"
             disabled_dir.mkdir(parents=True, exist_ok=True)
 
-            if axiom_file.exists():
-                target_path = disabled_dir / axiom_file.name
-                shutil.move(str(axiom_file), str(target_path))
-                logger.info("Axiom '%s' moved to _disabled.", name)
+            target_path = None
+            if axiom_dir.is_dir():
+                target_path = axiom_dir
+            elif axiom_file.exists():
+                target_path = axiom_file
+            elif legacy_file.exists():
+                target_path = legacy_file
 
-            # Remove from DB
+            if target_path:
+                destination = disabled_dir / target_path.name
+                # Cleanup destination if it already exists to avoid move errors
+                if destination.exists():
+                    if destination.is_dir():
+                        shutil.rmtree(str(destination))
+                    else:
+                        destination.unlink()
+
+                shutil.move(str(target_path), str(destination))
+                logger.info("Axiom '%s' physically moved to _disabled.", name)
+
+            # 2. Remove from DB
             self.db.query("MATCH (a:Axiom {name: $name}) DELETE a", {"name": name})
             logger.info("Axiom '%s' removed from database.", name)
             return True

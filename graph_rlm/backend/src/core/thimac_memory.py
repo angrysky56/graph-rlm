@@ -17,11 +17,12 @@ Five Thimac operations (Stages) classify every agent action:
 import logging
 import re
 import tempfile
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("graph_rlm.thimac")
 
@@ -61,18 +62,76 @@ class ThimacEvent:
     status: str
     operation_reason: str = ""
     level_reason: str = ""
-    full_data: str = ""  # Untruncated prompt + result
+    full_data: str = ""  # Aliased as 'prompt' for legacy support
+    result: Optional[str] = None
     timestamp: Optional[int] = None  # epoch ms
     summary: str = ""
     semantic_gist: str = ""
     turn_id: Optional[int] = None
     step_id: Optional[int] = None
+    session_id: str = "unknown"
+    round_id: str = "unknown"
     repl_id: Optional[str] = None
     logical_id: Optional[str] = None
     tool_calls: Optional[List[str]] = None
     compression_gain: float = 0.0
     is_branching: bool = False
     intent_type: ThimacIntention = ThimacIntention.MOTOR
+    inference_pressure: float = 0.2
+    relational_gravity: float = 0.8
+    epistemic_eros: float = 0.5  # Drive for truth (tension between Pi and Rg)
+    free_energy: float = 0.4
+    metabolic_state: str = "THETA"
+    code_hash: Optional[str] = None
+    repe_shakiness: Optional[float] = None
+    repe_confluence: Optional[float] = None
+    repe_evasion: Optional[float] = None
+    repe_freedom: Optional[float] = None
+    embedding: Optional[List[float]] = None
+    parent_id: Optional[str] = None
+    sheaf_score: Optional[float] = None
+    h0_rank: Optional[int] = None
+    omcd_score: Optional[float] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for compatibility with legacy consumers (Sheaf)."""
+        return {
+            "id": self.thought_id,
+            "thought_id": self.thought_id,
+            "parent_id": self.parent_id,
+            "operation": self.operation.value,
+            "level": self.level.value,
+            "status": self.status,
+            "operation_reason": self.operation_reason,
+            "level_reason": self.level_reason,
+            "prompt": self.full_data,
+            "result": self.result,
+            "embedding": self.embedding,
+            "created_at": self.timestamp,
+            "session_id": self.session_id,
+            "round_id": self.round_id,
+            "summary": self.summary,
+            "semantic_gist": self.semantic_gist,
+            "turn_id": self.turn_id,
+            "step_id": self.step_id,
+            "repl_id": self.repl_id,
+            "logical_id": self.logical_id,
+            "tool_calls": self.tool_calls,
+            "inference_pressure": self.inference_pressure,
+            "relational_gravity": self.relational_gravity,
+            "epistemic_eros": self.epistemic_eros,
+            "free_energy": self.free_energy,
+            "metabolic_state": self.metabolic_state,
+            "code_hash": self.code_hash,
+            "repe_shakiness": self.repe_shakiness,
+            "repe_confluence": self.repe_confluence,
+            "repe_evasion": self.repe_evasion,
+            "repe_freedom": self.repe_freedom,
+            "sheaf_score": self.sheaf_score,
+            "h0_rank": self.h0_rank,
+            "omcd_score": self.omcd_score,
+        }
 
 
 class ThimacMemory:
@@ -92,11 +151,21 @@ class ThimacMemory:
         self.subsistence: List[ThimacEvent] = []
         self._all_events: List[ThimacEvent] = []
 
+        # --- THERMODYNAMIC STATE ---
+        self.Pi = 0.2  # Inference Pressure (Entropy)
+        self.Rg = 0.8  # Relational Gravity (Identity)
+        self.Ee = 0.5  # Epistemic Eros (Tension)
+
         # --- STATE TRACKING ---
         self.known_skills: List[str] = []
         self.known_files: List[str] = []
         self.knowledge_horizon: List[str] = []  # Results of last 3 ARRIVE/Accept ops
         self._repo_root: Optional[Path] = None
+
+    @property
+    def all_events(self) -> List[ThimacEvent]:
+        """Public accessor for the full event history."""
+        return self._all_events
 
     def _get_repo_root(self) -> Path:
         """Dynamic resolution of repo root to avoid hardcoding."""
@@ -122,13 +191,15 @@ class ThimacMemory:
         is_branching: bool = False,
         semantic_gist: str = "",
         intent_type: Optional[ThimacIntention] = None,
+        embedding: Optional[List[float]] = None,
+        parent_id: Optional[str] = None,
+        sheaf_score: Optional[float] = None,
+        omcd_score: Optional[float] = None,
     ) -> ThimacEvent:
         """Classifies a thought and updates session state."""
         op, op_reason = self._classify_operation(thought, tool_calls)
         lvl, lvl_reason = self._classify_level(thought)
         summary = self._extract_summary(thought, tool_calls)
-        full_data = f"{thought.get('prompt', '')}\n{thought.get('result', '')}"
-
         event = ThimacEvent(
             thought_id=thought.get("id", ""),
             operation=op,
@@ -136,8 +207,11 @@ class ThimacMemory:
             status=thought.get("status", "unknown"),
             operation_reason=op_reason,
             level_reason=lvl_reason,
-            full_data=full_data,
-            timestamp=thought.get("created_at"),
+            full_data=thought.get("prompt", ""),
+            result=thought.get("result", ""),
+            timestamp=thought.get("created_at") or int(time.time() * 1000),
+            session_id=thought.get("session_id", "unknown"),
+            round_id=thought.get("round_id", "unknown"),
             summary=summary,
             semantic_gist=semantic_gist or summary,
             turn_id=thought.get("turn_id"),
@@ -148,7 +222,63 @@ class ThimacMemory:
             compression_gain=thought.get("compression_gain", 0.0),
             is_branching=is_branching,
             intent_type=intent_type or self._align_intent(op, lvl, tool_calls),
+            code_hash=thought.get("code_hash")
+            or thought.get("metadata", {}).get("code_hash"),
+            repe_shakiness=thought.get("repe_shakiness")
+            or thought.get("metadata", {}).get("repe_shakiness"),
+            repe_confluence=thought.get("repe_confluence")
+            or thought.get("metadata", {}).get("repe_confluence"),
+            repe_evasion=thought.get("repe_evasion")
+            or thought.get("metadata", {}).get("repe_evasion"),
+            repe_freedom=thought.get("repe_freedom")
+            or thought.get("metadata", {}).get("repe_freedom"),
+            embedding=embedding,
+            parent_id=parent_id,
+            sheaf_score=sheaf_score,
+            h0_rank=thought.get("h0_rank")
+            or thought.get("metadata", {}).get("h0_rank"),
+            omcd_score=omcd_score,
+            metadata=thought.get("metadata", {}),
         )
+
+        # --- THERMODYNAMIC ENGINE ---
+        # 1. Update Inference Pressure (Pi)
+        growth = 0.05 if event.status != "success" else 0.01
+        if tool_calls:
+            growth += len(tool_calls) * 0.05
+
+        # MDL reduction: High compression gain lowers entropy
+        reduction = event.compression_gain * 0.2
+        self.Pi = max(0.01, self.Pi + growth - reduction)
+
+        # 2. Update Relational Gravity (Rg)
+        if event.operation == ThimacOperation.ACCEPT:
+            self.Rg = min(1.0, self.Rg + 0.1)
+        elif event.status == "failed":
+            self.Rg = max(0.1, self.Rg - 0.05)
+
+        # 3. Calculate Epistemic Eros (Ee)
+        # Ee measures the 'Erotic Tension'—the drive to close the gap between
+        # high-entropy complexity (Pi) and grounded identity (Rg).
+        # High Pi + High Rg = Productive Tension.
+        # High Pi + Low Rg = Destructive Chaos (Anxiety).
+        self.Ee = (self.Pi * self.Rg) / max(0.01, self.Pi + (1.0 - self.Rg))
+        event.epistemic_eros = self.Ee
+
+        # 4. Calculate Free Energy (FE)
+        event.inference_pressure = self.Pi
+        event.relational_gravity = self.Rg
+        event.free_energy = self.Pi + (1.0 - self.Rg)
+
+        # 5. State Oscillation (Modulated by Eros)
+        # Higher Eros stabilize the state; Low Eros (Apathy/Chaos) leads to Agitation.
+        fe_eff = event.free_energy * (1.5 - self.Ee)  # Scale FE by Lack of Eros
+        if fe_eff < 0.3:
+            event.metabolic_state = "DELTA"
+        elif fe_eff < 0.6:
+            event.metabolic_state = "THETA"
+        else:
+            event.metabolic_state = "GAMMA"
 
         self._all_events.append(event)
 
@@ -169,6 +299,15 @@ class ThimacMemory:
             event.summary[:600],
         )
         return event
+
+    def prune_event(self, thought_id: str) -> bool:
+        """Removes an event from the local memory history (RAM Pruning)."""
+        initial_count = len(self._all_events)
+        self._all_events = [e for e in self._all_events if e.thought_id != thought_id]
+        if len(self._all_events) < initial_count:
+            logger.info("Thimac: Pruned event %s from RAM state.", thought_id)
+            return True
+        return False
 
     def _align_intent(
         self, op: ThimacOperation, lvl: ThimacLevel, tool_calls: Optional[List[str]]
@@ -240,6 +379,22 @@ class ThimacMemory:
 
         lines = []
 
+        # --- Thermodynamic State: Reflex Arc v2.0 ---
+        last_event = self._all_events[-1]
+        state_emoji = (
+            "🔴"
+            if last_event.metabolic_state == "GAMMA"
+            else ("🟡" if last_event.metabolic_state == "THETA" else "🔵")
+        )
+
+        lines.append(f"### {state_emoji} Cog-Metabolism: {last_event.metabolic_state}")
+        lines.append(
+            f"- **Epistemic Eros ($\mathcal{{E}}$):** {last_event.epistemic_eros:.3f} (Tension)"
+        )
+        lines.append(
+            f"- **Free Energy ($FE$):** {last_event.free_energy:.3f} ($P_i={last_event.inference_pressure:.2f}, R_g={last_event.relational_gravity:.2f}$)"
+        )
+
         # --- Stability Anchor: Bernshteyn-LLL Bound ---
         total = len(self._all_events)
         failed = sum(1 for e in self._all_events if e.status != "success")
@@ -256,7 +411,7 @@ class ThimacMemory:
             else 0.0
         )
 
-        lines.append(f"### 🌐 Cog-State: {stability} (MDL Gain: {avg_gain:+.3f})")
+        lines.append(f"**Structural State**: {stability} (MDL Gain: {avg_gain:+.3f})")
 
         # Branching awareness
         recent_branching = any(e.is_branching for e in self._all_events[-5:])

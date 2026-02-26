@@ -52,11 +52,20 @@ class ExecutionState:
 
     # --- Monitor Snapshots (C1) ---
     last_sheaf_energy: float = 0.0
+    last_sheaf_rationale: Optional[str] = None
     last_omcd_qstop: float = 0.0
+    last_omcd_rationale: Optional[str] = None
 
     # --- Cerebellum: Error Pattern Tracking ---
     # Accumulates error types across steps for recurring pattern detection
     error_counts: Dict[str, int] = field(default_factory=dict)
+
+    # --- Thermodynamic State (Phase 8 TLTG) ---
+    inference_pressure: float = 0.2
+    relational_gravity: float = 0.8
+    epistemic_eros: float = 0.5
+    free_energy: float = 0.4
+    metabolic_state: str = "THETA"
 
 
 # Session-specific state isolated by thread/context
