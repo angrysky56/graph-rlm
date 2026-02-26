@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 import numpy as np
 import redis
+from pydantic import BaseModel, Field
 
 from ..mcp_integration.skill_storage import get_axioms_manager
 from .circuit import CircuitOpenError
@@ -32,6 +33,20 @@ from .state import agent_state
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.dreamer")
+
+
+class ValidationVerdict(BaseModel):
+    """Structured validation output from the Dreamer."""
+
+    verdict: str = Field(..., description="'valid' or 'invalid'")
+    confidence: float = Field(..., description="Confidence score 0.0-1.0")
+    reasons: List[str] = Field(
+        default_factory=list, description="Objective list of reasons for the verdict"
+    )
+    instruction: str = Field(
+        default="",
+        description="Specific guidance for the agent if invalid, else empty string",
+    )
 
 
 class Dreamer:
@@ -824,7 +839,9 @@ class Dreamer:
                         "kb": kb,
                     }
                 )
-                stdout, stderr, _, _ = await repl.execute(preamble + "\n" + verify_code)
+                stdout, stderr, _, _ = await repl.execute(
+                    preamble + "\n" + verify_code, timeout=15
+                )
                 verification_result = (
                     f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
                 )
@@ -983,22 +1000,11 @@ class Dreamer:
         )
 
         try:
-            raw_judgment = await self.llm.generate(
+            judgment = await self.llm.generate_structured(
                 prompt=validation_prompt,
-                system="You are the Dreamer validation oracle. Return ONLY valid JSON.",
+                output_type=ValidationVerdict,
+                system="You are the Dreamer validation oracle.",
             )
-            # Parse JSON from LLM response
-            json_match = re.search(r"\{.*\}", raw_judgment, re.DOTALL)
-            if json_match:
-                judgment = json.loads(json_match.group())
-            else:
-                logger.warning("Dreamer LLM returned non-JSON: %s", raw_judgment[:200])
-                judgment = {
-                    "verdict": "valid",
-                    "confidence": 0.5,
-                    "reasons": [],
-                    "instruction": "",
-                }
         except (json.JSONDecodeError, RuntimeError, ValueError, AttributeError) as e:
             logger.warning("Dreamer LLM classification failed: %s", e)
             # Fallback: deterministic checks only
@@ -1007,29 +1013,28 @@ class Dreamer:
                 or bool(placeholders)
                 or has_todo
             )
-            judgment = {
-                "verdict": "invalid" if has_hard_fail else "valid",
-                "confidence": 0.3 if has_hard_fail else 0.7,
-                "reasons": [topo_critique] if topo_critique else [],
-                "instruction": topo_critique or "",
-            }
+            judgment = ValidationVerdict(
+                verdict="invalid" if has_hard_fail else "valid",
+                confidence=0.3 if has_hard_fail else 0.7,
+                reasons=[topo_critique] if topo_critique else [],
+                instruction=topo_critique or "",
+            )
 
         # ── 8. Return structured result ──
-        verdict = judgment.get("verdict", "valid")
+        verdict = judgment.verdict
         if verdict == "valid":
             return {
                 "status": "valid",
                 "event": "RLM_DREAMER_VALIDATED",
                 "message": (
-                    f"Response verified (confidence: {judgment.get('confidence', 0.5):.2f}). "
+                    f"Response verified (confidence: {judgment.confidence:.2f}). "
                     f"Topo: {topo_status}, RepE: {psych_profile}"
                 ),
             }
 
         # Build instruction from LLM judgment + trace context
-        instruction = str(judgment.get("instruction", ""))
-        _raw_reasons = judgment.get("reasons")
-        reasons: list[str] = _raw_reasons if isinstance(_raw_reasons, list) else []
+        instruction = str(judgment.instruction)
+        reasons = judgment.reasons
         if reasons and not instruction:
             instruction = "RE-EVALUATE:\n" + "\n".join(f"- {r}" for r in reasons)
 
@@ -1135,7 +1140,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         # Inject standard libs context just in case
         repl.namespace.update({"sys": __import__("sys")})
 
-        stdout, stderr, _, _ = await repl.execute(test_wrapper)
+        stdout, stderr, _, _ = await repl.execute(test_wrapper, timeout=10)
 
         if "Nightmare Induced Crash" in stdout or (stderr and "Traceback" in stderr):
             logger.warning(
@@ -1368,7 +1373,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         )
 
         logger.info("Executing axiom code...")
-        _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code)
+        _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code, timeout=30)
 
         # --- AUTO-INSTALLATION SELF-HEALING ---
         if is_err and "ModuleNotFoundError" in stderr:
@@ -1388,7 +1393,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
             return False
 
         logger.info("Executing test code...")
-        stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(pure_test)
+        stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
+            pure_test, timeout=30
+        )
 
         # Self-healing for test code too
         if is_err_test and "ModuleNotFoundError" in stderr_test:
@@ -1404,7 +1411,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
                 stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
-                    pure_test
+                    pure_test, timeout=30
                 )
 
         if is_err_test:

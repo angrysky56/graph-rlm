@@ -83,8 +83,22 @@ def broadcast_trace(msg: str):
             clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
 
             # --- Signal vs. Noise Filter ---
-            # 1. Block List (Internal Implementation Details)
-            block_list = ["[LLM]", "[DB]", "[REPL]", "[SHEAF]", "[TRACE]"]
+            # 1. Block List (Internal Implementation Details or high-signal redundant messages)
+            # These are messages that the Agent or Dreamer already emit via explicit emit_event calls.
+            # We block them here so they only go to TERMINAL_RAW and don't duplicate in CHAT_RESPONSE.
+            block_list = [
+                "[LLM]",
+                "[DB]",
+                "[REPL]",
+                "[SHEAF]",
+                "[TRACE]",
+                "[AGENT]",
+                "[DREAMER]",
+                "[SKILL]",
+                "[META]",
+                "[REFLEXION]",
+                "[NAVIGATOR]",
+            ]
             if any(tag in clean_msg for tag in block_list):
                 q.put_nowait(
                     {"type": "trace", "content": clean_msg, "ui_target": "TERMINAL_RAW"}

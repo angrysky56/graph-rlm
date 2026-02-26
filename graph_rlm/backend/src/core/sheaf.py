@@ -120,21 +120,25 @@ class SheafMonitor:
             if len(nodes) < 2:
                 return {"status": "consistent", "conflicts": []}
 
+            # 1. Build k-NN Graph from Embeddings using vectorized similarity
+            node_vecs = np.array([n["vec"] for n in nodes])
+            # sim_matrix is (N, N)
+            sim_matrix = np.dot(node_vecs, node_vecs.T)
+
             edges = []
-            for i, n1 in enumerate(nodes):
-                scores = []
-                for j, n2 in enumerate(nodes):
+            for i in range(len(nodes)):
+                # Get indices sorted by similarity (descending)
+                indices = np.argsort(sim_matrix[i])[::-1]
+                count = 0
+                for j in indices:
                     if i == j:
                         continue
-                    sim = float(np.dot(n1["vec"], n2["vec"]))
-                    scores.append((sim, n2["id"]))
-
-                # Connect to top 2 similar axioms (Sparse Topology)
-                scores.sort(key=lambda x: x[0], reverse=True)
-                for sim, target_id in scores[:2]:
-                    # Only connect if positive correlation
+                    sim = float(sim_matrix[i, j])
                     if sim > 0.5:
-                        edges.append((n1["id"], target_id))
+                        edges.append((nodes[i]["id"], nodes[j]["id"]))
+                        count += 1
+                    if count >= 2:  # Connect to top 2 neighbors
+                        break
 
             # 2. Compute Laplacian
             laplacian = compute_sheaf_laplacian(nodes, edges)

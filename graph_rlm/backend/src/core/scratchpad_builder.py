@@ -723,7 +723,17 @@ class ScratchpadBuilder:
             f"{v}x{k}" for k, v in sorted(op_counts.items(), reverse=True)
         )
 
-        return f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f} | Ops: {op_str}"
+        # Include most recent semantic gist for higher fidelity
+        sample_gist = ""
+        for r in reversed(chunk):
+            gist = r.get("semantic_gist")
+            if gist:
+                sample_gist = f" | Gist: {gist[:50]}..."
+                break
+
+        return (
+            f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f}{sample_gist} | Ops: {op_str}"
+        )
 
     def _get_structural_step_summary(self, row: Dict) -> str:
         """Retrieves the dense semantic gist or pre-computed MDL footprint."""
@@ -810,6 +820,11 @@ class ScratchpadBuilder:
                     words = result.split()
                     if len(words) > 2:
                         target = words[-1].strip("'\".,")
+
+            # [UI POLISH] Limit Subject/Relation/Object length to 30 chars
+            subject = str(subject)[:30]
+            relation = str(relation)[:30]
+            target = str(target)[:30]
 
             return f"{subject} -> {relation} -> {target}"
         except (AttributeError, IndexError, ValueError):
