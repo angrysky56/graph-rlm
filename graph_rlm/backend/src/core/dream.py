@@ -77,15 +77,15 @@ class Dreamer:
         session_id: Optional[str],
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
+        memory_trajectory: Optional[List[Any]] = None,
     ) -> Dict[str, Any]:
         """
         Query DB for actual session metrics so validation can cross-reference
         the agent's claims against what actually happened.
 
         Returns turn count, step count, REPL IDs, failure count, recent node IDs
-        (for edge construction), and status timeline with timestamps.
         """
-        empty: Dict[str, Any] = {
+        empty = {
             "turn_count": 0,
             "step_count": 0,
             "repl_ids": [],
@@ -136,6 +136,45 @@ class Dreamer:
                 qparams,
             )
 
+            # --- RAM Cache Integration ---
+            # DB might be missing nodes from the current turn since they haven't been flushed yet.
+            ram_nodes = []
+            if memory_trajectory:
+                target_id = root_session_id or session_id
+                for event in memory_trajectory:
+                    # Match session/turn
+                    ev_sid = getattr(event, "session_id", None)
+                    ev_rsid = getattr(event, "root_session_id", None)
+                    ev_turn = getattr(event, "turn_id", None)
+
+                    if (ev_sid == target_id or ev_rsid == target_id):
+                        if turn_id is None or ev_turn == turn_id:
+                            # Normalize ThimacEvent to DB Row format
+                            ram_nodes.append({
+                                "id": getattr(event, "thought_id", ""),
+                                "status": getattr(event, "status", ""),
+                                "ts": getattr(event, "timestamp", 0),
+                                "repl_id": getattr(event, "repl_id", ""),
+                                "prompt": getattr(event, "full_data", ""),
+                                "result": getattr(event, "result", ""),
+                                "semantic_gist": getattr(event, "semantic_gist", ""),
+                                "thimac_op": getattr(event, "operation", ""),
+                                "thimac_level": getattr(event, "level", ""),
+                                "thimac_intent": getattr(event, "intent_type", ""),
+                                "thimac_op_reason": getattr(event, "operation_reason", ""),
+                                "thimac_level_reason": getattr(event, "level_reason", ""),
+                            })
+
+            # Merge and de-duplicate (RAM nodes usually more recent/accurate for current turn)
+            db_nodes = {r["id"]: r for r in recent} if recent else {}
+            # Overlay RAM nodes (they win if IDs collide)
+            for node in ram_nodes:
+                db_nodes[node["id"]] = node
+
+            # Sort combined set by timestamp DESC
+            combined_recent = sorted(db_nodes.values(), key=lambda x: x.get("ts") or 0, reverse=True)
+            recent = combined_recent[:5]
+
             result = dict(empty)  # copy defaults
             if agg and len(agg) > 0:
                 row = (
@@ -154,6 +193,15 @@ class Dreamer:
                 result["step_count"] = row.get("step_count", 0)
                 result["repl_ids"] = repls
                 result["failure_count"] = row.get("failures", 0)
+
+            # Augment counts with RAM nodes if they aren't already in DB stats
+            if ram_nodes:
+                if result["step_count"] < len(ram_nodes):
+                    result["step_count"] = len(ram_nodes)
+
+                # Update repl_ids from RAM
+                ram_repls = set(n["repl_id"] for n in ram_nodes if n.get("repl_id"))
+                result["repl_ids"] = list(set(result["repl_ids"]) | ram_repls)
 
             if recent:
                 result["recent_node_ids"] = [r["id"] for r in recent if r.get("id")]
@@ -182,7 +230,6 @@ class Dreamer:
             logger.warning("Failed to query session trace: %s", e)
 
         return empty
-
     async def analyze_holonomy(
         self, loop_nodes: List[Dict[str, Any]], _current_thought: str
     ) -> Dict[str, Any]:
@@ -875,7 +922,10 @@ class Dreamer:
 
         # ── 0. Session trace (timestamps, REPL IDs, recent node IDs) ──
         trace = self._get_session_trace(
-            session_id, turn_id=turn_id, root_session_id=root_session_id
+            session_id,
+            turn_id=turn_id,
+            root_session_id=root_session_id,
+            memory_trajectory=memory_trajectory,
         )
 
         # ── 1. Embedding ──
