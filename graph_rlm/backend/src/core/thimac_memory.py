@@ -70,6 +70,7 @@ class ThimacEvent:
     turn_id: Optional[int] = None
     step_id: Optional[int] = None
     session_id: str = "unknown"
+    root_session_id: str = "unknown"
     round_id: str = "unknown"
     repl_id: Optional[str] = None
     logical_id: Optional[str] = None
@@ -110,6 +111,7 @@ class ThimacEvent:
             "embedding": self.embedding,
             "created_at": self.timestamp,
             "session_id": self.session_id,
+            "root_session_id": self.root_session_id,
             "round_id": self.round_id,
             "summary": self.summary,
             "semantic_gist": self.semantic_gist,
@@ -211,6 +213,7 @@ class ThimacMemory:
             result=thought.get("result", ""),
             timestamp=thought.get("created_at") or int(time.time() * 1000),
             session_id=thought.get("session_id", "unknown"),
+            root_session_id=thought.get("root_session_id", "unknown"),
             round_id=thought.get("round_id", "unknown"),
             summary=summary,
             semantic_gist=semantic_gist or summary,
@@ -640,33 +643,41 @@ class ThimacMemory:
         self, thought: Dict, tool_calls: Optional[List[str]] = None
     ) -> str:
         """
-        Extracts a purely topological footprint of the event.
+        Extracts a purely topological footprint of the event, prepended to the semantic summary.
         """
         status = (thought.get("status") or "").lower()
         compression = thought.get("compression_gain", 0.0)
 
-        # Base mathematical identifier (UUID prefix)
+        # 0. Get the raw semantic content (summary or prompt)
+        raw_summary = thought.get("summary") or thought.get("prompt") or ""
+        # Clean up newlines for the one-line footprint/label
+        semantic_suffix = raw_summary.replace("\n", " ").strip()
+        if len(semantic_suffix) > 200:
+            semantic_suffix = semantic_suffix[:197] + "..."
+
+        # 1. Base mathematical identifier (UUID prefix)
         footprint = f"[{thought.get('id', 'N/A')[:8]}] "
 
-        # Add Minimum Description Length (MDL) metric
+        # 2. Add Minimum Description Length (MDL) metric
         if abs(compression) > 0.01:
             footprint += f"(MDL: {compression:+.2f}) "
 
-        # Add Execution Edge Types
+        # 3. Add Execution Edge Types
         if tool_calls:
             main_tool = tool_calls[0]
             if len(tool_calls) > 1:
-                footprint += f"Edge: {main_tool} (+{len(tool_calls)-1} more)"
+                footprint += f"Edge: {main_tool} (+{len(tool_calls)-1}) "
             else:
-                footprint += f"Edge: {main_tool}"
+                footprint += f"Edge: {main_tool} "
         elif status == "success":
-            footprint += "Edge: Axiomatic_Transform"
+            footprint += "Edge: Axiomatic_Transform "
         elif status in ["failed", "error", "rejected"]:
-            footprint += "Edge: Broken_Sympathy"
+            footprint += "Edge: Broken_Sympathy "
         else:
-            footprint += "Edge: Latent_Vector"
+            footprint += "Edge: Latent_Vector "
 
-        return footprint
+        # 4. Integrate semantic suffix
+        return f"{footprint}| {semantic_suffix}"
 
     @staticmethod
     def _format_ts(epoch_ms: Optional[int]) -> str:

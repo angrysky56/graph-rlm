@@ -635,9 +635,10 @@ class GraphClient:
         """
         Returns the entire graph structure for visualization.
         """
-        # Return all Thoughts and their relationships
+        # Return all relevant nodes and their relationships
         cypher = """
-        MATCH (n:Thought)
+        MATCH (n)
+        WHERE n:Thought OR n:Round OR n:Insight OR n:Axiom
         OPTIONAL MATCH (n)-[r]->(m)
         RETURN n, r, m
         """
@@ -812,7 +813,20 @@ class GraphClient:
         })
         """
         self.query(cypher, params)
-        logger.info("Archived Round %s for session %s", round_id, root_session_id)
+
+        # Physical Link: Join this Round to all its Thoughts
+        link_cypher = """
+        MATCH (r:Round {round_id: $rid})
+        MATCH (t:Thought {round_id: $rid})
+        MERGE (r)-[:CONTAINS]->(t)
+        """
+        self.query(link_cypher, {"rid": round_id})
+
+        logger.info(
+            "Archived Round %s for session %s (Linked to Thoughts)",
+            round_id,
+            root_session_id,
+        )
 
     def update_round_summaries(
         self,

@@ -126,7 +126,7 @@ class SheafMonitor:
             sim_matrix = np.dot(node_vecs, node_vecs.T)
 
             edges = []
-            for i in range(len(nodes)):
+            for i, node in enumerate(nodes):
                 # Get indices sorted by similarity (descending)
                 indices = np.argsort(sim_matrix[i])[::-1]
                 count = 0
@@ -135,7 +135,7 @@ class SheafMonitor:
                         continue
                     sim = float(sim_matrix[i, j])
                     if sim > 0.5:
-                        edges.append((nodes[i]["id"], nodes[j]["id"]))
+                        edges.append((node["id"], nodes[j]["id"]))
                         count += 1
                     if count >= 2:  # Connect to top 2 neighbors
                         break
@@ -354,7 +354,10 @@ class SheafMonitor:
             structured_res = await llm.generate_structured(
                 prompt=prompt,
                 output_type=SpectralAnalysis,
-                system="You are the Sheaf Monitor Synthesizer. You interpret topological signals into cognitive insights.",
+                system=(
+                    "You are the Sheaf Monitor Synthesizer. "
+                    "You interpret topological signals into cognitive insights."
+                ),
             )
 
             # Update the analysis with our numerical truth to be certain
@@ -470,7 +473,9 @@ class SheafMonitor:
                 results = db.query(cypher, params)
                 nodes = results if results else []
             except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                logger.error("Failed to calculate topological stress (DB): %s", e, exc_info=True)
+                logger.error(
+                    "Failed to calculate topological stress (DB): %s", e, exc_info=True
+                )
                 return {"score": 0.0, "rationale": f"Database error: {e}"}
 
         if not nodes:
@@ -573,7 +578,8 @@ class SheafMonitor:
             return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
 
         # --- DIAGNOSTIC 0: TOPOLOGICAL GROUNDING (The Rulial Event Horizon) ---
-        # The Boundary of Chaos threshold: p(d+1)^8 <= 2^(-15) maps roughly to a 0.5 divergence boundary.
+        # The Boundary of Chaos threshold: p(d+1)^8 <= 2^(-15) maps roughly
+        # to a 0.5 divergence boundary.
         # We calculate the inconsistency energy of the trajectory via the Sheaf Laplacian.
         path_nodes = list(reversed(history_nodes))
         if hypothetical_node:
@@ -595,10 +601,10 @@ class SheafMonitor:
                 "energy": inconsistency_energy,
                 "consistency_energy": inconsistency_energy,
                 "critique": (
-                    f"Empirical Contradiction: Your reasoning path has exceeded the topological "
+                    "Empirical Contradiction: Your reasoning path has exceeded the topological "
                     f"stress threshold (Energy = {inconsistency_energy:.2f} > 0.5). {h1_rationale} "
-                    f"You are likely stuck in a logic loop where intent and outcome consistently diverge. "
-                    f"Re-evaluate your approach entirely."
+                    "You are likely stuck in a logic loop where intent and outcome consistently "
+                    "diverge. Re-evaluate your approach entirely."
                 ),
                 "should_halt": False,
                 "topological_stress": stress,
@@ -630,7 +636,8 @@ class SheafMonitor:
                     "consistency_energy": 1.0,
                     "critique": (
                         "Empirical Contradiction: Your proposed response contains a Python Traceback. "
-                        "You cannot submit an error stack trace as a final answer. Fix the code."
+                        "You cannot submit an error stack trace as a final answer. "
+                        "Fix the code."
                     ),
                     "should_halt": False,
                     "topological_stress": stress,
@@ -659,7 +666,10 @@ class SheafMonitor:
             trace_action(
                 "SHEAF",
                 "HOLONOMY_DETECTED",
-                result=f"Loop Strength: {max_similarity:.2f} ({high_sim_count} matches). Triggering Reflexion.",
+                result=(
+                    f"Loop Strength: {max_similarity:.2f} ({high_sim_count} matches). "
+                    "Triggering Reflexion."
+                ),
                 tag="SHEAF",
             )
             return {
@@ -906,9 +916,7 @@ class SheafMonitor:
     async def check_axiomatic_consistency(
         self,
         proposed_code: str,
-        domain_context: Optional[str] = None,
         task_tags: Optional[List[str]] = None,
-        repl_manager: Optional[Any] = None,
         depth: int = 0,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:

@@ -13,6 +13,11 @@ import os
 import sys
 from typing import Optional
 
+import nest_asyncio
+
+# Allow nested event loops for agent code execution
+nest_asyncio.apply()
+
 # Optional scientific computing modules
 try:
     import numpy as np

@@ -33,8 +33,7 @@ class IntelliSynth:
         self.llm = llm
         self.alpha = 1.0  # Weight for Scrutiny
         self.beta = 1.5  # Weight for Improvement
-        self._genesis_vec_cache: Dict[str, List[float]] = {}  # MD5(genesis) -> embedding
-        self._genesis_cache: Dict[str, List[float]] = {}
+        self._genesis_cache: Dict[str, List[float]] = {}  # MD5(genesis) -> embedding
 
     # --- INTROSPECTIVE HEALING (Semantic & Structural) ---
 
@@ -91,6 +90,11 @@ class IntelliSynth:
         context_scratchpad: str = "",
         exec_state: Optional[Any] = None,
         recent_thoughts: Optional[List[Dict]] = None,
+        agent: Any = None,
+        session_id: str = "unknown",
+        root_session_id: str = "unknown",
+        step_id: int = 1,
+        turn_id: int = 1,
     ) -> Optional[Dict[str, Any]]:
         """
         Unified Introspective Probe (Simulation).
@@ -164,12 +168,24 @@ class IntelliSynth:
                         len(fail_keywords) > 0
                         and len(overlap) / len(fail_keywords) >= 0.5
                     ):
-                        return {
+                        correction = {
                             "type": "REPETITION_ERROR",
                             "message": "You are repeating a failed reasoning trajectory with the same code.",
                             "hint": f"Your last attempt ('{last_fail['summary']}') failed with the same code. Try a different technique.",
                             "severity": "WARNING",
                         }
+                        await self._trigger_deep_analysis(
+                            correction,
+                            response_text,
+                            context_scratchpad,
+                            trace,
+                            agent,
+                            session_id,
+                            root_session_id,
+                            step_id,
+                            turn_id,
+                        )
+                        return correction
 
             # Goal Alignment (Mission Control)
             last_critique = mission.get("last_critique")
@@ -184,12 +200,24 @@ class IntelliSynth:
                         k in response_text.lower() for k in critique_keywords
                     )
                     if not found_compliance:
-                        return {
+                        correction = {
                             "type": "ALIGNMENT_ERROR",
                             "message": "You are drifting away from the Dreamer's feedback.",
                             "hint": f"The Dreamer requested: '{last_critique}'. Ensure your thought addresses this explicitly.",
                             "severity": "LOW",
                         }
+                        await self._trigger_deep_analysis(
+                            correction,
+                            response_text,
+                            context_scratchpad,
+                            trace,
+                            agent,
+                            session_id,
+                            root_session_id,
+                            step_id,
+                            turn_id,
+                        )
+                        return correction
 
         # --- 2. Extract Code Blocks for Structural Validation ---
         full_code = extract_python_code(response_text)
@@ -216,12 +244,24 @@ class IntelliSynth:
             elif "Import Error" in error_msg:
                 error_type = "IMPORT_ERROR"
 
-            return {
+            correction = {
                 "type": error_type,
                 "message": error_msg,
-                "hint": "Check yourIndentation, bracket closures, or RLM/MCP naming.",
+                "hint": "Check your Indentation, bracket closures, or RLM/MCP naming.",
                 "severity": severity,
             }
+            await self._trigger_deep_analysis(
+                correction,
+                response_text,
+                context_scratchpad,
+                trace,
+                agent,
+                session_id,
+                root_session_id,
+                step_id,
+                turn_id,
+            )
+            return correction
 
         # 3b. Signature & Logical Check (Contextual - remains in Reflexion)
         if rlm:
@@ -231,14 +271,50 @@ class IntelliSynth:
                 tool_calls = re.findall(r"rlm\.mcp\.(\w+)\.", full_code)
                 for server in tool_calls:
                     if server not in rlm.mcp.list_servers():
-                        return {
+                        correction = {
                             "type": "SIGNATURE_ERROR",
                             "message": f"MCP server '{server}' not found in current namespace.",
                             "hint": f"Available servers: {', '.join(rlm.mcp.list_servers())}",
                             "severity": "WARNING",
                         }
+                        await self._trigger_deep_analysis(
+                            correction,
+                            response_text,
+                            context_scratchpad,
+                            trace,
+                            agent,
+                            session_id,
+                            root_session_id,
+                            step_id,
+                            turn_id,
+                        )
+                        return correction
 
         return None
+
+    async def _trigger_deep_analysis(
+        self,
+        correction: Dict,
+        response_text: str,
+        context_scratchpad: str,
+        trace: List,
+        agent: Any,
+        session_id: str,
+        root_session_id: str,
+        step_id: int,
+        turn_id: int,
+    ):
+        """Helper to fire off the deep advancement cycle on failure."""
+        await self.advancement_cycle(
+            trace_context=context_scratchpad if context_scratchpad else str(trace),
+            current_thought=response_text,
+            divergence_point=correction.get("message", "unknown"),
+            agent=agent,
+            session_id=session_id,
+            root_session_id=root_session_id,
+            step_id=step_id,
+            turn_id=turn_id,
+        )
 
     # --- SPECIAL FUNCTIONS (SF) ---
 
@@ -317,6 +393,7 @@ class IntelliSynth:
         trace_context: str,
         current_thought: str,
         divergence_point: str,
+        agent: Any = None,
         db: Any = None,
         session_id: str = "unknown",
         root_session_id: str = "unknown",
@@ -375,14 +452,42 @@ class IntelliSynth:
             "v2_engine": True,
         }
 
-        # PERSISTENCE: Materialize analysis as a thought node
-        if db:
+        # PERSISTENCE: Materialize analysis using the Agent's standardized chain
+        if agent and hasattr(agent, "_create_system_node"):
+            try:
+                import json as _json
+
+                # Use a descriptive label for the graph node
+                node_label = f"Reflexion: {action} ({divergence_point[:30]}...)"
+                node_result = f"### IntelliSynth Analysis\n{_json.dumps(result, indent=2, default=str)}"
+
+                await agent._create_system_node(
+                    logical_id=f"REF_ANALYSIS_{step_id}",
+                    summary=node_label,
+                    status="reflexion",
+                    session_id=session_id,
+                    root_session_id=root_session_id,
+                    repl_id="REF",
+                    result=node_result,
+                    turn_id=turn_id,
+                    step_id=step_id,
+                    analysis=result,
+                    validate=False,
+                )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+                logger.error(
+                    "Failed to persist IntelliSynth analysis via agent: %s",
+                    db_err,
+                    exc_info=True,
+                )
+        elif db:
+            # Fallback for direct DB access if agent is missing (mostly for tests/legacy)
             try:
                 import json as _json
 
                 db.create_thought_node(
                     thought_id=f"{session_id}:REF:ANALYSIS:{step_id}",
-                    prompt="IntelliSynth Analysis (data-only)",
+                    prompt=f"Reflexion: {action}",
                     result=f"### Reflexion Analysis\n{_json.dumps(result, indent=2, default=str)}",
                     status="reflexion",
                     session_id=session_id,
@@ -395,7 +500,7 @@ class IntelliSynth:
                 )
             except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
                 logger.error(
-                    "Failed to persist IntelliSynth analysis: %s",
+                    "Failed to persist IntelliSynth analysis to DB: %s",
                     db_err,
                     exc_info=True,
                 )
@@ -512,23 +617,15 @@ class IntelliSynth:
             try:
                 # Cache genesis embedding — the same prompt is passed every cycle,
                 # so avoid a redundant LLM API round-trip after the first call.
-                genesis_key = hashlib.md5(genesis[:2000].encode()).hexdigest()
-                if genesis_key not in self._genesis_vec_cache:
-                    self._genesis_vec_cache[genesis_key] = (
-                        await self.llm.get_embedding(genesis[:2000])
-                    )
-                g_vec = self._genesis_vec_cache[genesis_key]
-                # Calculate cosine distance between genesis and current thought
                 g_text = genesis[:2000]
                 g_hash = hashlib.md5(g_text.encode(), usedforsecurity=False).hexdigest()
 
-                if g_hash in self._genesis_cache:
-                    g_vec = self._genesis_cache[g_hash]
-                else:
-                    g_vec = await self.llm.get_embedding(g_text)
-                    if g_vec:
-                        self._genesis_cache[g_hash] = g_vec
+                if g_hash not in self._genesis_cache:
+                    vec = await self.llm.get_embedding(g_text)
+                    if vec:
+                        self._genesis_cache[g_hash] = vec
 
+                g_vec = self._genesis_cache.get(g_hash)
                 t_vec = await self.llm.get_embedding(current_thought[:2000])
 
                 if g_vec and t_vec:

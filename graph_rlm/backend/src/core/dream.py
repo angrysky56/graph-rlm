@@ -13,8 +13,6 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field
-
 import httpx
 import numpy as np
 import redis
@@ -42,8 +40,12 @@ class ValidationVerdict(BaseModel):
 
     verdict: str = Field(..., description="'valid' or 'invalid'")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0–1")
-    reasons: List[str] = Field(default_factory=list, description="Objective reasons for the verdict")
-    instruction: str = Field(default="", description="Specific guidance for the agent if invalid, else empty")
+    reasons: List[str] = Field(
+        default_factory=list, description="Objective reasons for the verdict"
+    )
+    instruction: str = Field(
+        default="", description="Specific guidance for the agent if invalid, else empty"
+    )
     """Structured validation output from the Dreamer."""
 
     verdict: str = Field(..., description="'valid' or 'invalid'")
@@ -123,11 +125,13 @@ class Dreamer:
                 MATCH (t:Thought)
                 WHERE (t.session_id = $sid OR t.root_session_id = $sid) {turn_clause}
                 RETURN t.id as id, t.status as status, t.created_at as ts,
-                       t.repl_id as repl_id, t.thimac_op as thimac_op,
-                       t.thimac_level as thimac_level, t.thimac_intent as thimac_intent,
+                       t.repl_id as repl_id, t.prompt as prompt, t.result as result,
+                       t.semantic_gist as semantic_gist,
+                       t.thimac_op as thimac_op, t.thimac_level as thimac_level,
+                       t.thimac_intent as thimac_intent,
                        t.thimac_op_reason as thimac_op_reason, t.thimac_level_reason as thimac_level_reason
                 ORDER BY t.created_at DESC
-                LIMIT 10
+                LIMIT 5
                 """,
                 qparams,
             )
@@ -159,6 +163,9 @@ class Dreamer:
                         "status": r.get("status", "unknown"),
                         "ts": str(r.get("ts", "")),
                         "repl": r.get("repl_id", ""),
+                        "prompt": r.get("prompt", ""),
+                        "result": r.get("result", ""),
+                        "gist": r.get("semantic_gist", ""),
                         "thimac": {
                             "op": r.get("thimac_op"),
                             "lvl": r.get("thimac_level"),
@@ -812,6 +819,7 @@ class Dreamer:
                 f"Based on the scratchpad context below, identify ONE critical empirical claim (like file creation, data existence).\n"
                 f"Write Python code to verify it. You MUST use the globally available `kb` proxy for paths.\n"
                 f"For example: `if os.path.exists(os.path.join(kb.reports_dir, 'filename.md')): ...`\n"
+                f"If you are verifying a report or file, you MUST ALSO read back a sample of its content to confirm it is not empty or malformed.\n"
                 f"Do NOT attempt to import `kb` or `knowledge_base`; it is already in the global namespace.\n"
                 f"If checking a file path, use `os.walk` or recursive glob to FIND it if the direct path fails.\n"
                 f"If found in a different location, print 'FOUND: <actual_path>'.\n"
@@ -831,7 +839,7 @@ class Dreamer:
             if verify_code and "pass" not in verify_code.lower():
                 # B) Execute in REPL
                 # Inject minimal context for verification
-                preamble = "import os\n" "import sys\n" "from pathlib import Path\n"
+                preamble = "import os\n" + "import sys\n" + "from pathlib import Path\n"
                 from .core import KnowledgeBaseStructure
 
                 kb = KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
@@ -848,17 +856,14 @@ class Dreamer:
                     }
                 )
                 try:
-                    stdout, stderr, _, _ = await asyncio.wait_for(
-                        repl.execute(preamble + "\n" + verify_code), timeout=30.0
+                    stdout, stderr, _, _ = await repl.execute(
+                        preamble + "\n" + verify_code, timeout=30.0
                     )
                 except asyncio.TimeoutError:
                     logger.warning(
                         "REPL execution timed out in validate_response — treating as verification failure"
                     )
                     stdout, stderr = "", "TimeoutError: execution exceeded 30s"
-                stdout, stderr, _, _ = await repl.execute(
-                    preamble + "\n" + verify_code, timeout=15
-                )
                 verification_result = (
                     f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
                 )
@@ -945,6 +950,16 @@ class Dreamer:
                 thimac_info += f" [{t.get('op_reason')}]"
             metrics_block += f"  - [{entry['id']}] {entry['status']} @ {entry['ts']} (REPL: {entry['repl']}){thimac_info}\n"
 
+            # --- HIGH-FIDELITY EVIDENCE TRACE ---
+            # Provide actual content to the Dreamer so it can see file writes/results
+            prompt_clip = str(entry.get("prompt", ""))[:200].replace("\n", " ")
+            result_clip = str(entry.get("result", ""))[:400].replace("\n", " ")
+            gist = entry.get("gist", "")
+            if gist:
+                metrics_block += f"    > Gist: {gist}\n"
+            metrics_block += f"    > Action: {prompt_clip}...\n"
+            metrics_block += f"    > Result: {result_clip}...\n"
+
         def _fmt_axis(val: Any) -> str:
             """Format RepE axis value: numeric → 3dp, otherwise str."""
             return f"{val:.3f}" if isinstance(val, (int, float)) else str(val)
@@ -999,7 +1014,9 @@ class Dreamer:
             f"## Instructions\n"
             f"Perform a cold, factual evaluation. Do NOT hallucinate failures.\n"
             f"Crucially, check for **STRUCTURAL GROUNDING**: If the agent claims to have written files, "
-            f"ensure they are verified (Grounding Status: GROUNDED). Reject as invalid if Grounding Status is 'UNVERIFIED_SIDE_EFFECTS'.\n"
+            f"ensure they are verified (Grounding Status: GROUNDED).\n"
+            f"**IMPORTANT: NO SELF-ECHO**: If the candidate response is simply a repetition or shallow summary of the original task or the scratchpad instructions WITHOUT providing a new, grounded contribution, you MUST reject it as 'invalid'.\n"
+            f"Reject as invalid if Grounding Status is 'UNVERIFIED_SIDE_EFFECTS'.\n"
             f"**IMPORTANT**: If the grounding status is unverified, YOU MUST list the specific 'Pending Side-Effects' in your 'instruction' field so the agent knows what to verify next.\n"
             f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
             f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
@@ -1016,30 +1033,34 @@ class Dreamer:
             f'"instruction": "specific guidance for the agent if invalid, else empty string"}}'
         )
 
+        # Default judgment fallback
+        has_hard_fail = (
+            topo_status in ("EMPIRICAL_CONTRADICTION", "LOGICAL_KNOT")
+            or bool(placeholders)
+            or has_todo
+        )
+        judgment = ValidationVerdict(
+            verdict="invalid" if has_hard_fail else "valid",
+            confidence=0.3 if has_hard_fail else 0.7,
+            reasons=[topo_critique] if topo_critique else [],
+            instruction=topo_critique or "",
+        )
+
         try:
             verdict_obj = await self.llm.generate_structured(
-            judgment = await self.llm.generate_structured(
                 prompt=validation_prompt,
                 output_type=ValidationVerdict,
                 system="You are the Dreamer validation oracle.",
             )
-            judgment = verdict_obj.model_dump()
-        except (RuntimeError, ValueError, AttributeError, TypeError) as e:
-            logger.warning("Dreamer structured classification failed: %s", e, exc_info=True)
-        except (json.JSONDecodeError, RuntimeError, ValueError, AttributeError) as e:
-            logger.warning("Dreamer LLM classification failed: %s", e)
-            # Fallback: deterministic checks only
-            has_hard_fail = (
-                topo_status in ("EMPIRICAL_CONTRADICTION", "LOGICAL_KNOT")
-                or bool(placeholders)
-                or has_todo
-            )
-            judgment = ValidationVerdict(
-                verdict="invalid" if has_hard_fail else "valid",
-                confidence=0.3 if has_hard_fail else 0.7,
-                reasons=[topo_critique] if topo_critique else [],
-                instruction=topo_critique or "",
-            )
+            judgment = verdict_obj
+        except (
+            json.JSONDecodeError,
+            RuntimeError,
+            ValueError,
+            AttributeError,
+            TypeError,
+        ) as e:
+            logger.warning("Dreamer validation classification failed: %s", e)
 
         # ── 8. Return structured result ──
         verdict = judgment.verdict
@@ -1162,15 +1183,12 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         repl.namespace.update({"sys": __import__("sys")})
 
         try:
-            stdout, stderr, _, _ = await asyncio.wait_for(
-                repl.execute(test_wrapper), timeout=30.0
-            )
+            stdout, stderr, _, _ = await repl.execute(test_wrapper, timeout=30.0)
         except asyncio.TimeoutError:
             logger.warning(
                 "👁️ REM Nightmare: REPL execution timed out — treating as empirical failure"
             )
             return False
-        stdout, stderr, _, _ = await repl.execute(test_wrapper, timeout=10)
 
         if "Nightmare Induced Crash" in stdout or (stderr and "Traceback" in stderr):
             logger.warning(
@@ -1404,13 +1422,14 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
 
         logger.info("Executing axiom code...")
         try:
-            _stdout, stderr, _res_axiom, is_err = await asyncio.wait_for(
-                repl.execute(pure_code), timeout=30.0
+            _stdout, stderr, _res_axiom, is_err = await repl.execute(
+                pure_code, timeout=30.0
             )
         except asyncio.TimeoutError:
-            logger.warning("Dreamer: axiom code execution timed out — treating as failure")
+            logger.warning(
+                "Dreamer: axiom code execution timed out — treating as failure"
+            )
             return False
-        _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code, timeout=30)
 
         # --- AUTO-INSTALLATION SELF-HEALING ---
         if is_err and "ModuleNotFoundError" in stderr:
@@ -1424,11 +1443,13 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
                 try:
-                    _stdout, stderr, _res_axiom, is_err = await asyncio.wait_for(
-                        repl.execute(pure_code), timeout=30.0
+                    _stdout, stderr, _res_axiom, is_err = await repl.execute(
+                        pure_code, timeout=30.0
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("Dreamer: axiom retry timed out — treating as failure")
+                    logger.warning(
+                        "Dreamer: axiom retry timed out — treating as failure"
+                    )
                     return False
 
         if is_err:
@@ -1441,7 +1462,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 repl.execute(pure_test), timeout=30.0
             )
         except asyncio.TimeoutError:
-            logger.warning("Dreamer: test code execution timed out — treating as failure")
+            logger.warning(
+                "Dreamer: test code execution timed out — treating as failure"
+            )
             return False
         stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
             pure_test, timeout=30
@@ -1461,11 +1484,13 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
                 try:
-                    stdout_test, stderr_test, _res_test, is_err_test = await asyncio.wait_for(
-                        repl.execute(pure_test), timeout=30.0
+                    stdout_test, stderr_test, _res_test, is_err_test = (
+                        await asyncio.wait_for(repl.execute(pure_test), timeout=30.0)
                     )
                 except asyncio.TimeoutError:
-                    logger.warning("Dreamer: test retry timed out — treating as failure")
+                    logger.warning(
+                        "Dreamer: test retry timed out — treating as failure"
+                    )
                     return False
                 stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
                     pure_test, timeout=30

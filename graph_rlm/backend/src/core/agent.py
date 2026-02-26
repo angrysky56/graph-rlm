@@ -199,6 +199,7 @@ class Agent:
         self.eval_failure_count: int = 0  # Failed tasks (errors, timeouts)
         self.eval_step_count: int = 0  # Total steps executed
         self.eval_dreamer_interventions: int = 0  # Dreamer correction count
+        self.round_started_at: int = 0
 
         if is_skills_available():
             self.skills_manager = get_skills_manager()
@@ -594,6 +595,9 @@ class Agent:
                     datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000
                 ),
                 "session_id": session_id,
+                "root_session_id": self.session_cache.get(
+                    "root_session_id", session_id
+                ),
                 "round_id": round_id or "ROOT",
                 "turn_id": turn_id if turn_id is not None else self.current_turn,
                 "step_id": step,
@@ -606,12 +610,14 @@ class Agent:
 
             # Generate Semantic Gist (Phase 4.6)
             semantic_gist = ""
-            if status == "success" and result:
+            if result or prompt:
                 summary_model = getattr(
                     settings, "SUMMARY_MODEL", "google/gemini-2.0-flash-lite"
                 )
+                # If it's a failure, we still want a gist explaining what failed
+                context_result = result if result else f"[Status: {status}]"
                 semantic_gist = await summarize_event(
-                    prompt, result, model=summary_model
+                    prompt, context_result, model=summary_model
                 )
 
             event = self.morph_memory.ingest_thought(
@@ -684,9 +690,7 @@ class Agent:
                     prompt=event.full_data,
                     logical_id=event.logical_id,
                     session_id=str(event.session_id),
-                    root_session_id=str(
-                        self.session_cache.get("root_session_id", event.session_id)
-                    ),
+                    root_session_id=str(event.root_session_id),
                     prompt_embedding=event.embedding,
                     repl_id=event.repl_id,
                     status=event.status,
@@ -1054,6 +1058,7 @@ class Agent:
         self._dreamer_retry_count = 0
         self._validation_retries = 0
         self.global_stop_event.clear()
+        self.round_started_at = int(time.time())
 
         logger.info(
             "🛡️ [Agent] RLM Loop State Reset for Session %s (Turn %d)",
@@ -1086,7 +1091,7 @@ class Agent:
             self.current_thought_id = task_id
 
             # Meta-Agent Profiling (Inlined for now, could be further abstracted)
-            task_profile = await self._generate_task_profile(prompt, session_id, depth)
+            task_profile = await self._generate_task_profile(prompt)
 
             # Breaker Protocol Injection
             if meta_agents.should_spawn_breakers(prompt, len(prompt), depth=depth):
@@ -1112,7 +1117,7 @@ class Agent:
                     },
                 },
             )
-        except Exception as e:
+        except (AttributeError, RuntimeError, KeyError, ValueError) as e:
             logger.error("Failed to initialize Task node: %s", e)
             task_id = str(uuid.uuid4())
             self.current_thought_id = task_id
@@ -1128,18 +1133,49 @@ class Agent:
                 },
             )
 
+        # Final Context Construction
+        max_steps = 15  # Default execution limit
+        repl_id = self.active_repls.get(session_id)
+
+        # Initial Scratchpad (Step 0)
+        pad = await self._refresh_scratchpad(
+            session_id=session_id,
+            root_session_id=final_root_id,
+            task=prompt,
+            current_step=0,
+            max_steps=max_steps,
+            current_round_id=current_round_id,
+            morph_gestalt=None,
+            execution_state=agent_state.get(),
+        )
+
+        # [GROUNDING] Proactively inject task_input into the REPL at Step 0
+        try:
+            asyncio.create_task(
+                self.runtime.execute(
+                    f"task_input = {repr(prompt)}",
+                    context={"session_id": session_id, "step_id": 0},
+                )
+            )
+        except (AttributeError, RuntimeError) as e:
+            logger.warning("Initial REPL grounding failed: %s", e)
+
         return {
-            "final_root_id": final_root_id,
-            "current_round_id": current_round_id,
+            "root_id": final_root_id,
+            "final_root_id": final_root_id,  # Keep for backward compat in _initialize_step
+            "round_id": current_round_id,
+            "current_round_id": current_round_id,  # Keep for backward compat
+            "repl_id": repl_id,
             "task_profile": task_profile,
             "prompt": prompt,
             "task_id": task_id,
+            "step": 0,
+            "max_steps": max_steps,
+            "pad": pad,
             "exec_state": agent_state.get() or ExecutionState(),
         }
 
-    async def _generate_task_profile(
-        self, prompt: str, session_id: str, depth: int
-    ) -> Dict[str, Any]:
+    async def _generate_task_profile(self, prompt: str) -> Dict[str, Any]:
         """Helper to generate sub-agent profile with timeout."""
         try:
             mcp_names = get_mcp_server_names() if is_mcp_available() else []
@@ -1152,147 +1188,6 @@ class Agent:
                 timeout=5.0,
             )
 
-            # 3. LLM Gen (Think) with Unified Real-Time Healing
-            response_text = ""
-            current_healing_attempt = 0
-            max_healing_retries = 2
-
-            # Temporary context to modify for healing retries
-            temp_context = current_context
-
-            while current_healing_attempt <= max_healing_retries:
-                try:
-                    # [DIAGNOSTIC] Log start of network request
-                    log_label = (
-                        "... Sending request to LLM ..."
-                        if current_healing_attempt == 0
-                        else f"... Introspective Healing (Attempt {current_healing_attempt}) ..."
-                    )
-                    self.emit_event(
-                        "debug_thought",
-                        content=f"{log_label} (Size: {len(temp_context)} chars) ...",
-                    )
-                    # Generate correlation ID for circuit breaker tracking
-                    correlation_id = generate_correlation_id()
-
-                    try:
-                        # Define Usage Callback
-                        def on_usage_update(usage_data: dict):
-                            # Broadcast detailed usage to UI
-                            self.emit_event(
-                                "token_usage", data=usage_data, is_internal=True
-                            )
-
-                        # Execute LLM Call
-                        # [OpenRouter Caching Strategy]
-                        llm_config = self.llm.config
-                        if llm_config.get("provider") == "openrouter":
-                            system_message_content = [
-                                {
-                                    "type": "text",
-                                    "text": system_prompt,
-                                    "cache_control": {"type": "ephemeral"},
-                                }
-                            ]
-                            messages = [
-                                {"role": "system", "content": system_message_content},
-                                {"role": "user", "content": temp_context},
-                            ]
-                            response_text = await protected_llm_generate(
-                                prompt=messages,
-                                system=None,
-                                stream=False,
-                                stop=["</invoke>", "<|endoftext|>"],
-                                on_usage=on_usage_update,
-                                temperature=temp_override,
-                            )
-                        else:
-                            response_text = await protected_llm_generate(
-                                prompt=temp_context,
-                                system=system_prompt,
-                                stream=False,
-                                stop=["</invoke>", "<|endoftext|>"],
-                                on_usage=on_usage_update,
-                                temperature=temp_override,
-                            )
-                    except CircuitOpenError as e:
-                        logger.warning(
-                            "llm_circuit_open",
-                            extra={
-                                "correlation_id": correlation_id,
-                                "circuit": e.circuit_name,
-                                "error": e.message,
-                            },
-                        )
-                        response_text = await self._handle_llm_circuit_open(e)
-                    except httpx.RequestError as e:
-                        response_text = f"LLM Network Error: {str(e)}"
-                        logger.error("LLM Request Error (%s): %s", type(e).__name__, e)
-                    except (ValueError, TypeError, KeyError) as e:
-                        response_text = f"LLM Logic Error: {str(e)}"
-                        logger.error(
-                            "LLM Logic/Data Error (%s): %s", type(e).__name__, e
-                        )
-                        self.emit_event("error", content=response_text)
-
-                    # Post-gen stop check
-                    if self.stop_requested or self.global_stop_event.is_set():
-                        self.stop_requested = True
-                        break
-
-                    # --- PROACTIVE INTROSPECTIVE HEALING ---
-                    # Before we commit this thought, probe it for structural integrity.
-                    try:
-                        # Ephemeral rlm_ctx for signature validation
-                        rlm_ctx = RLMInterface(
-                            self,
-                            session_id=session_id,
-                            root_session_id=final_root_id or session_id,
-                        )
-
-                        correction = await intelli_synth.introspective_probe(
-                            response_text,
-                            rlm=rlm_ctx,
-                            context_scratchpad=context_scratchpad,
-                            exec_state=self.get_state(),
-                        )
-
-                        if not correction:
-                            # Thought is clean or contains no code to heal
-                            break
-
-                        # Healing logic triggered
-                        current_healing_attempt += 1
-                        if current_healing_attempt > max_healing_retries:
-                            logger.info(
-                                "Maximum healing retries reached. Committing latest attempt."
-                            )
-                            break
-
-                        self.emit_event(
-                            "thinking",
-                            content=f"⚠️ **[Introspective Healing]** {correction['type']} detected. Patching action...",
-                            tag="SYSTEM",
-                        )
-
-                        # Augment temp_context with the correction hint
-                        temp_context += (
-                            f"\n\n[SYSTEM INTROSPECTION ERROR]: {correction['message']}\n"
-                            f"HINT: {correction['hint']}\n"
-                            "Please correct your logic/code and try again."
-                        )
-                        # Clear response_text to ensure we loop back unless broken above
-                        response_text = ""
-
-                    except (AttributeError, RuntimeError, ValueError) as probe_err:
-                        logger.error("Introspective probe failed: %s", probe_err)
-                        break
-
-                except (AttributeError, RuntimeError, KeyError, ValueError) as outer_e:
-                    logger.error("Critical error in thinking loop: %s", outer_e)
-                    if not response_text:
-                        response_text = f"System Error: {outer_e}"
-                    break
             role_val = task_profile.get("role", "WORKER")
             role_str = role_val.value if hasattr(role_val, "value") else str(role_val)
             plan_summary = f"Persona: {task_profile.get('persona', 'Generalist')} | Role: {role_str} | Tools: {', '.join(task_profile.get('tools', ['All']))}"
@@ -1300,7 +1195,13 @@ class Agent:
             self.emit_event("RLM_AGENT_TASK_PLAN", content=plan_summary, tag="AGENT")
             trace_action("AGENT", "TASK_PLAN", result=plan_summary, tag="AGENT")
             return task_profile
-        except Exception as e:
+        except (
+            AttributeError,
+            RuntimeError,
+            KeyError,
+            ValueError,
+            asyncio.TimeoutError,
+        ) as e:
             logger.warning("Task profiling failed: %s", e)
             return {
                 "persona": "Autonomous Generalist",
@@ -1314,10 +1215,7 @@ class Agent:
         """
         Initializes the context and prompt for a single step.
         """
-        final_root_id = turn_ctx["final_root_id"]
-        current_round_id = turn_ctx["current_round_id"]
         task_profile = turn_ctx["task_profile"]
-        prompt = turn_ctx["prompt"]
         exec_state = turn_ctx["exec_state"]
 
         logical_id = f"{session_id[:8]}:T{self.current_turn}:S{step}"
@@ -1328,22 +1226,19 @@ class Agent:
             morph_gestalt = (
                 self.morph_memory.get_gestalt_string() if self.morph_memory else None
             )
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.warning("Thimac gestalt update failed: %s", e)
             morph_gestalt = None
 
         # Dashboard Metrics
-        dashboard_data = await self._get_dashboard_metrics(
-            final_root_id, session_id, exec_state
-        )
+        dashboard_data = await self._get_dashboard_metrics(exec_state)
 
-        # Build System Prompt
+        # Build System Prompt - HIGHER STABILITY: State remains in User Message ONLY
         system_prompt = (
             f"{await build_system_prompt(skills_manager=self.skills_manager, agent_profile=task_profile, dashboard_data=dashboard_data)}\n\n"
             f"--- FILE OPERATIONS & GROUNDING ---\n"
             f"CRITICAL: If your action creates or modifies a file, you MUST print the absolute path "
-            f"and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations.\n\n"
-            f"{await self._refresh_scratchpad(session_id=session_id, root_session_id=final_root_id, task=prompt, current_step=step, max_steps=100, current_round_id=current_round_id, morph_gestalt=morph_gestalt, execution_state=exec_state)}"
+            f"and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations."
         )
 
         # Hot Seat Injection
@@ -1372,9 +1267,7 @@ class Agent:
             }
         )
 
-    async def _get_dashboard_metrics(
-        self, root_id: str, session_id: str, exec_state: Any
-    ) -> Dict[str, Any]:
+    async def _get_dashboard_metrics(self, exec_state: Any) -> Dict[str, Any]:
         """Helper to fetch dashboard metrics."""
         data = {}
         try:
@@ -1396,7 +1289,7 @@ class Agent:
                 }
             # Add branching state
             data["branching_state"] = getattr(exec_state, "branching_state", "STABLE")
-        except Exception as e:
+        except (AttributeError, RuntimeError) as e:
             logger.warning("Failed to fetch metrics: %s", e)
         return data
 
@@ -1417,7 +1310,9 @@ class Agent:
         response_text = ""
         current_healing_attempt = 0
         max_healing_retries = 2
-        temp_context = current_context
+        # [REINFORCEMENT] Explicitly anchor the agent to the mission
+        mission_anchor = f"--- 🎯 CURRENT MISSION ---\n{self.current_task_input or 'Complete the user request.'}\n---------------------------\n\n"
+        temp_context = mission_anchor + current_context
 
         while current_healing_attempt <= max_healing_retries:
             try:
@@ -1427,8 +1322,6 @@ class Agent:
                     else f"... Healing (Attempt {current_healing_attempt}) ..."
                 )
                 self.emit_event("debug_thought", content=f"{log_label} Step {step} ...")
-
-                correlation_id = generate_correlation_id()
 
                 def on_usage_update(usage_data: dict):
                     self.emit_event("token_usage", data=usage_data, is_internal=True)
@@ -1475,7 +1368,16 @@ class Agent:
                     ),
                 )
                 correction = await intelli_synth.introspective_probe(
-                    response_text, rlm=rlm_ctx, context_scratchpad=""
+                    response_text,
+                    rlm=rlm_ctx,
+                    context_scratchpad="",
+                    agent=self,
+                    session_id=session_id,
+                    root_session_id=self.session_cache.get(
+                        "root_session_id", session_id
+                    ),
+                    step_id=step,
+                    turn_id=self.current_turn,
                 )
 
                 if not correction:
@@ -1490,10 +1392,32 @@ class Agent:
                     content=f"⚠️ **[Healing]** {correction['type']} detected. Patching...",
                     tag="SYSTEM",
                 )
+
+                # Record the healing event as a reflexion node for graph visibility
+                await self._create_system_node(
+                    logical_id=f"{session_id}:T{self.current_turn}:S{step}:Healing:{correction['type']}",
+                    summary=f"Healing: {correction['type']}",
+                    result=f"### Healing Correction\n**Issue**: {correction['message']}\n**Hint**: {correction['hint']}",
+                    status="reflexion",
+                    session_id=session_id,
+                    root_session_id=self.session_cache.get(
+                        "root_session_id", session_id
+                    ),
+                    turn_id=self.current_turn,
+                    step_id=step,
+                )
+
                 temp_context += f"\n\n[SYSTEM ERROR]: {correction['message']}\nHINT: {correction['hint']}\nFix and retry."
                 response_text = ""
 
-            except Exception as e:
+            except (
+                AttributeError,
+                RuntimeError,
+                KeyError,
+                ValueError,
+                httpx.RequestError,
+                asyncio.TimeoutError,
+            ) as e:
                 logger.error("Error in generate_thought: %s", e)
                 if not response_text:
                     response_text = f"System Error: {e}"
@@ -1563,7 +1487,7 @@ class Agent:
             self.stop_requested = True
             return "", False, [], None
 
-        output, failed, summary, c_hash = await self._execute_code(
+        output, failed, _, c_hash = await self._execute_code(
             code,
             thought_id,
             session_id,
@@ -1724,7 +1648,7 @@ class Agent:
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:VALIDATED",
                 summary=f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
                 parent_id=self.current_thought_id,
-                status="success",
+                status="validated",
                 session_id=session_id,
                 root_session_id=root_id,
                 round_id=round_id,
@@ -1737,6 +1661,29 @@ class Agent:
             self.eval_success_count += 1
 
             try:
+                # 5. Persistent Memory Flush (Phase 4 Consolidation)
+                # Flush the successful thought chain from RAM to FalkorDB
+                await self._flush_memory_chain(self.current_thought_id)
+
+                # 6. Archive the completed round to the graph for history persistence
+                self.db.save_round(
+                    round_id=round_id,
+                    root_session_id=root_id,
+                    user_prompt=prompt,
+                    repl_ids=list(self.active_repls.values()),
+                    final_response=(
+                        str(self.final_result) if self.final_result is not None else ""
+                    ),
+                    full_scratchpad=context_scratchpad,
+                    started_at=getattr(self, "round_started_at", int(time.time())),
+                    ended_at=int(time.time()),
+                )
+            except (AttributeError, RuntimeError, KeyError, ValueError) as db_err:
+                logger.error(
+                    "Failed to archive round %s (DB error): %s", round_id, db_err
+                )
+
+            try:
                 await dreamer.dream_cycle(
                     emit_callback=self.emit_event,
                     session_id=session_id,
@@ -1745,7 +1692,7 @@ class Agent:
                     turn_id=self.current_turn,
                     root_session_id=root_id,
                 )
-            except Exception as e:
+            except (AttributeError, RuntimeError) as e:
                 logger.warning("Post-success dream cycle failed: %s", e)
             return True
         else:
@@ -1820,12 +1767,12 @@ class Agent:
             rlm_ctx = RLMInterface(
                 self, session_id=session_id, root_session_id=exec_ctx["root_id"]
             )
-            code, intent = await self._process_response(response_text, rlm_ctx)
+            code, _ = await self._process_response(response_text, rlm_ctx)
 
             # 3. Action Execution
-            output, failed, tools, c_hash = "", False, [], None
+            c_hash = None
             if code and self.current_thought_id:
-                output, failed, tools, c_hash = await self._execute_action(
+                _, _, _, c_hash = await self._execute_action(
                     code,
                     self.current_thought_id,
                     session_id,
@@ -1947,43 +1894,6 @@ class Agent:
         from .guardrails import extract_python_code
 
         return extract_python_code(text)
-        """Extracts python code blocks from LLM response text using a state-based parser."""
-        lines = text.splitlines()
-        code_blocks = []
-        current_block = []
-        in_code_block = False
-
-        for line in lines:
-            stripped = line.strip()
-            if stripped.startswith("```python"):
-                in_code_block = True
-                current_block = []
-                continue
-            elif stripped.startswith("```") and in_code_block:
-                in_code_block = False
-                code_blocks.append("\n".join(current_block))
-                current_block = []
-                continue
-
-            if in_code_block:
-                current_block.append(line)
-
-        # Handle unclosed block at end
-        if in_code_block and current_block:
-            raw_code = "\n".join(current_block)
-            # STRIP "Final Answer" or other common chat tail markers from the code
-            clean_code = re.split(
-                r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE
-            )[0]
-            code_blocks.append(clean_code.strip())
-            logger.warning(
-                "Found unclosed code block, extracting tail (and stripping chat)."
-            )
-
-        if not code_blocks:
-            return ""
-
-        return "\n\n# --- RLM BLOCK SEPARATOR ---\n\n".join(code_blocks)
 
     async def _execute_code(
         self,
@@ -2217,18 +2127,18 @@ class Agent:
                 if "SYSTEM" in step_type:
                     continue
 
-                # Build comprehensive trace entry with all available data
-                preview = content
-                result_preview = result
-
                 entry = (
                     f"Turn {i + 1} [{step_type}] (REPL: {repl_id}, Status: {status}):\n"
                 )
-                entry += f"Content: {preview}\n"
-                if exec_summary:
+                entry += f"Content: {content}\n"
+                if exec_summary and exec_summary != content:
                     entry += f"Summary: {exec_summary}\n"
-                if result_preview:
-                    entry += f"Result: {result_preview}\n"
+                if result:
+                    # Provide the full result for grounding, truncated if extreme
+                    res_val = str(result)
+                    if len(res_val) > 4000:
+                        res_val = res_val[:3997] + "..."
+                    entry += f"Result: {res_val}\n"
 
                 trace_lines.append(entry)
 

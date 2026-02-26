@@ -6,7 +6,12 @@ Handles chat completions, session management, and system configuration.
 import asyncio
 import importlib
 import json
+import os
 import re
+import signal
+import threading
+import time
+import traceback
 from pathlib import Path
 from typing import List, Optional
 
@@ -81,8 +86,8 @@ async def get_config():
         "OPENROUTER_MODEL": settings.OPENROUTER_MODEL,
         "OPENROUTER_EMBEDDING_MODEL": settings.OPENROUTER_EMBEDDING_MODEL,
         "SUMMARY_MODEL": settings.SUMMARY_MODEL,
-        # "OPENAI_API_KEY": settings.OPENAI_API_KEY,
-        # "OPENAI_MODEL": settings.OPENAI_MODEL,
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "OPENAI_MODEL": settings.OPENAI_MODEL,
         "provider": settings.LLM_PROVIDER,  # Alias for UI
     }
 
@@ -104,7 +109,9 @@ async def update_config(request: Request):
         "OPENROUTER_MODEL",
         "OPENROUTER_EMBEDDING_MODEL",
         "SUMMARY_MODEL",
-        # "OPENAI_API_KEY", "OPENAI_MODEL", "OPENAI_EMBEDDING_MODEL"
+        "OPENAI_API_KEY",
+        "OPENAI_MODEL",
+        "OPENAI_EMBEDDING_MODEL",
     }
 
     updates = {}
@@ -143,10 +150,6 @@ async def shutdown_system():
     """
     Trigger a graceful shutdown of the backend.
     """
-    import os
-    import signal
-    import threading
-    import time
 
     def kill_server():
         time.sleep(1)  # Give time for the response to return
@@ -209,19 +212,21 @@ async def list_sessions():
     """
     try:
         # Bundle thoughts by root_session_id to show unique conversations
-        # We want to sort by LAST activity (max(created_at)), but Keep Title from FIRST node (min(created_at))
+        # We want to sort by LAST activity (max(created_at)),
+        # but Keep Title from FIRST node (min(created_at))
         q = """
         MATCH (t:Thought)
-        WITH t.root_session_id AS session_id,
-             min(t.created_at) AS started_at,
+        WITH COALESCE(t.root_session_id, t.session_id) AS sid,
              max(t.created_at) AS last_active
         ORDER BY last_active DESC
         LIMIT 20
-        MATCH (root:Thought {session_id: session_id})
-        WITH session_id, last_active, root
+        MATCH (root:Thought)
+        WHERE (root.session_id = sid OR root.id = sid)
+          AND root.status IN ['task', 'success', 'pending']
+        WITH sid, last_active, root
         ORDER BY root.created_at ASC
-        WITH session_id, last_active, collect(root)[0] AS root_node
-        RETURN session_id, root_node.prompt AS title, last_active
+        WITH sid, last_active, collect(root)[0] AS root_node
+        RETURN sid AS session_id, root_node.prompt AS title, last_active
         """
         res = db.query(q)
 
@@ -273,87 +278,107 @@ async def get_session_thoughts(session_id: str):
 @router.get("/chat/history/{session_id}")
 async def get_history(session_id: str):
     """
-    Get message history for a session by traversing the Thought Chain.
-    Reconstructs the conversation from the Graph of Thoughts.
+    Get message history for a session.
+    Prioritizes 'Round' nodes (stable turn-level summaries).
+    Falls back to 'Thought' nodes for legacy or un-finalized sessions.
     """
-    # Query: Match root and all subsequent thoughts in the chain
-    # We use *0.. to include the root itself
-    q = """
-    MATCH (root:Thought {id: $id})
-    OPTIONAL MATCH (root)-[:DECOMPOSES_INTO*]->(child:Thought)
-    WITH root, child
-    # If child is null (no chain), we just have root. If chain, we have pairs.
-    # actually *0.. handles root as child.
-    MATCH (n:Thought) WHERE n.id = root.id OR n.id = child.id
-    RETURN DISTINCT n.prompt AS content, n.created_at AS created_at, n.id AS id
-    ORDER BY n.created_at ASC
+    # 1. Try to get completed Rounds first
+    q_rounds = """
+    MATCH (r:Round)
+    WHERE r.root_session_id = $id OR r.session_id = $id
+    RETURN r.user_prompt AS prompt,
+           r.final_response AS response,
+           r.started_at AS started_at,
+           r.ended_at AS ended_at,
+           r.round_id AS id
+    ORDER BY r.started_at ASC
     """
+    res_rounds = db.query(q_rounds, {"id": session_id})
 
-    # Better Query for linear chain reconstruction:
-    # We want to walk the tree.
-    # Note: FalkorDB might not support full path traversal robustly in one simple return if branching exists.
-    # But we enforced linear referencing in agent.py primarily.
+    if res_rounds:
+        messages = []
+        for row in res_rounds:
+            # Add User Message
+            messages.append(
+                {
+                    "role": "user",
+                    "content": row.get("prompt", ""),
+                    "created_at": row.get("started_at"),
+                    "id": row.get("id", "") + ":user",
+                }
+            )
+            # Add Assistant Message
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": row.get("response", ""),
+                    "created_at": row.get("ended_at"),
+                    "id": row.get("id", "") + ":assistant",
+                    "status": "success",
+                }
+            )
+        return messages
 
-    # Query: Match all thoughts belonging to this root session
-    # Query: Match all thoughts belonging to this root session
-    # We use a robust timestamp-based ordering, but ideally we should follow the DECOMPOSES_INTO chain if possible.
-    # However, for the chat view, a chronological flat list of thoughts in the session is usually sufficient and more robust to graph fragments.
-    q = """
-    MATCH (node:Thought)
-    WHERE node.root_session_id = $id OR node.session_id = $id
-    RETURN node.prompt AS content,
+    # 2. Fallback to nodes if no Rounds found
+    q_nodes = """
+    MATCH (node)
+    WHERE (node:Thought OR node:Insight OR node:Axiom)
+    AND (node.root_session_id = $id OR node.session_id = $id)
+    RETURN node.prompt AS prompt,
+           node.content AS content,
            node.result AS result,
            node.created_at AS created_at,
            node.status AS status,
            node.id AS id,
            node.repl_id AS repl_id,
-           node.execution_summary AS execution_summary
+           node.execution_summary AS execution_summary,
+           labels(node) AS labels
     ORDER BY node.created_at ASC
     """
-
-    res = db.query(q, {"id": session_id})
+    res_nodes = db.query(q_nodes, {"id": session_id})
 
     messages = []
-    seen = set()
+    for row in res_nodes:
+        # Field fallback: Insight/Axiom use 'content', Thought uses 'prompt'
+        content = row.get("prompt") or row.get("content") or ""
+        result = row.get("result", "")
+        labels = row.get("labels", [])
 
-    for row in res:
-        # Check format
-        content = ""
-        result = ""
-        if isinstance(row, dict):
-            content = row.get("content", "")
-            result = row.get("result", "")
-        elif isinstance(row, (list, tuple)):
-            content = row[0]
-            result = row[1] if len(row) > 1 else ""
+        # Determine role
+        status = row.get("status")
+        role = "assistant"
+        if status == "task":
+            role = "user"
+        elif not messages and "Thought" in labels:
+            # First node in a legacy session is usually the User's first prompt
+            role = "user"
 
-        # Avoid duplicates just in case graph has cycles (shouldn't with DAG)
-        if content in seen:
-            continue
-        seen.add(content)
-
-        # Format:
-        # The 'content' (node.prompt) in agent.py holds "Thought + [Output]" often.
-        # But the User Prompt is only in the Root Node usually?
-        # agent.py: create_thought_node(task_id, prompt, ...) -> Root
-        # then create_thought_node(tid, full_content, ...) -> Thoughts
-
-        # So:
-        # 1. Root Node = User Prompt
-        # 2. Subsequent Nodes = Assistant Thoughts/Actions
-
-        if not messages:
-            # First node is User
-            messages.append({"role": "user", "content": content})
+        if role == "user":
+            messages.append(
+                {
+                    "role": "user",
+                    "content": content,
+                    "created_at": row.get("created_at"),
+                    "id": row.get("id"),
+                }
+            )
         else:
-            # Subsequent nodes are Assistant
-            # If content is empty but result exists?
+            # Assistant logic
             final_text = content
-            if result:
-                # If result is stored separately (old version)
+            if result and str(result) != "None":
                 final_text += f"\n\nResult: {result}"
 
-            messages.append({"role": "assistant", "content": final_text})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": final_text,
+                    "created_at": row.get("created_at"),
+                    "id": row.get("id"),
+                    "status": row.get("status"),
+                    "repl_id": row.get("repl_id"),
+                    "execution_summary": row.get("execution_summary"),
+                }
+            )
 
     return messages
 
@@ -453,47 +478,69 @@ async def get_graph(session_id: Optional[str] = None):
     Optionally filter by session_id.
     """
     try:
-        # If session_id is provided, filter nodes
+        # Use a consistent ID filtering logic
+        where_clause = "WHERE (n:Thought OR n:Insight OR n:Axiom OR n:Round)"
+        params = {}
         if session_id:
-            # We query on root_session_id OR session_id to catch everything relevant
-            cypher = """
-            MATCH (n:Thought)
-            WHERE n.root_session_id = $sid OR n.session_id = $sid
-            OPTIONAL MATCH (n)-[r]->(m)
-            RETURN n, r, m
-            """
-            raw_data = db.query(cypher, {"sid": session_id})
-        else:
-            raw_data = db.get_graph_state()
+            where_clause += " AND (n.root_session_id = $sid OR n.session_id = $sid)"
+            params = {"sid": session_id}
+
+        # 1. Fetch Nodes
+        node_query = f"""
+        MATCH (n)
+        {where_clause}
+        RETURN n
+        """
+        raw_nodes = db.query(node_query, params)
+
+        # 2. Fetch Relationships (Undirected to catch all connections)
+        # Use simple label matching for m as well
+        rel_query = f"""
+        MATCH (n)-[r]-(m)
+        {where_clause}
+        AND (m:Thought OR m:Insight OR m:Axiom OR m:Round)
+        RETURN n.id as sid, m.id as tid, type(r) as type
+        """
+        raw_rels = db.query(rel_query, params)
 
         nodes = {}
         links = []
+        seen_links = set()
 
         # Helper to extract and format node properties
         def process_node(entity):
             if entity is None:
                 return None
-
-            # Extract basic properties
-            props = {}
-            if hasattr(entity, "properties"):
-                props = entity.properties
-            elif isinstance(entity, dict):
-                props = entity
-
+            props = entity.properties if hasattr(entity, "properties") else entity
             node_id = props.get("id")
             if not node_id:
                 return None
 
-            # Result fallback logic: use execution_summary if result is empty
+            # Result fallback logic
             res = props.get("result", "")
-            if not res or res == "None":
-                res = props.get("execution_summary", "")
+            if not res or res == "None" or res == "":
+                res = props.get("execution_summary", "") or props.get(
+                    "final_response", ""
+                )
+
+            # label/prompt fallback
+            lbl = (
+                props.get("prompt")
+                or props.get("content")
+                or props.get("user_prompt")
+                or "Unknown"
+            )
+            pmpt = (
+                props.get("prompt")
+                or props.get("content")
+                or props.get("user_prompt")
+                or ""
+            )
 
             return {
                 "id": node_id,
-                "label": props.get("prompt", "Unknown"),
-                "prompt": props.get("prompt", ""),
+                "label": lbl,
+                "prompt": pmpt,
                 "result": res,
                 "status": props.get("status", "pending"),
                 "sheaf_score": props.get("sheaf_score"),
@@ -506,68 +553,38 @@ async def get_graph(session_id: Optional[str] = None):
                 "val": 5,
             }
 
-        for row in raw_data:
-            # Safe extraction based on query `RETURN n, r, m`
-            source = None
-            rel = None
-            target = None
+        for row in raw_nodes:
+            entity = row.get("n")
+            data = process_node(entity)
+            if data:
+                nodes[data["id"]] = data
 
-            if isinstance(row, dict):
-                source = row.get("n") or row.get("source")
-                rel = row.get("r") or row.get("rel")
-                target = row.get("m") or row.get("target")
-            elif isinstance(row, (list, tuple)):
-                source = row[0] if len(row) > 0 else None
-                rel = row[1] if len(row) > 1 else None
-                target = row[2] if len(row) > 2 else None
+        for row in raw_rels:
+            sid = row.get("sid")
+            tid = row.get("tid")
+            rtype = row.get("type")
 
-            # Process Source Node
-            s_data = process_node(source)
-            if s_data:
-                s_id = s_data["id"]
-                if s_id not in nodes:
-                    nodes[s_id] = s_data
-                else:
-                    # Update existing entry with any missing/new props from this match
-                    nodes[s_id].update(
-                        {
-                            k: v
-                            for k, v in s_data.items()
-                            if v is not None or nodes[s_id].get(k) is None
-                        }
-                    )
-
-                # Process Relationship and Target
-                if rel and target:
-                    t_data = process_node(target)
-                    if t_data:
-                        t_id = t_data["id"]
-                        if t_id not in nodes:
-                            nodes[t_id] = t_data
-                            nodes[t_id]["val"] = 3  # Default smaller for leaf/child
-                        else:
-                            nodes[t_id].update(
-                                {
-                                    k: v
-                                    for k, v in t_data.items()
-                                    if v is not None or nodes[t_id].get(k) is None
-                                }
-                            )
-
-                        links.append({"source": s_id, "target": t_id})
+            if sid and tid and sid in nodes and tid in nodes:
+                # Deduplicate links (undirected query finds both A-B and B-A)
+                pair = tuple(sorted([sid, tid]))
+                if pair not in seen_links:
+                    links.append({"source": sid, "target": tid, "type": rtype})
+                    seen_links.add(pair)
 
         # Dynamic group assignment for coloring
         for node in nodes.values():
             if node.get("status") == "consolidated":
-                node["group"] = 3  # Distinct color for consolidated
+                node["group"] = 3
             elif node.get("status") in ["error", "failed"]:
                 node["group"] = 4
             else:
                 node["group"] = 1
 
         return {"nodes": list(nodes.values()), "links": links}
-    except (AttributeError, KeyError, ValueError, TypeError) as e:
-        logger.error("Graph fetch error: %s", e)
+
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error("Failed to get graph: %s", e)
+        logger.error("%s", traceback.format_exc())
         return {"nodes": [], "links": []}
 
 

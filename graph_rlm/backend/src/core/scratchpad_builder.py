@@ -102,6 +102,7 @@ class ScratchpadBuilder:
 
             mc_lines = [
                 "## 🎯 Mission Control",
+                f"- **MISSION**: {task.strip()}",
                 f"- **Phase**: {phase}",
                 f"- **Health**: {health}",
                 f"- **Momentum**: {momentum_str} (last {min(len(outcomes), 10)} steps)",
@@ -137,7 +138,11 @@ class ScratchpadBuilder:
 
         # === 1. Previous Rounds (Variable Length Summaries) — STATIC ===
         if completed_rounds:
-            lines.append("## Previous Rounds (Compressed Context)")
+            lines.append("## 📜 Previous Rounds (Compressed History)")
+            lines.append(
+                "> [!] Historical context from previous turns in this session."
+            )
+            lines.append("")
 
             # Re-assemble for display
             for i, r in enumerate(completed_rounds, 1):
@@ -223,7 +228,9 @@ class ScratchpadBuilder:
         try:
             return await summarize_event("", text)
         except Exception:  # pylint: disable=broad-except # noqa: BLE001
-            logger.warning("SemanticSummarizer failed, falling back to truncation", exc_info=True)
+            logger.warning(
+                "SemanticSummarizer failed, falling back to truncation", exc_info=True
+            )
             return text[:500] + "..." if len(text) > 500 else text
 
     async def _build_current_round_progress(
@@ -447,12 +454,12 @@ class ScratchpadBuilder:
                 "_gist_count": len(chunk),
             }
             windowed_data.append(gist_row)
-            summaries.append(self._generate_gist_structural_summary(chunk))
+            summaries.append(await self._generate_gist_structural_summary(chunk))
 
         # Append leaf rows as-is
         for row in leaf_rows:
             windowed_data.append(row)
-            summaries.append(self._get_structural_step_summary(row))
+            summaries.append(await self._get_structural_step_summary(row))
 
         # Build Table with Row Collapsing (Deduplication)
         lines = []
@@ -714,7 +721,7 @@ class ScratchpadBuilder:
 
         return chunks, leaf_rows
 
-    def _generate_gist_structural_summary(self, chunk: List[Dict]) -> str:
+    async def _generate_gist_structural_summary(self, chunk: List[Dict]) -> str:
         """Structural Gist: Summarizes multiple units using mathematical metadata.
 
         Preserves semantic bookends (first and last node summaries) so the LLM
@@ -728,31 +735,22 @@ class ScratchpadBuilder:
             f"{v}x{k}" for k, v in sorted(op_counts.items(), reverse=True)
         )
 
-        first_concept = self._get_structural_step_summary(chunk[0])[:60] if chunk else ""
+        first_concept = (
+            await self._get_structural_step_summary(chunk[0]) if chunk else ""
+        )
         last_concept = (
-            self._get_structural_step_summary(chunk[-1])[:60] if len(chunk) > 1 else ""
+            await self._get_structural_step_summary(chunk[-1]) if len(chunk) > 1 else ""
         )
         if last_concept and last_concept != first_concept:
-            concept_trail = f" | Concepts: {first_concept}…→…{last_concept}"
+            concept_trail = f" | Concepts: {first_concept[:60]}…→…{last_concept[:60]}"
         elif first_concept:
-            concept_trail = f" | Concept: {first_concept}"
+            concept_trail = f" | Concept: {first_concept[:60]}"
         else:
             concept_trail = ""
 
         return f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f} | Ops: {op_str}{concept_trail}"
-        # Include most recent semantic gist for higher fidelity
-        sample_gist = ""
-        for r in reversed(chunk):
-            gist = r.get("semantic_gist")
-            if gist:
-                sample_gist = f" | Gist: {gist[:50]}..."
-                break
 
-        return (
-            f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f}{sample_gist} | Ops: {op_str}"
-        )
-
-    def _get_structural_step_summary(self, row: Dict) -> str:
+    async def _get_structural_step_summary(self, row: Dict) -> str:
         """Retrieves the dense semantic gist or pre-computed MDL footprint."""
         gist = row.get("semantic_gist")
         if gist:
@@ -762,7 +760,19 @@ class ScratchpadBuilder:
         if summary:
             return str(summary)
 
-        # Fallback if both are missing (e.g. legacy nodes)
+        # Proactive Summarization for missing gists
+        prompt = row.get("prompt", "")
+        result = row.get("result", "")
+        if prompt:
+            try:
+                # Use summarize_event (imported at top)
+                return await self._summarize_content(
+                    f"Action: {prompt}\nResult: {result}"
+                )
+            except Exception:  # pylint: disable=broad-except
+                logger.warning("Summarization fallback triggered.")
+
+        # Final Fallback if both are missing (e.g. legacy nodes)
         op = row.get("thimac_op") or "PROCESS"
         lvl = row.get("thimac_level") or "SUBSISTENCE"
         gain = float(row.get("compression_gain") or 0.0)
