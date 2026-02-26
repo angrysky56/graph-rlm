@@ -1685,6 +1685,7 @@ class Agent:
                             response_text,
                             rlm=rlm_ctx,
                             context_scratchpad=context_scratchpad,
+                            exec_state=self.get_state(),
                         )
 
                         if not correction:
@@ -3138,28 +3139,9 @@ End with a clear directive: either a specific next action or "call rlm.done() wi
 
     def _extract_code(self, text: str) -> str:
         """Extracts python code blocks from LLM response text."""
-        # Find all complete blocks
-        blocks = re.findall(r"```python\s*(.*?)\s*```", text, re.DOTALL)
-        if blocks:
-            # Join all blocks with a separator to ensure they execute as one sequence
-            # We add a newline to prevent syntax issues between joined blocks
-            return "\n\n# --- RLM BLOCK SEPARATOR ---\n\n".join(blocks)
+        from .guardrails import extract_python_code
 
-        # Fallback: check for unclosed block at the end (common with truncation)
-        match_open = re.search(r"```python\s*(.*)", text, re.DOTALL)
-        if match_open:
-            raw_code = match_open.group(1)
-            # STRIP "Final Answer" or other common chat tail markers from the code
-            # to prevent SyntaxErrors in the REPL
-            clean_code = re.split(
-                r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE
-            )[0]
-            logger.warning(
-                "Found unclosed code block, extracting tail (and stripping chat)."
-            )
-            return clean_code.strip()
-
-        return ""
+        return extract_python_code(text)
 
     async def _execute_code(
         self,

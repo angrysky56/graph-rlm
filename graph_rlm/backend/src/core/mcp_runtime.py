@@ -78,7 +78,7 @@ class MCPServerNamespace:
                             self._tools[attr] = wrapper
                             self._docs[attr] = func.__doc__
             except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                logger.warning("Failed to load MCP server %s: %s", self._mod_name, e)
+                logger.warning("Failed to load MCP server %s: %s", self._mod_name, e, exc_info=True)
                 self._module = False  # Mark as failed
 
     def __getattr__(self, name):
@@ -130,7 +130,7 @@ class LazyMCPNamespace:
                 self._scan_done = True
                 logger.info("MCP server discovery completed.")
             except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                logger.warning("MCP Scan Error: %s", e)
+                logger.warning("MCP Scan Error: %s", e, exc_info=True)
 
     def __getattr__(self, name):
         self._scan()
@@ -163,6 +163,6 @@ def get_mcp_server_names() -> list[str]:
             if mod_name.startswith("_") or mod_name == "skills":
                 continue
             names.append(mod_name)
-    except Exception as e:
-        logger.warning("Quick MCP name scan failed: %s", e)
+    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+        logger.warning("Quick MCP name scan failed: %s", e, exc_info=True)
     return names

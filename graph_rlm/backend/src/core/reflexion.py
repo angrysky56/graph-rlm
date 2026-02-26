@@ -32,6 +32,7 @@ class IntelliSynth:
         self.llm = llm
         self.alpha = 1.0  # Weight for Scrutiny
         self.beta = 1.5  # Weight for Improvement
+        self._genesis_vec_cache: Dict[str, List[float]] = {}  # MD5(genesis) -> embedding
 
     # --- INTROSPECTIVE HEALING (Semantic & Structural) ---
 
@@ -86,11 +87,20 @@ class IntelliSynth:
         response_text: str,
         rlm: Optional[Any] = None,
         context_scratchpad: str = "",
+        exec_state: Optional[Any] = None,
+        recent_thoughts: Optional[List[Dict]] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Unified Introspective Probe (Simulation).
         Analyzes a generated thought for immediate structural or logical flaws
         BEFORE it is committed to the graph or executed.
+
+        Args:
+            exec_state: Typed ExecutionState object. When provided, phase and
+                critique are read directly from it instead of regex-parsing the
+                scratchpad (preferred path).
+            recent_thoughts: Pre-built list of recent thought dicts. When provided,
+                replaces the regex-parsed trace from context_scratchpad.
 
         Returns:
             Optional[Dict]: A 'Correction' object if an issue is found, else None.
@@ -99,9 +109,22 @@ class IntelliSynth:
             return None
 
         # --- 1. Semantic Alignment & Repetition Detection (Phase 5) ---
-        if context_scratchpad:
+        if exec_state is not None:
+            # Preferred path: read typed state directly — no Markdown round-trip
+            mission = {
+                "phase": getattr(exec_state, "phase", ""),
+                "last_critique": getattr(exec_state, "last_dreamer_critique", "") or "",
+            }
+            trace = recent_thoughts or []
+        elif context_scratchpad:
+            # Backward-compat fallback: regex-parse the rendered scratchpad.
+            # Remove once all callers pass exec_state.
             mission = self._extract_mission_state(context_scratchpad)
             trace = self._extract_recent_trace(context_scratchpad)
+        else:
+            mission, trace = {}, []
+
+        if mission or trace:
 
             # Repetition Loop detection
             recent_failures = [
@@ -116,11 +139,10 @@ class IntelliSynth:
                 # If the code changed, we consider it "Progress" and relax the repetition check
                 current_code_hash = ""
                 if "python" in response_text:
-                    blocks = re.findall(
-                        r"```python\n(.*?)\n```", response_text, re.DOTALL
-                    )
-                    if blocks:
-                        code_str = "\n".join(blocks)
+                    from .guardrails import extract_python_code
+
+                    code_str = extract_python_code(response_text)
+                    if code_str:
                         current_code_hash = hashlib.sha256(
                             code_str.encode("utf-8")
                         ).hexdigest()[:7]
@@ -170,14 +192,13 @@ class IntelliSynth:
                         }
 
         # --- 2. Extract Code Blocks for Structural Validation ---
-        code_blocks = re.findall(r"```python\n(.*?)\n```", response_text, re.DOTALL)
-        if not code_blocks:
+        from .guardrails import EmpiricalGuard, GuardrailError, extract_python_code
+
+        full_code = extract_python_code(response_text)
+        if not full_code:
             return None
 
-        full_code = "\n".join(code_blocks)
-
         # --- 3. Empirical Content Validation (Unified with Guardrails) ---
-        from .guardrails import EmpiricalGuard, GuardrailError
 
         try:
             # Syntax & RLM Signatures
@@ -491,8 +512,14 @@ class IntelliSynth:
         semantic_drift = 0.5
         if genesis and current_thought:
             try:
-                # Calculate cosine distance between genesis and current thought
-                g_vec = await self.llm.get_embedding(genesis[:2000])
+                # Cache genesis embedding — the same prompt is passed every cycle,
+                # so avoid a redundant LLM API round-trip after the first call.
+                genesis_key = hashlib.md5(genesis[:2000].encode()).hexdigest()
+                if genesis_key not in self._genesis_vec_cache:
+                    self._genesis_vec_cache[genesis_key] = (
+                        await self.llm.get_embedding(genesis[:2000])
+                    )
+                g_vec = self._genesis_vec_cache[genesis_key]
                 t_vec = await self.llm.get_embedding(current_thought[:2000])
 
                 if g_vec and t_vec:

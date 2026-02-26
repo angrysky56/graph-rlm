@@ -222,7 +222,8 @@ class ScratchpadBuilder:
         """Structural summarization using SemanticSummarizer."""
         try:
             return await summarize_event("", text)
-        except Exception:
+        except Exception:  # pylint: disable=broad-except # noqa: BLE001
+            logger.warning("SemanticSummarizer failed, falling back to truncation", exc_info=True)
             return text[:500] + "..." if len(text) > 500 else text
 
     async def _build_current_round_progress(
@@ -714,7 +715,11 @@ class ScratchpadBuilder:
         return chunks, leaf_rows
 
     def _generate_gist_structural_summary(self, chunk: List[Dict]) -> str:
-        """Structural Gist: Summarizes multiple units using mathematical metadata."""
+        """Structural Gist: Summarizes multiple units using mathematical metadata.
+
+        Preserves semantic bookends (first and last node summaries) so the LLM
+        retains conceptual context after compression instead of only seeing counts.
+        """
         count = len(chunk)
         total_mdl = sum(float(r.get("compression_gain", 0.0) or 0.0) for r in chunk)
         ops = [r.get("thimac_op", "?") for r in chunk if r.get("thimac_op")]
@@ -723,7 +728,18 @@ class ScratchpadBuilder:
             f"{v}x{k}" for k, v in sorted(op_counts.items(), reverse=True)
         )
 
-        return f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f} | Ops: {op_str}"
+        first_concept = self._get_structural_step_summary(chunk[0])[:60] if chunk else ""
+        last_concept = (
+            self._get_structural_step_summary(chunk[-1])[:60] if len(chunk) > 1 else ""
+        )
+        if last_concept and last_concept != first_concept:
+            concept_trail = f" | Concepts: {first_concept}…→…{last_concept}"
+        elif first_concept:
+            concept_trail = f" | Concept: {first_concept}"
+        else:
+            concept_trail = ""
+
+        return f"[Gist: {count} units] ΣMDL: {total_mdl:+.3f} | Ops: {op_str}{concept_trail}"
 
     def _get_structural_step_summary(self, row: Dict) -> str:
         """Retrieves the dense semantic gist or pre-computed MDL footprint."""
