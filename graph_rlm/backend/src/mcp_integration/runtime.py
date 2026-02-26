@@ -183,6 +183,7 @@ class AgentRuntime:
         code: str,
         context: Dict[str, Any],
         mcp_namespace: Optional[Any] = None,
+        timeout: Optional[float] = None,
     ) -> Tuple[str, str, Any, int]:
         """
         Runs code in a persistent kernel.
@@ -318,7 +319,25 @@ class AgentRuntime:
             await process.stdin.drain()
 
             # Wait for output
-            stdout_data, stderr_data = await asyncio.gather(stdout_task, stderr_task)
+            if timeout:
+                try:
+                    stdout_data, stderr_data = await asyncio.wait_for(
+                        asyncio.gather(stdout_task, stderr_task), timeout=timeout
+                    )
+                except asyncio.TimeoutError:
+                    stdout_task.cancel()
+                    stderr_task.cancel()
+                    logger.warning("Kernel execution timeout after %ss", timeout)
+                    return (
+                        "",
+                        f"Execution Timeout Error: Process exceeded {timeout}s",
+                        None,
+                        124,
+                    )
+            else:
+                stdout_data, stderr_data = await asyncio.gather(
+                    stdout_task, stderr_task
+                )
 
             if process.returncode is not None:
                 return (

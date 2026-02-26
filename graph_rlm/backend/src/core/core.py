@@ -76,7 +76,11 @@ class PythonREPL:
         return "\n".join(preamble) + "\n"
 
     async def execute(
-        self, code: str, output_callback=None, silent: bool = False
+        self,
+        code: str,
+        output_callback=None,
+        silent: bool = False,
+        timeout: Optional[float] = None,
     ) -> Tuple[str, str, Any, int]:
         """
         Execute Python code in the isolated AgentRuntime.
@@ -98,10 +102,10 @@ class PythonREPL:
         # 3. Execute in Subprocess
         try:
             # We don't have thought_id/session_id here usually, use defaults
-            # AgentRuntime.execute return signature: (stdout, stderr, result, exit_code)
             stdout, stderr, exec_result, exit_code = await self.runtime.execute(
                 full_script,
                 context={"thought_id": "core_repl", "session_id": "core_repl"},
+                timeout=timeout,
             )
 
             is_failed = exit_code != 0

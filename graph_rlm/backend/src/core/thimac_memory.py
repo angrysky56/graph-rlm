@@ -249,20 +249,20 @@ class ThimacMemory:
 
         # MDL reduction: High compression gain lowers entropy
         reduction = event.compression_gain * 0.2
-        self.Pi = max(0.01, self.Pi + growth - reduction)
+        self.Pi = max(0.01, min(1.0, self.Pi + growth - reduction))
 
         # 2. Update Relational Gravity (Rg)
         if event.operation == ThimacOperation.ACCEPT:
             self.Rg = min(1.0, self.Rg + 0.1)
         elif event.status == "failed":
-            self.Rg = max(0.1, self.Rg - 0.05)
+            self.Rg = max(0.0, self.Rg - 0.05)
 
         # 3. Calculate Epistemic Eros (Ee)
         # Ee measures the 'Erotic Tension'—the drive to close the gap between
         # high-entropy complexity (Pi) and grounded identity (Rg).
         # High Pi + High Rg = Productive Tension.
         # High Pi + Low Rg = Destructive Chaos (Anxiety).
-        self.Ee = (self.Pi * self.Rg) / max(0.01, self.Pi + (1.0 - self.Rg))
+        self.Ee = (self.Pi * self.Rg) / max(0.05, self.Pi + (1.0 - self.Rg))
         event.epistemic_eros = self.Ee
 
         # 4. Calculate Free Energy (FE)

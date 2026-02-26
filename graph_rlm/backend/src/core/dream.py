@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field
 import httpx
 import numpy as np
 import redis
+from pydantic import BaseModel, Field
 
 from ..mcp_integration.skill_storage import get_axioms_manager
 from .circuit import CircuitOpenError
@@ -43,6 +44,17 @@ class ValidationVerdict(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0–1")
     reasons: List[str] = Field(default_factory=list, description="Objective reasons for the verdict")
     instruction: str = Field(default="", description="Specific guidance for the agent if invalid, else empty")
+    """Structured validation output from the Dreamer."""
+
+    verdict: str = Field(..., description="'valid' or 'invalid'")
+    confidence: float = Field(..., description="Confidence score 0.0-1.0")
+    reasons: List[str] = Field(
+        default_factory=list, description="Objective list of reasons for the verdict"
+    )
+    instruction: str = Field(
+        default="",
+        description="Specific guidance for the agent if invalid, else empty string",
+    )
 
 
 class Dreamer:
@@ -844,6 +856,9 @@ class Dreamer:
                         "REPL execution timed out in validate_response — treating as verification failure"
                     )
                     stdout, stderr = "", "TimeoutError: execution exceeded 30s"
+                stdout, stderr, _, _ = await repl.execute(
+                    preamble + "\n" + verify_code, timeout=15
+                )
                 verification_result = (
                     f"Code:\n{verify_code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
                 )
@@ -1003,6 +1018,7 @@ class Dreamer:
 
         try:
             verdict_obj = await self.llm.generate_structured(
+            judgment = await self.llm.generate_structured(
                 prompt=validation_prompt,
                 output_type=ValidationVerdict,
                 system="You are the Dreamer validation oracle.",
@@ -1010,35 +1026,36 @@ class Dreamer:
             judgment = verdict_obj.model_dump()
         except (RuntimeError, ValueError, AttributeError, TypeError) as e:
             logger.warning("Dreamer structured classification failed: %s", e, exc_info=True)
+        except (json.JSONDecodeError, RuntimeError, ValueError, AttributeError) as e:
+            logger.warning("Dreamer LLM classification failed: %s", e)
             # Fallback: deterministic checks only
             has_hard_fail = (
                 topo_status in ("EMPIRICAL_CONTRADICTION", "LOGICAL_KNOT")
                 or bool(placeholders)
                 or has_todo
             )
-            judgment = {
-                "verdict": "invalid" if has_hard_fail else "valid",
-                "confidence": 0.3 if has_hard_fail else 0.7,
-                "reasons": [topo_critique] if topo_critique else [],
-                "instruction": topo_critique or "",
-            }
+            judgment = ValidationVerdict(
+                verdict="invalid" if has_hard_fail else "valid",
+                confidence=0.3 if has_hard_fail else 0.7,
+                reasons=[topo_critique] if topo_critique else [],
+                instruction=topo_critique or "",
+            )
 
         # ── 8. Return structured result ──
-        verdict = judgment.get("verdict", "valid")
+        verdict = judgment.verdict
         if verdict == "valid":
             return {
                 "status": "valid",
                 "event": "RLM_DREAMER_VALIDATED",
                 "message": (
-                    f"Response verified (confidence: {judgment.get('confidence', 0.5):.2f}). "
+                    f"Response verified (confidence: {judgment.confidence:.2f}). "
                     f"Topo: {topo_status}, RepE: {psych_profile}"
                 ),
             }
 
         # Build instruction from LLM judgment + trace context
-        instruction = str(judgment.get("instruction", ""))
-        _raw_reasons = judgment.get("reasons")
-        reasons: list[str] = _raw_reasons if isinstance(_raw_reasons, list) else []
+        instruction = str(judgment.instruction)
+        reasons = judgment.reasons
         if reasons and not instruction:
             instruction = "RE-EVALUATE:\n" + "\n".join(f"- {r}" for r in reasons)
 
@@ -1153,6 +1170,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 "👁️ REM Nightmare: REPL execution timed out — treating as empirical failure"
             )
             return False
+        stdout, stderr, _, _ = await repl.execute(test_wrapper, timeout=10)
 
         if "Nightmare Induced Crash" in stdout or (stderr and "Traceback" in stderr):
             logger.warning(
@@ -1392,6 +1410,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         except asyncio.TimeoutError:
             logger.warning("Dreamer: axiom code execution timed out — treating as failure")
             return False
+        _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code, timeout=30)
 
         # --- AUTO-INSTALLATION SELF-HEALING ---
         if is_err and "ModuleNotFoundError" in stderr:
@@ -1424,6 +1443,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         except asyncio.TimeoutError:
             logger.warning("Dreamer: test code execution timed out — treating as failure")
             return False
+        stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
+            pure_test, timeout=30
+        )
 
         # Self-healing for test code too
         if is_err_test and "ModuleNotFoundError" in stderr_test:
@@ -1445,6 +1467,9 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 except asyncio.TimeoutError:
                     logger.warning("Dreamer: test retry timed out — treating as failure")
                     return False
+                stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
+                    pure_test, timeout=30
+                )
 
         if is_err_test:
             logger.error(

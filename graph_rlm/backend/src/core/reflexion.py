@@ -33,6 +33,7 @@ class IntelliSynth:
         self.alpha = 1.0  # Weight for Scrutiny
         self.beta = 1.5  # Weight for Improvement
         self._genesis_vec_cache: Dict[str, List[float]] = {}  # MD5(genesis) -> embedding
+        self._genesis_cache: Dict[str, List[float]] = {}
 
     # --- INTROSPECTIVE HEALING (Semantic & Structural) ---
 
@@ -520,6 +521,17 @@ class IntelliSynth:
                         await self.llm.get_embedding(genesis[:2000])
                     )
                 g_vec = self._genesis_vec_cache[genesis_key]
+                # Calculate cosine distance between genesis and current thought
+                g_text = genesis[:2000]
+                g_hash = hashlib.md5(g_text.encode(), usedforsecurity=False).hexdigest()
+
+                if g_hash in self._genesis_cache:
+                    g_vec = self._genesis_cache[g_hash]
+                else:
+                    g_vec = await self.llm.get_embedding(g_text)
+                    if g_vec:
+                        self._genesis_cache[g_hash] = g_vec
+
                 t_vec = await self.llm.get_embedding(current_thought[:2000])
 
                 if g_vec and t_vec:
