@@ -1155,6 +1155,147 @@ class Agent:
                 timeout=5.0,
             )
 
+            # 3. LLM Gen (Think) with Unified Real-Time Healing
+            response_text = ""
+            current_healing_attempt = 0
+            max_healing_retries = 2
+
+            # Temporary context to modify for healing retries
+            temp_context = current_context
+
+            while current_healing_attempt <= max_healing_retries:
+                try:
+                    # [DIAGNOSTIC] Log start of network request
+                    log_label = (
+                        "... Sending request to LLM ..."
+                        if current_healing_attempt == 0
+                        else f"... Introspective Healing (Attempt {current_healing_attempt}) ..."
+                    )
+                    self.emit_event(
+                        "debug_thought",
+                        content=f"{log_label} (Size: {len(temp_context)} chars) ...",
+                    )
+                    # Generate correlation ID for circuit breaker tracking
+                    correlation_id = generate_correlation_id()
+
+                    try:
+                        # Define Usage Callback
+                        def on_usage_update(usage_data: dict):
+                            # Broadcast detailed usage to UI
+                            self.emit_event(
+                                "token_usage", data=usage_data, is_internal=True
+                            )
+
+                        # Execute LLM Call
+                        # [OpenRouter Caching Strategy]
+                        llm_config = self.llm.config
+                        if llm_config.get("provider") == "openrouter":
+                            system_message_content = [
+                                {
+                                    "type": "text",
+                                    "text": system_prompt,
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ]
+                            messages = [
+                                {"role": "system", "content": system_message_content},
+                                {"role": "user", "content": temp_context},
+                            ]
+                            response_text = await protected_llm_generate(
+                                prompt=messages,
+                                system=None,
+                                stream=False,
+                                stop=["</invoke>", "<|endoftext|>"],
+                                on_usage=on_usage_update,
+                                temperature=temp_override,
+                            )
+                        else:
+                            response_text = await protected_llm_generate(
+                                prompt=temp_context,
+                                system=system_prompt,
+                                stream=False,
+                                stop=["</invoke>", "<|endoftext|>"],
+                                on_usage=on_usage_update,
+                                temperature=temp_override,
+                            )
+                    except CircuitOpenError as e:
+                        logger.warning(
+                            "llm_circuit_open",
+                            extra={
+                                "correlation_id": correlation_id,
+                                "circuit": e.circuit_name,
+                                "error": e.message,
+                            },
+                        )
+                        response_text = await self._handle_llm_circuit_open(e)
+                    except httpx.RequestError as e:
+                        response_text = f"LLM Network Error: {str(e)}"
+                        logger.error("LLM Request Error (%s): %s", type(e).__name__, e)
+                    except (ValueError, TypeError, KeyError) as e:
+                        response_text = f"LLM Logic Error: {str(e)}"
+                        logger.error(
+                            "LLM Logic/Data Error (%s): %s", type(e).__name__, e
+                        )
+                        self.emit_event("error", content=response_text)
+
+                    # Post-gen stop check
+                    if self.stop_requested or self.global_stop_event.is_set():
+                        self.stop_requested = True
+                        break
+
+                    # --- PROACTIVE INTROSPECTIVE HEALING ---
+                    # Before we commit this thought, probe it for structural integrity.
+                    try:
+                        # Ephemeral rlm_ctx for signature validation
+                        rlm_ctx = RLMInterface(
+                            self,
+                            session_id=session_id,
+                            root_session_id=final_root_id or session_id,
+                        )
+
+                        correction = await intelli_synth.introspective_probe(
+                            response_text,
+                            rlm=rlm_ctx,
+                            context_scratchpad=context_scratchpad,
+                            exec_state=self.get_state(),
+                        )
+
+                        if not correction:
+                            # Thought is clean or contains no code to heal
+                            break
+
+                        # Healing logic triggered
+                        current_healing_attempt += 1
+                        if current_healing_attempt > max_healing_retries:
+                            logger.info(
+                                "Maximum healing retries reached. Committing latest attempt."
+                            )
+                            break
+
+                        self.emit_event(
+                            "thinking",
+                            content=f"⚠️ **[Introspective Healing]** {correction['type']} detected. Patching action...",
+                            tag="SYSTEM",
+                        )
+
+                        # Augment temp_context with the correction hint
+                        temp_context += (
+                            f"\n\n[SYSTEM INTROSPECTION ERROR]: {correction['message']}\n"
+                            f"HINT: {correction['hint']}\n"
+                            "Please correct your logic/code and try again."
+                        )
+                        # Clear response_text to ensure we loop back unless broken above
+                        response_text = ""
+
+                    except (AttributeError, RuntimeError, ValueError) as probe_err:
+                        logger.error("Introspective probe failed: %s", probe_err)
+                        break
+
+                except (AttributeError, RuntimeError, KeyError, ValueError) as outer_e:
+                    logger.error("Critical error in thinking loop: %s", outer_e)
+                    if not response_text:
+                        response_text = f"System Error: {outer_e}"
+                    break
             role_val = task_profile.get("role", "WORKER")
             role_str = role_val.value if hasattr(role_val, "value") else str(role_val)
             plan_summary = f"Persona: {task_profile.get('persona', 'Generalist')} | Role: {role_str} | Tools: {', '.join(task_profile.get('tools', ['All']))}"
@@ -1805,6 +1946,10 @@ class Agent:
             state.pending_side_effects.clear()
 
     def _extract_code(self, text: str) -> str:
+        """Extracts python code blocks from LLM response text."""
+        from .guardrails import extract_python_code
+
+        return extract_python_code(text)
         """Extracts python code blocks from LLM response text using a state-based parser."""
         lines = text.splitlines()
         code_blocks = []

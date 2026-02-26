@@ -955,8 +955,8 @@ class RLMInterface:
                 f"{snippet}{indicator}"
             )
 
-        except Exception as e:
-            logger.error("Recall Node failed for %s: %s", node_id, e)
+        except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            logger.error("Recall Node failed for %s: %s", node_id, e, exc_info=True)
             return f"Error recalling node {node_id}: {e}"
 
     def __getattr__(self, name: str):

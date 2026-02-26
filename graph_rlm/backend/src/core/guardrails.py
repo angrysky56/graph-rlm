@@ -14,6 +14,30 @@ from .logger import get_logger
 logger = get_logger("graph_rlm.core.guardrails")
 
 
+def extract_python_code(text: str) -> str:
+    """Extract all Python code blocks from an LLM response into a single string.
+
+    Handles both complete fenced blocks and unclosed blocks at the end of a
+    truncated response.  Multiple blocks are joined with a separator comment so
+    they execute as a single sequence in the REPL.
+
+    Returns an empty string when no Python code is found.
+    """
+    blocks = re.findall(r"```python\s*(.*?)\s*```", text, re.DOTALL)
+    if blocks:
+        return "\n\n# --- RLM BLOCK SEPARATOR ---\n\n".join(blocks)
+
+    # Fallback: unclosed block at end of response (common with streaming truncation)
+    match_open = re.search(r"```python\s*(.*)", text, re.DOTALL)
+    if match_open:
+        raw_code = match_open.group(1)
+        clean_code = re.split(r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE)[0]
+        logger.warning("Found unclosed code block, extracting tail (and stripping chat).")
+        return clean_code.strip()
+
+    return ""
+
+
 class GuardrailError(Exception):
     """Exception raised when a graph invariant is violated."""
 

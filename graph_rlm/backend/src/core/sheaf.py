@@ -469,8 +469,8 @@ class SheafMonitor:
             try:
                 results = db.query(cypher, params)
                 nodes = results if results else []
-            except Exception as e:
-                logger.error("Failed to calculate topological stress (DB): %s", e)
+            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+                logger.error("Failed to calculate topological stress (DB): %s", e, exc_info=True)
                 return {"score": 0.0, "rationale": f"Database error: {e}"}
 
         if not nodes:

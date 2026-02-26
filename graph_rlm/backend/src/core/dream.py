@@ -13,6 +13,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
+
 import httpx
 import numpy as np
 import redis
@@ -36,6 +38,12 @@ logger = get_logger("graph_rlm.dreamer")
 
 
 class ValidationVerdict(BaseModel):
+    """Structured output for Dreamer validation judgments."""
+
+    verdict: str = Field(..., description="'valid' or 'invalid'")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence score 0–1")
+    reasons: List[str] = Field(default_factory=list, description="Objective reasons for the verdict")
+    instruction: str = Field(default="", description="Specific guidance for the agent if invalid, else empty")
     """Structured validation output from the Dreamer."""
 
     verdict: str = Field(..., description="'valid' or 'invalid'")
@@ -839,6 +847,15 @@ class Dreamer:
                         "kb": kb,
                     }
                 )
+                try:
+                    stdout, stderr, _, _ = await asyncio.wait_for(
+                        repl.execute(preamble + "\n" + verify_code), timeout=30.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "REPL execution timed out in validate_response — treating as verification failure"
+                    )
+                    stdout, stderr = "", "TimeoutError: execution exceeded 30s"
                 stdout, stderr, _, _ = await repl.execute(
                     preamble + "\n" + verify_code, timeout=15
                 )
@@ -1000,11 +1017,15 @@ class Dreamer:
         )
 
         try:
+            verdict_obj = await self.llm.generate_structured(
             judgment = await self.llm.generate_structured(
                 prompt=validation_prompt,
                 output_type=ValidationVerdict,
                 system="You are the Dreamer validation oracle.",
             )
+            judgment = verdict_obj.model_dump()
+        except (RuntimeError, ValueError, AttributeError, TypeError) as e:
+            logger.warning("Dreamer structured classification failed: %s", e, exc_info=True)
         except (json.JSONDecodeError, RuntimeError, ValueError, AttributeError) as e:
             logger.warning("Dreamer LLM classification failed: %s", e)
             # Fallback: deterministic checks only
@@ -1140,6 +1161,15 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         # Inject standard libs context just in case
         repl.namespace.update({"sys": __import__("sys")})
 
+        try:
+            stdout, stderr, _, _ = await asyncio.wait_for(
+                repl.execute(test_wrapper), timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "👁️ REM Nightmare: REPL execution timed out — treating as empirical failure"
+            )
+            return False
         stdout, stderr, _, _ = await repl.execute(test_wrapper, timeout=10)
 
         if "Nightmare Induced Crash" in stdout or (stderr and "Traceback" in stderr):
@@ -1373,6 +1403,13 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         )
 
         logger.info("Executing axiom code...")
+        try:
+            _stdout, stderr, _res_axiom, is_err = await asyncio.wait_for(
+                repl.execute(pure_code), timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Dreamer: axiom code execution timed out — treating as failure")
+            return False
         _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code, timeout=30)
 
         # --- AUTO-INSTALLATION SELF-HEALING ---
@@ -1386,13 +1423,26 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 cmd = [sys.executable, "-m", "pip", "install", package_name]
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
-                _stdout, stderr, _res_axiom, is_err = await repl.execute(pure_code)
+                try:
+                    _stdout, stderr, _res_axiom, is_err = await asyncio.wait_for(
+                        repl.execute(pure_code), timeout=30.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Dreamer: axiom retry timed out — treating as failure")
+                    return False
 
         if is_err:
             logger.error("Axiom code execution failed: %s", stderr)
             return False
 
         logger.info("Executing test code...")
+        try:
+            stdout_test, stderr_test, _res_test, is_err_test = await asyncio.wait_for(
+                repl.execute(pure_test), timeout=30.0
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Dreamer: test code execution timed out — treating as failure")
+            return False
         stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
             pure_test, timeout=30
         )
@@ -1410,6 +1460,13 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 cmd = [sys.executable, "-m", "pip", "install", package_name]
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
+                try:
+                    stdout_test, stderr_test, _res_test, is_err_test = await asyncio.wait_for(
+                        repl.execute(pure_test), timeout=30.0
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning("Dreamer: test retry timed out — treating as failure")
+                    return False
                 stdout_test, stderr_test, _res_test, is_err_test = await repl.execute(
                     pure_test, timeout=30
                 )
