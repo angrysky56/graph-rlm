@@ -38,7 +38,8 @@ from .logger import get_logger
 from .mcp_runtime import get_mcp_server_names, is_mcp_available
 from .meta_agents import meta_agents
 from .navigator import Navigator
-from .prompts import build_system_prompt
+
+# from .prompts import build_system_prompt
 from .reflexion import intelli_synth
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
@@ -257,9 +258,11 @@ class Agent:
             # 2. LLM Transformation (if available)
             # We want keywords that match Axiom filenames/descriptions
             system_prompt = (
-                "You are the Governance Module. Translate the USER TASK into a SEARCH QUERY for Validation Rules (Axioms). "
-                "Axioms are Python validators for domains like: 'file persistence', 'math safety', 'python syntax', 'epistemic integrity', 'security'. "
-                "Return ONLY a comma-separated list of relevant domains and technical keywords."
+                "You are the Governance Module. Translate the USER TASK into a SEARCH QUERY "
+                "for Validation Rules (Axioms). Axioms are Python validators for domains like: "
+                "'file persistence', 'math safety', 'python syntax', 'epistemic integrity', "
+                "'security'. Return ONLY a comma-separated list of relevant domains and "
+                "technical keywords."
             )
 
             # Fast/Cheap call (do not stream)
@@ -603,8 +606,10 @@ class Agent:
                 "step_id": step,
                 "repl_id": repl_id,
                 "logical_id": logical_id,
-                "execution_summary": None,  # Dropped in favor of graph footprints
                 "compression_gain": compression_gain,
+                "frequency": 1.0,  # Defaults, will be refined in ingest_thought
+                "confidence": 0.9,
+                "rtm_depth": 0,
                 "metadata": metadata or {},
             }
 
@@ -632,8 +637,36 @@ class Agent:
                 omcd_score=omcd_score,
             )
 
-            # NOTE: Thermodynamic persistence (update_thought_result) is deferred
-            # to the Batch Flush mechanism to prevent DB bottlenecks.
+            # Warm Persistence: Immediate write to DB for UI/refresh consistency
+            try:
+                self.db.create_thought_node(
+                    thought_id=thought_id,
+                    prompt=prompt,
+                    logical_id=logical_id,
+                    parent_id=parent_id,
+                    session_id=session_id,
+                    root_session_id=thimac_thought_data["root_session_id"],
+                    repl_id=repl_id,
+                    status=status,
+                    result=result,
+                    round_id=round_id,
+                    turn_id=thimac_thought_data["turn_id"],
+                    step_id=step,
+                    sheaf_score=sheaf_score,
+                    omcd_score=omcd_score,
+                    semantic_gist=semantic_gist,
+                    inference_pressure=event.inference_pressure if event else None,
+                    relational_gravity=event.relational_gravity if event else None,
+                    epistemic_eros=event.epistemic_eros if event else None,
+                    free_energy=event.free_energy if event else None,
+                    metabolic_state=event.metabolic_state if event else None,
+                    frequency=event.frequency if event else None,
+                    confidence=event.confidence if event else None,
+                    rtm_depth=event.rtm_depth if event else None,
+                    validate=False,  # Skip redundant guardrails
+                )
+            except (AttributeError, RuntimeError, ValueError) as db_err:
+                logger.warning("Warm persistence failed for %s: %s", thought_id, db_err)
 
             # Persistent Homology Pipeline
             if compression_gain > 0.1 and status == "success":
@@ -982,12 +1015,13 @@ class Agent:
                             )
                     elif getattr(self, "last_rejected_result", None):
                         # Fallback to rejected result with a warning
-                        q.put(
-                            {
-                                "type": "RLM_FINAL_OUTPUT",
-                                "content": f"[WARNING: DREAMER REJECTED]\n{self.last_rejected_result}\n\n(System Note: This result was rejected by the Dreamer but is provided as the best available draft.)",
-                            }
+                        warning_text = (
+                            "[WARNING: DREAMER REJECTED]\n"
+                            f"{self.last_rejected_result}\n\n"
+                            "(System Note: This result was rejected by the Dreamer but "
+                            "is provided as the best available draft.)"
                         )
+                        q.put({"type": "RLM_FINAL_OUTPUT", "content": warning_text})
 
                 q.put(None)  # Signal done
                 execution_events.reset(q_token)
@@ -1067,7 +1101,7 @@ class Agent:
         )
 
         if session_id not in self.active_repls:
-            self.active_repls[session_id] = f"iso-{session_id[:8]}"
+            self.active_repls[session_id] = f"so-{session_id[:8]}"
 
         if is_mcp_available():
             set_stop_event(self.global_stop_event)
@@ -1134,8 +1168,7 @@ class Agent:
             )
 
         # Final Context Construction
-        max_steps = 15  # Default execution limit
-        repl_id = self.active_repls.get(session_id)
+        max_steps = 1000  # Safety ceiling (increased from 15 per user request)
 
         # Initial Scratchpad (Step 0)
         pad = await self._refresh_scratchpad(
@@ -1160,19 +1193,51 @@ class Agent:
         except (AttributeError, RuntimeError) as e:
             logger.warning("Initial REPL grounding failed: %s", e)
 
+        # [PRE-FLIGHT] Axiom Discovery
+        # Search for domain-specific validators before the agent even acts.
+        relevant_axioms = []
+        try:
+            from ..mcp_integration.skill_storage import get_axioms_manager
+
+            # 1. Generate Query
+            search_query = await self._generate_axiom_search_query(prompt)
+
+            # 2. Semantic Search
+            mgr = get_axioms_manager()
+            similar = await mgr.find_similar_axioms(search_query, limit=5)
+
+            # 3. Store Metadata (Name + Description)
+            for ax in similar:
+                if ax.get("score", 0) > 0.4:  # Relevance threshold
+                    relevant_axioms.append(
+                        {
+                            "name": ax.get("name"),
+                            "description": ax.get(
+                                "description", "No description available."
+                            ),
+                        }
+                    )
+
+            if relevant_axioms:
+                logger.info(
+                    "🛡️ [Axiom Discovery] Found %d relevant pre-flight axioms for turn.",
+                    len(relevant_axioms),
+                )
+        except (ImportError, RuntimeError, ValueError) as e:
+            logger.warning("Pre-flight axiom discovery failed: %s", e)
+
         return {
+            "pad": pad or "",
             "root_id": final_root_id,
-            "final_root_id": final_root_id,  # Keep for backward compat in _initialize_step
             "round_id": current_round_id,
-            "current_round_id": current_round_id,  # Keep for backward compat
-            "repl_id": repl_id,
+            "repl_id": self.active_repls.get(session_id, "isolated"),
             "task_profile": task_profile,
             "prompt": prompt,
             "task_id": task_id,
             "step": 0,
             "max_steps": max_steps,
-            "pad": pad,
             "exec_state": agent_state.get() or ExecutionState(),
+            "relevant_axioms": relevant_axioms,
         }
 
     async def _generate_task_profile(self, prompt: str) -> Dict[str, Any]:
@@ -1190,7 +1255,9 @@ class Agent:
 
             role_val = task_profile.get("role", "WORKER")
             role_str = role_val.value if hasattr(role_val, "value") else str(role_val)
-            plan_summary = f"Persona: {task_profile.get('persona', 'Generalist')} | Role: {role_str} | Tools: {', '.join(task_profile.get('tools', ['All']))}"
+            persona = task_profile.get("persona", "Generalist")
+            tools = ", ".join(task_profile.get("tools", ["All"]))
+            plan_summary = f"Persona: {persona} | Role: {role_str} | Tools: {tools}"
 
             self.emit_event("RLM_AGENT_TASK_PLAN", content=plan_summary, tag="AGENT")
             trace_action("AGENT", "TASK_PLAN", result=plan_summary, tag="AGENT")
@@ -1234,11 +1301,18 @@ class Agent:
         dashboard_data = await self._get_dashboard_metrics(exec_state)
 
         # Build System Prompt - HIGHER STABILITY: State remains in User Message ONLY
-        system_prompt = (
-            f"{await build_system_prompt(skills_manager=self.skills_manager, agent_profile=task_profile, dashboard_data=dashboard_data)}\n\n"
-            f"--- FILE OPERATIONS & GROUNDING ---\n"
-            f"CRITICAL: If your action creates or modifies a file, you MUST print the absolute path "
-            f"and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations."
+        from .prompts import build_system_prompt
+
+        system_prompt = await build_system_prompt(
+            skills_manager=self.skills_manager,
+            agent_profile=task_profile,
+            dashboard_data=dashboard_data,
+            relevant_axioms=turn_ctx.get("relevant_axioms", []),
+        )
+        system_prompt += (
+            "\n\n--- FILE OPERATIONS & GROUNDING ---\n"
+            "CRITICAL: If your action creates or modifies a file, you MUST print the absolute path "
+            "and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations."
         )
 
         # Hot Seat Injection
@@ -1772,15 +1846,40 @@ class Agent:
             # 3. Action Execution
             c_hash = None
             if code and self.current_thought_id:
-                _, _, _, c_hash = await self._execute_action(
-                    code,
-                    self.current_thought_id,
-                    session_id,
-                    exec_ctx["root_id"],
-                    prompt,
-                    turn_id,
-                    step,
+                # Capture failed state for reflexion
+                _output, execution_failed, execution_summary, c_hash = (
+                    await self._execute_action(
+                        code,
+                        self.current_thought_id,
+                        session_id,
+                        exec_ctx["root_id"],
+                        prompt,
+                        turn_id,
+                        step,
+                    )
                 )
+
+                # [REFLEXION] Trigger immediate self-healing if code failed
+                if execution_failed:
+                    logger.warning(
+                        "🚨 [Execution Failure] Triggering Dreamer Reflexion..."
+                    )
+                    from .dream import Dreamer
+
+                    reflexion_dreamer = Dreamer()
+
+                    # Passing current pad as context for analysis
+                    reflexion_res = await reflexion_dreamer.dream_cycle(
+                        session_id=session_id,
+                        context=exec_ctx["pad"],
+                        turn_id=turn_id,
+                        root_session_id=exec_ctx["root_id"],
+                        reflexion_context={"error": execution_summary, "code": code},
+                    )
+                    insight = reflexion_res.get("insight", "")
+                    if insight:
+                        self.last_dream_insight = insight
+                        logger.info("🛡️ [Reflexion] Captured healing insight.")
 
             # 4. Validation & Finalization
             if await self._validate_and_finalize(

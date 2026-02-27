@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 # Add project root to sys.path
-repo_root = Path(__file__).parent.parent
+repo_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(repo_root))
 
 
@@ -18,18 +18,12 @@ class TestAgentValidationFlow(unittest.IsolatedAsyncioTestCase):
         # Mock dependencies
         mock_db = MagicMock()
         mock_llm = MagicMock()
-        mock_repe = MagicMock()
         mock_sheaf = AsyncMock()
-        mock_omcd = MagicMock()
         mock_dreamer = AsyncMock()
 
         with patch("graph_rlm.backend.src.core.agent.logger"), patch(
-            "graph_rlm.backend.src.core.agent.repe", mock_repe
-        ), patch("graph_rlm.backend.src.core.agent.sheaf", mock_sheaf), patch(
-            "graph_rlm.backend.src.core.agent.omcd", mock_omcd
-        ), patch(
-            "graph_rlm.backend.src.core.agent.dreamer", mock_dreamer
-        ):
+            "graph_rlm.backend.src.core.agent.sheaf", mock_sheaf
+        ), patch("graph_rlm.backend.src.core.agent.dreamer", mock_dreamer):
 
             agent = Agent()
             agent.db = mock_db

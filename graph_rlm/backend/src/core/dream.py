@@ -147,23 +147,31 @@ class Dreamer:
                     ev_rsid = getattr(event, "root_session_id", None)
                     ev_turn = getattr(event, "turn_id", None)
 
-                    if (ev_sid == target_id or ev_rsid == target_id):
+                    if target_id in (ev_sid, ev_rsid):
                         if turn_id is None or ev_turn == turn_id:
                             # Normalize ThimacEvent to DB Row format
-                            ram_nodes.append({
-                                "id": getattr(event, "thought_id", ""),
-                                "status": getattr(event, "status", ""),
-                                "ts": getattr(event, "timestamp", 0),
-                                "repl_id": getattr(event, "repl_id", ""),
-                                "prompt": getattr(event, "full_data", ""),
-                                "result": getattr(event, "result", ""),
-                                "semantic_gist": getattr(event, "semantic_gist", ""),
-                                "thimac_op": getattr(event, "operation", ""),
-                                "thimac_level": getattr(event, "level", ""),
-                                "thimac_intent": getattr(event, "intent_type", ""),
-                                "thimac_op_reason": getattr(event, "operation_reason", ""),
-                                "thimac_level_reason": getattr(event, "level_reason", ""),
-                            })
+                            ram_nodes.append(
+                                {
+                                    "id": getattr(event, "thought_id", ""),
+                                    "status": getattr(event, "status", ""),
+                                    "ts": getattr(event, "timestamp", 0),
+                                    "repl_id": getattr(event, "repl_id", ""),
+                                    "prompt": getattr(event, "full_data", ""),
+                                    "result": getattr(event, "result", ""),
+                                    "semantic_gist": getattr(
+                                        event, "semantic_gist", ""
+                                    ),
+                                    "thimac_op": getattr(event, "operation", ""),
+                                    "thimac_level": getattr(event, "level", ""),
+                                    "thimac_intent": getattr(event, "intent_type", ""),
+                                    "thimac_op_reason": getattr(
+                                        event, "operation_reason", ""
+                                    ),
+                                    "thimac_level_reason": getattr(
+                                        event, "level_reason", ""
+                                    ),
+                                }
+                            )
 
             # Merge and de-duplicate (RAM nodes usually more recent/accurate for current turn)
             db_nodes = {r["id"]: r for r in recent} if recent else {}
@@ -172,7 +180,9 @@ class Dreamer:
                 db_nodes[node["id"]] = node
 
             # Sort combined set by timestamp DESC
-            combined_recent = sorted(db_nodes.values(), key=lambda x: x.get("ts") or 0, reverse=True)
+            combined_recent = sorted(
+                db_nodes.values(), key=lambda x: x.get("ts") or 0, reverse=True
+            )
             recent = combined_recent[:5]
 
             result = dict(empty)  # copy defaults
@@ -190,18 +200,30 @@ class Dreamer:
                 turns = [t for t in (row.get("turns") or []) if t is not None]
                 repls = [r for r in (row.get("repls") or []) if r is not None]
                 result["turn_count"] = len(turns)
-                result["step_count"] = row.get("step_count", 0)
+                step_count_val = row.get("step_count", 0)
+                # Ensure step_count is an int even if DB returns a list/tuple
+                if isinstance(step_count_val, (list, tuple)) and step_count_val:
+                    actual_step_count = int(step_count_val[0])
+                else:
+                    actual_step_count = int(step_count_val or 0)
+                result["step_count"] = actual_step_count
                 result["repl_ids"] = repls
-                result["failure_count"] = row.get("failures", 0)
+                result["failure_count"] = int(row.get("failures", 0))
 
             # Augment counts with RAM nodes if they aren't already in DB stats
             if ram_nodes:
-                if result["step_count"] < len(ram_nodes):
+                final_steps = result["step_count"]
+                # Explicitly verify type to satisfy the linter's strict tracking
+                if isinstance(final_steps, int) and final_steps < len(ram_nodes):
                     result["step_count"] = len(ram_nodes)
 
                 # Update repl_ids from RAM
                 ram_repls = set(n["repl_id"] for n in ram_nodes if n.get("repl_id"))
-                result["repl_ids"] = list(set(result["repl_ids"]) | ram_repls)
+                existing_repls = result["repl_ids"]
+                # Safeguard against result["repl_ids"] being an int (shouldn't happen but lint is worried)
+                if not isinstance(existing_repls, (list, set)):
+                    existing_repls = []
+                result["repl_ids"] = list(set(existing_repls) | ram_repls)
 
             if recent:
                 result["recent_node_ids"] = [r["id"] for r in recent if r.get("id")]
@@ -230,6 +252,7 @@ class Dreamer:
             logger.warning("Failed to query session trace: %s", e)
 
         return empty
+
     async def analyze_holonomy(
         self, loop_nodes: List[Dict[str, Any]], _current_thought: str
     ) -> Dict[str, Any]:
@@ -286,6 +309,7 @@ class Dreamer:
         context: Optional[str] = None,
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
+        reflexion_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Public wrapper for Dream Cycle with strict locking to prevent overlapping execution.
@@ -320,6 +344,7 @@ class Dreamer:
                 context,
                 turn_id,
                 root_session_id,
+                reflexion_context,
             )
         except (
             CircuitOpenError,
@@ -344,6 +369,7 @@ class Dreamer:
         context: Optional[str] = None,
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
+        reflexion_context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Main Sleep Cycle:
@@ -566,6 +592,19 @@ class Dreamer:
                 AttributeError,
             ) as e:
                 logger.warning("Navigator pattern extraction failed: %s", e)
+
+        # [REFLEXION INJECTION]
+        if reflexion_context:
+            error_msg = reflexion_context.get("error", "Unknown error")
+            code_snippet = reflexion_context.get("code", "")
+            system_signal_section += (
+                f"\n\n🚨 *** REFLEXION TRIGGER: EXECUTION FAILURE ***\n"
+                f"The Agent attempted to execute the following code and FAILED:\n"
+                f"--- FAILED CODE ---\n{code_snippet}\n"
+                f"--- ERROR MESSAGE ---\n{error_msg}\n"
+                f"Your primary goal is to analyze WHY this failed and provide an 'Immediate Insight' "
+                f"to help the agent self-heal. Also, attempt to codify a defensive AXIOM.\n"
+            )
 
         dream_prompt = (
             "You are acting as the 'Dreamer' component of the Graph-RLM system.\n"
@@ -955,6 +994,19 @@ class Dreamer:
         topo_energy = diagnosis.get("energy", 0.0)
         topo_critique = diagnosis.get("critique", "")
 
+        # ── 3.5 Semantic Utility Diagnostic ──
+        # Measure if the agent is actually USING the retrieved context (Jiang et al., 2026)
+        retrieved_nodes = trace.get("status_timeline", [])
+        # Find original task in scratchpad context
+        task_match = re.search(r"## 🎯 Initial Task\n(.*?)\n", context, re.DOTALL)
+        original_task = task_match.group(1).strip() if task_match else ""
+
+        semantic_utility = navigator.calculate_semantic_utility(
+            candidate_result=candidate,
+            retrieved_nodes=retrieved_nodes,
+            original_prompt=original_task,
+        )
+
         # ── 4. oMCD: Economic Feasibility ──
         # Use sheaf confidence if available, or composite RepE as fallback
         sheaf_confidence = diagnosis.get("confidence")
@@ -1029,6 +1081,9 @@ class Dreamer:
             f"\n### Sheaf Topological Diagnosis\n"
             f"- Status: {topo_status} | Energy: {topo_energy:.3f}\n"
             f"- Critique: {topo_critique or 'None'}\n"
+            f"\n### Semantic Utility (Backbone Grounding)\n"
+            f"- Utility Score: {semantic_utility:.2f} (Target: > 0.15 for retrieval tasks)\n"
+            f"- Meaning: High utility = effective use of retrieved context. Low utility = context ignorance.\n"
             f"\n### oMCD Economic Decision\n"
             f"- Should Stop: {omcd_decision.get('should_stop', False)}\n"
             f"- Q_stop: {omcd_decision.get('q_stop', 0):.3f} | Threshold: {omcd_decision.get('threshold', 0):.3f}\n"
@@ -1069,6 +1124,7 @@ class Dreamer:
             f"Reject as invalid if Grounding Status is 'UNVERIFIED_SIDE_EFFECTS'.\n"
             f"**IMPORTANT**: If the grounding status is unverified, YOU MUST list the specific 'Pending Side-Effects' in your 'instruction' field so the agent knows what to verify next.\n"
             f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
+            f"- [SEMANTIC UTILITY] If 'Semantic Utility' is very low (< 0.05) but the 'Session Trace' shows that relevant documents or nodes were searched/viewed, the agent is ignoring its memory (Backbone Dependence). Reject as invalid and instruct the agent to ground its response in the retrieved evidence.\n"
             f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
             f"- [META-COGNITION] Meta-cognitive analysis (reflection, simulation results) is explicitly allowed as long as it lead to actionable conclusions or verification.\n"
             f"- [PRESENCE] Ensure the response is not just a summary of failure. If the agent claims it completed the task, check the 'Active Verification Results' or 'Deterministic Flags'.\n"

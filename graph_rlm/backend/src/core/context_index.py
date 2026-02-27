@@ -220,7 +220,10 @@ class ContextIndex:
                        n.turn_id as turn_id,
                        n.step_id as step_id,
                        n.code_hash as code_hash,
-                       n.semantic_gist as semantic_gist
+                       n.semantic_gist as semantic_gist,
+                       n.frequency as frequency,
+                       n.confidence as confidence,
+                       n.rtm_depth as rtm_depth
                 ORDER BY n.created_at ASC
                 """
             else:
@@ -242,7 +245,10 @@ class ContextIndex:
                        n.turn_id as turn_id,
                        n.step_id as step_id,
                        n.code_hash as code_hash,
-                       n.semantic_gist as semantic_gist
+                       n.semantic_gist as semantic_gist,
+                       n.frequency as frequency,
+                       n.confidence as confidence,
+                       n.rtm_depth as rtm_depth
                 ORDER BY n.created_at ASC
                 """
 
@@ -271,6 +277,10 @@ class ContextIndex:
                             "turn_id": row[11] if len(row) > 11 else None,
                             "step_id": row[12] if len(row) > 12 else None,
                             "code_hash": row[13] if len(row) > 13 else None,
+                            "semantic_gist": row[14] if len(row) > 14 else None,
+                            "frequency": row[15] if len(row) > 15 else None,
+                            "confidence": row[16] if len(row) > 16 else None,
+                            "rtm_depth": row[17] if len(row) > 17 else None,
                         }
                     )
             return data

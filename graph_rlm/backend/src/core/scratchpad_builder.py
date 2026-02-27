@@ -269,7 +269,10 @@ class ScratchpadBuilder:
                    n.thimac_op as thimac_op,
                    n.thimac_level as thimac_level,
                    n.navigator_insight as navigator_insight,
-                   n.semantic_gist as semantic_gist
+                   n.semantic_gist as semantic_gist,
+                   n.frequency as frequency,
+                   n.confidence as confidence,
+                   n.rtm_depth as rtm_depth
             ORDER BY n.created_at ASC
             LIMIT 2000
             """
@@ -575,6 +578,15 @@ class ScratchpadBuilder:
             # Gestalt string with RepE axes + Sheaf Consistency + oMCD Stop Probability
             # S=Shakiness, C=Confluence, E=Evasion, F=Freedom
             gestalt = f"Ψ(S:{shaky_str} C:{confluence_str} E:{evasion_str} F:{freedom_str}) ‖ 📐(S:{sheaf_str} H0:{h0_rank_str}) ‖ Ω:{omcd_str}"
+
+            # NAL & RTM Metrics (Grounding Strength)
+            freq = safe_float(row.get("frequency"))
+            conf = safe_float(row.get("confidence"))
+            depth = safe_float(row.get("rtm_depth"))
+            if freq is not None or conf is not None:
+                nal_str = f"L({fmt(freq)} {fmt(conf)})"
+                rtm_str = f"D:{int(depth) if depth is not None else 0}"
+                gestalt += f" ‖ ⚖️ {nal_str} {rtm_str}"
 
             nav_insight = row.get("navigator_insight")
             if nav_insight:

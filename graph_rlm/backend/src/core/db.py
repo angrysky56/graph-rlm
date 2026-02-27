@@ -111,6 +111,9 @@ class GraphClient:
         free_energy: Optional[float] = None,
         epistemic_eros: Optional[float] = None,
         metabolic_state: Optional[str] = None,
+        frequency: Optional[float] = None,
+        confidence: Optional[float] = None,
+        rtm_depth: Optional[int] = None,
         validate: bool = True,
     ):
         """
@@ -375,6 +378,18 @@ class GraphClient:
             params["m_state"] = metabolic_state
             cypher += ", t.metabolic_state = $m_state"
 
+        if frequency is not None:
+            params["freq"] = float(frequency)
+            cypher += ", t.frequency = $freq"
+
+        if confidence is not None:
+            params["conf"] = float(confidence)
+            cypher += ", t.confidence = $conf"
+
+        if rtm_depth is not None:
+            params["rdepth"] = int(rtm_depth)
+            cypher += ", t.rtm_depth = $rdepth"
+
         self.query(cypher, params)
 
         # Link to parent if exists
@@ -440,6 +455,9 @@ class GraphClient:
         free_energy: Optional[float] = None,
         epistemic_eros: Optional[float] = None,
         metabolic_state: Optional[str] = None,
+        frequency: Optional[float] = None,
+        confidence: Optional[float] = None,
+        rtm_depth: Optional[int] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
@@ -502,6 +520,18 @@ class GraphClient:
         if metabolic_state is not None:
             params["m_state"] = metabolic_state
             cypher += ", t.metabolic_state = $m_state"
+
+        if frequency is not None:
+            params["freq"] = float(frequency)
+            cypher += ", t.frequency = $freq"
+
+        if confidence is not None:
+            params["conf"] = float(confidence)
+            cypher += ", t.confidence = $conf"
+
+        if rtm_depth is not None:
+            params["rdepth"] = int(rtm_depth)
+            cypher += ", t.rtm_depth = $rdepth"
 
         self.query(cypher, params)
 

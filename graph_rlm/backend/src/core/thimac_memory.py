@@ -93,6 +93,10 @@ class ThimacEvent:
     sheaf_score: Optional[float] = None
     h0_rank: Optional[int] = None
     omcd_score: Optional[float] = None
+    utility_score: float = 0.0  # Semantic Utility (Jiang et al., 2026)
+    frequency: float = 1.0  # NAL Frequency (f)
+    confidence: float = 0.9  # NAL Confidence (c)
+    rtm_depth: int = 0  # Hierarchical depth in Random Tree Model
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
@@ -133,6 +137,10 @@ class ThimacEvent:
             "sheaf_score": self.sheaf_score,
             "h0_rank": self.h0_rank,
             "omcd_score": self.omcd_score,
+            "utility_score": self.utility_score,
+            "frequency": self.frequency,
+            "confidence": self.confidence,
+            "rtm_depth": self.rtm_depth,
         }
 
 
@@ -283,14 +291,23 @@ class ThimacMemory:
         else:
             event.metabolic_state = "GAMMA"
 
-        self._all_events.append(event)
-
-        if lvl == ThimacLevel.EXISTENCE:
-            self.existence.append(event)
-            # Update Knowledge/Material State
-            self._update_state_tracking(event, thought)
+        # 6. NAL Truth Value Resolution (Jiang et al., 2024)
+        # Success = (f=1.0, c=0.9), Failure = (f=0.0, c=0.9), Unknown = (f=0.5, c=0.1)
+        if event.status == "success":
+            event.frequency = 1.0
+            event.confidence = 0.9
+        elif event.status in ["failed", "error", "rejected"]:
+            event.frequency = 0.0
+            event.confidence = 0.9
         else:
-            self.subsistence.append(event)
+            event.frequency = 0.5
+            event.confidence = 0.2
+
+        # Standardized CRUD: Store
+        self.store(event)
+
+        # 7. Hierarchical Folding (Random Tree Model - K=4)
+        self._check_rtm_folding(event.rtm_depth)
 
         logger.debug(
             "Thimac: %s (%s) %s (%s) [%s] — %s",
@@ -303,10 +320,100 @@ class ThimacMemory:
         )
         return event
 
+    def _check_rtm_folding(self, depth: int):
+        """
+        Implements Hierarchical Folding (Random Tree Model).
+        When the branching factor K=4 is reached at 'depth', these 4 nodes
+        are conceptually 'folded' into a single parent node at depth+1.
+        """
+        K = 4
+        # Count events at this specific depth across all events
+        # We exclude existing fold nodes to avoid circularity
+        sibling_events = [
+            e
+            for e in self._all_events
+            if e.rtm_depth == depth and not e.thought_id.startswith("rtm-fold-")
+        ]
+
+        if len(sibling_events) >= K:
+            logger.info(
+                "🌳 [RTM Folding] K=%d reached at depth %d. Folding into summary node...",
+                K,
+                depth,
+            )
+
+            # Create a summary (folded) node
+            # We take the 4 most recent siblings
+            to_fold = sibling_events[-K:]
+
+            # Concatenate summaries for metadata
+            folded_summaries = "; ".join(
+                [e.summary.split("|")[-1].strip() for e in to_fold]
+            )
+
+            # Create the folded event
+            folded_id = f"rtm-fold-{int(time.time())}"
+            folded_event = ThimacEvent(
+                thought_id=folded_id,
+                operation=ThimacOperation.PROCESS,
+                level=ThimacLevel.SUBSISTENCE,
+                status="success",
+                operation_reason="RTM Hierarchical Folding",
+                summary=f"[RTM D:{depth+1}] | Summary of previous {K} segments",
+                semantic_gist=f"Folded summary: {folded_summaries}",
+                rtm_depth=depth + 1,
+                session_id=to_fold[0].session_id,
+                root_session_id=to_fold[0].root_session_id,
+                timestamp=int(time.time() * 1000),
+            )
+
+            # Store the folded event
+            self.store(folded_event)
+
+            # Recursively check if the new node triggers a fold at depth + 1
+            if depth + 1 < 4:  # D=4 constraint
+                self._check_rtm_folding(depth + 1)
+
+    def store(self, event: ThimacEvent) -> None:
+        """Formalized CRUD: Store an event in the appropriate memory layer."""
+        self._all_events.append(event)
+
+        if event.level == ThimacLevel.EXISTENCE:
+            self.existence.append(event)
+            # Update Knowledge/Material State (legacy support)
+            self._update_state_tracking(event, event.to_dict())
+        else:
+            self.subsistence.append(event)
+
+    def delete(self, thought_id: str) -> bool:
+        """Formalized CRUD: Delete (prune) an event from RAM state."""
+        return self.prune_event(thought_id)
+
+    def summarize(self, thought_id: str, semantic_gist: str) -> bool:
+        """Formalized CRUD: Update the semantic footprint/gist of a memory."""
+        for e in self._all_events:
+            if e.thought_id == thought_id:
+                e.semantic_gist = semantic_gist
+                return True
+        return False
+
+    def link(self, source_id: str, target_id: str) -> bool:
+        """Formalized CRUD: Explicitly link two memories (Parent -> Child)."""
+        target_event = next(
+            (e for e in self._all_events if e.thought_id == target_id), None
+        )
+        if target_event:
+            target_event.parent_id = source_id
+            return True
+        return False
+
     def prune_event(self, thought_id: str) -> bool:
         """Removes an event from the local memory history (RAM Pruning)."""
         initial_count = len(self._all_events)
         self._all_events = [e for e in self._all_events if e.thought_id != thought_id]
+        self.existence = [e for e in self.existence if e.thought_id != thought_id]
+        self.subsistence = [e for e in self.subsistence if e.thought_id != thought_id]
+
         if len(self._all_events) < initial_count:
             logger.info("Thimac: Pruned event %s from RAM state.", thought_id)
             return True

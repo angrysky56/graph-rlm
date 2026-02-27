@@ -4,7 +4,7 @@ System prompt templates for the Graph-RLM Agent.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from .config import settings
 from .mcp_runtime import is_skills_available
@@ -39,6 +39,7 @@ async def build_system_prompt(
     skills_manager: Optional[Any] = None,
     agent_profile: Optional[Dict[str, Any]] = None,
     dashboard_data: Optional[Dict[str, Any]] = None,
+    relevant_axioms: Optional[List[Dict[str, str]]] = None,
 ) -> str:
     """
     Constructs the master system prompt for the Agent.
@@ -291,6 +292,18 @@ async def build_system_prompt(
         f"   - **Epistemic Eros (Drive)**: {dashboard_data.get('epistemic_eros', '0.50') if dashboard_data else '0.50'} (Target: High)\n"
         f"   - **OMCD Optimality (Stop Conf)**: {dashboard_data.get('omcd_score', '0.00') if dashboard_data else '0.00'} (Target > 0.8)\n"
     )
+
+    # Inject Relevant Axioms (Metadata only)
+    if relevant_axioms:
+        axiom_lines = "\n".join(
+            [f"- **{a['name']}**: {a['description']}" for a in relevant_axioms]
+        )
+        prompt += (
+            f"\n\n**[RELEVANT AXIOMS (Domain Validators)]**:\n"
+            f"The following rules are active and being monitored by the Dreamer. "
+            f"Your output must maintain consistency with these invariants:\n"
+            f"{axiom_lines}\n"
+        )
 
     # Inject "Marge's Rules" (Dreamer Guardrails)
     rules_path = backend_root / "rules.md"

@@ -4,7 +4,10 @@ Implements Intrinsic Motivation via Compression Progress and Causal Entropic For
 """
 
 import lzma
+import re
 from typing import Any, Dict, List, Tuple
+
+import numpy as np
 
 from .db import db
 from .logger import get_logger
@@ -66,8 +69,6 @@ class Navigator:
         Detects if the agent is entering a 'Branching Channel' (Xu et al., 2025).
         Returns a signal indicating stability vs sensitivity.
         """
-        import numpy as np
-
         if not self._embedding_history:
             self._embedding_history.append(current_embedding)
             return {"status": "STABLE", "sensitivity": 0.0}
@@ -351,12 +352,74 @@ class Navigator:
             )
             return []
 
+    def calculate_semantic_utility(
+        self,
+        candidate_result: str,
+        retrieved_nodes: List[Dict[str, Any]],
+        original_prompt: str,
+    ) -> float:
+        """
+        Calculates the Semantic Utility of retrieved context (Jiang et al., 2026).
+        Utility = (Grounding Gain * 0.7) + (Alignment * 0.3)
+
+        Refined: Grounding Gain is weighted by the NAL Confidence (c) of the source nodes.
+        """
+        if not retrieved_nodes:
+            return 0.0
+
+        def get_terms(text: str) -> set:
+            return set(re.findall(r"\b[a-z]{4,}\b", text.lower()))
+
+        prompt_terms = get_terms(original_prompt)
+        result_terms = get_terms(candidate_result)
+        novel_result_terms = result_terms - prompt_terms
+
+        if not novel_result_terms:
+            return 1.0  # High utility if no new terms needed grounding or all were grounded implicitly
+
+        # Calculate weighted grounding gain
+        total_grounded_weight = 0.0
+        grounded_terms = set()
+
+        for node in retrieved_nodes:
+            node_text = str(node.get("result") or node.get("prompt") or "")
+            node_terms = get_terms(node_text)
+            node_confidence = float(node.get("confidence", 0.5))
+
+            new_grounded = novel_result_terms.intersection(node_terms)
+            for term in new_grounded:
+                if term not in grounded_terms:
+                    # We take the max confidence available for each grounded term
+                    total_grounded_weight += node_confidence
+                    grounded_terms.add(term)
+
+        # Grounding Gain (Normalized by max possible weight if all terms had c=1.0)
+        grounding_gain = total_grounded_weight / max(1, len(novel_result_terms))
+
+        # Jaccard Alignment (standard)
+        context_text = "\n".join(
+            [str(n.get("result") or n.get("prompt") or "") for n in retrieved_nodes]
+        )
+        context_terms = get_terms(context_text)
+        jaccard = len(result_terms.intersection(context_terms)) / max(
+            1, len(result_terms.union(context_terms))
+        )
+
+        utility = (grounding_gain * 0.7) + (jaccard * 0.3)
+
+        logger.info(
+            "Semantic Utility: %.2f (Weighted Gain: %.2f, Align: %.2f)",
+            utility,
+            grounding_gain,
+            jaccard,
+        )
+        return float(utility)
+
     def evaluate_topological_stress(
         self, stress: float, threshold: float = 0.15
     ) -> str:
         """
         Evaluates the Shepard/Topological Stress ratio.
-        Returns a warning flag if the session graph is becoming too noisy or contradictory.
         """
         if stress > threshold:
             logger.warning("Navigator: High Topological Stress detected (%.4f)", stress)
