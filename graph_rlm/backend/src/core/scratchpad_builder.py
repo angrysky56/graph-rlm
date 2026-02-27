@@ -100,9 +100,39 @@ class ScratchpadBuilder:
             else:
                 health = "🔵 NOMINAL"
 
+            # Format Mission (Summary for display)
+            # If the task prompt is massive (e.g. BREAKER), we summarize it for the HUD
+            # but preserve the full mission in the task_id node (already searchable).
+            display_mission = task.strip()
+            if len(display_mission) > 300:
+                try:
+                    # Attempt to find the task node's gist if available
+                    q_gist = """
+                    MATCH (n:Thought)
+                    WHERE n.id = $tid OR (n.session_id = $sid AND n.status = 'task')
+                    RETURN n.semantic_gist, n.prompt
+                    ORDER BY n.created_at ASC LIMIT 1
+                    """
+                    gist_res = self.db.query(
+                        q_gist,
+                        {"tid": current_round_id.split(":")[0], "sid": session_id},
+                    )
+                    if gist_res and (
+                        gist_res[0].get("n.semantic_gist")
+                        or gist_res[0].get("semantic_gist")
+                    ):
+                        display_mission = gist_res[0].get(
+                            "n.semantic_gist"
+                        ) or gist_res[0].get("semantic_gist")
+                    else:
+                        # Fallback: on-the-fly dense summary
+                        display_mission = await self._summarize_content(display_mission)
+                except Exception:
+                    display_mission = display_mission[:300] + "..."
+
             mc_lines = [
                 "## 🎯 Mission Control",
-                f"- **MISSION**: {task.strip()}",
+                f"- **MISSION**: {display_mission}",
                 f"- **Phase**: {phase}",
                 f"- **Health**: {health}",
                 f"- **Momentum**: {momentum_str} (last {min(len(outcomes), 10)} steps)",

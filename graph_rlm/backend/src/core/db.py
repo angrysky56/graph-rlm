@@ -564,7 +564,7 @@ class GraphClient:
         # FalkorDB syntax requires quoted strings for label and property name
         cypher = (
             "CALL db.idx.vector.queryNodes('Thought', 'embedding', $limit, vecf32($vec)) "
-            "YIELD node, score RETURN node.id, node.prompt, node.result, score"
+            "YIELD node, score RETURN node.id, node.prompt, node.result, node.semantic_gist, score"
         )
 
         try:
@@ -572,7 +572,13 @@ class GraphClient:
             results = []
             for row in res.result_set:
                 results.append(
-                    {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
+                    {
+                        "id": row[0],
+                        "prompt": row[1],
+                        "result": row[2],
+                        "semantic_gist": row[3],
+                        "score": row[4],
+                    }
                 )
             return results
         except (redis.exceptions.RedisError, redis.exceptions.ResponseError) as e:

@@ -36,7 +36,7 @@ from .exceptions.codes import ErrorCode
 from .llm import llm
 from .logger import get_logger
 from .mcp_runtime import get_mcp_server_names, is_mcp_available
-from .meta_agents import meta_agents
+from .meta_agents import AgentRole, meta_agents
 from .navigator import Navigator
 
 # from .prompts import build_system_prompt
@@ -1315,6 +1315,31 @@ class Agent:
             "and a small snippet of the saved content to stdout. Silent file writes will be rejected as hallucinations."
         )
 
+        # --- META-AGENT ROLE COORDINATION ---
+        # Evaluate if enough fragments have been gathered to trigger Synthesis
+        coherence_met = meta_agents.evaluate_coherence(
+            turn_ctx.get("root_id", session_id)
+        )
+        if coherence_met and task_profile.get("role") != AgentRole.SYNTHESIZER:
+            task_profile["role"] = AgentRole.SYNTHESIZER
+            task_profile["persona"] = "Abstract Synthesizer"
+
+            synth_instructions = meta_agents.get_synthesizer_instructions(
+                turn_ctx.get("root_id", session_id)
+            )
+            if synth_instructions:
+                system_prompt += f"\n\n{synth_instructions}"
+
+            self.emit_event(
+                "RLM_SYNTHESIZER_PROTOCOL",
+                content="Meta-Coherence threshold met. Transitioning to SYNTHESIZER role.",
+                tag="META_AGENT",
+            )
+            logger.info(
+                "🛡️ [Meta-Agent] Transitioning to SYNTHESIZER for session %s",
+                session_id,
+            )
+
         # Hot Seat Injection
         if getattr(self, "last_dream_insight", None):
             system_prompt += (
@@ -1326,7 +1351,11 @@ class Agent:
 
         # Synthesis Hardening
         if getattr(self, "synthesis_triggered", False):
-            system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL SUMMARY mode. NO tools permitted."
+            # If we hit forced synthesis but the role is Synthesizer, allow Gap investigation
+            if task_profile.get("role") == AgentRole.SYNTHESIZER:
+                system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL INTEGRATION mode. Focus on the synthesized response. You may use tools ONLY to investigate CRITICAL GAPS identified in your analysis."
+            else:
+                system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL SUMMARY mode. NO tools permitted."
 
         # Navigator/Sheaf/Axioms could be added here similarly or kept in turn_ctx
 

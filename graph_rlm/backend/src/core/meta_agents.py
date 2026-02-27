@@ -63,7 +63,7 @@ class CollaborationState:
     iteration: int = 0
     coherence_score: float = 0.0
     coherence_threshold: float = 0.7
-    max_iterations: int = 5
+    max_iterations: int = 10
     is_complete: bool = False
 
 
@@ -376,8 +376,9 @@ INSTRUCTIONS:
 2. You MUST read the digest file above to see the fragment details.
 3. Use 'await rlm.read_document(path)' or standard file tools to ingest the data.
 4. Ensure logical flow between sections.
-5. Identify any GAPS requiring additional investigation.
-6. Produce a FINAL SYNTHESIZED ANSWER.
+5. Identify any GAPS or contradictions requiring additional investigation.
+6. If gaps are found, use 'await rlm.query(...)' to resolve them BEFORE finalizing.
+7. Produce a FINAL SYNTHESIZED ANSWER only when coherence is maximal.
 
 OUTPUT FORMAT:
 ## Synthesized Analysis

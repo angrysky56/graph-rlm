@@ -251,6 +251,7 @@ class RLMInterface:
 
         # Semantic Axiom Retrieval for Child Context
         axioms_ctx = ""
+        parent_gists = ""
         if is_skills_available():
             try:
                 axioms_mgr = get_axioms_manager()
@@ -267,12 +268,28 @@ class RLMInterface:
                         )
                         + "\n"
                     )
+
+                # [GROUNDING] Fetch parent session's recent gists for child context
+                parent_trace = self.agent.db.get_session_trace(
+                    self.root_session_id, limit=5
+                )
+                if parent_trace:
+                    gists = []
+                    for node in parent_trace:
+                        gist = node.get("semantic_gist") or node.get("step_summary")
+                        if gist:
+                            gists.append(f"- [{node.get('step_id')}] {gist}")
+                    if gists:
+                        parent_gists = (
+                            "[PARENT CONTEXT GISTS]\n" + "\n".join(gists) + "\n\n"
+                        )
+
             except (RuntimeError, AttributeError, ValueError) as e:
-                logger.warning("Failed to load axioms for child query: %s", e)
+                logger.warning("Failed to load context for child query: %s", e)
 
         full_prompt = (
             f"{persona_prefix}{worker_instructions}\n\n"
-            f"{axioms_ctx}[PARENT_REPL: {parent_repl_id}]\n\n"
+            f"{axioms_ctx}{parent_gists}[PARENT_REPL: {parent_repl_id}]\n\n"
             f"{full_prompt}"
         )
 
@@ -376,16 +393,20 @@ class RLMInterface:
                 cypher = (
                     "MATCH (n:Thought) "
                     "WHERE n.id STARTS WITH $id OR n.logical_id STARTS WITH $id "
-                    "RETURN n.id as id, n.prompt as prompt, n.result as result "
+                    "RETURN n.id as id, n.prompt as prompt, n.result as result, n.semantic_gist as semantic_gist "
                     "LIMIT 5"
                 )
                 res = self.agent.db.query(cypher, {"id": query})
                 if res:
                     formatted = []
                     for row in res:
+                        gist = row.get("semantic_gist", "")
+                        content = f"Thought: {row['prompt']} -> Result: {row['result']}"
+                        if gist:
+                            content = f"GIST: {gist} | Details: {content}"
+
                         formatted.append(
-                            f"- [DIRECT RECALL] (ID: {row['id']}) "
-                            f"Thought: {row['prompt']} -> Result: {row['result']}"
+                            f"- [DIRECT RECALL] (ID: {row['id']}) {content}"
                         )
                     logger.info("[RLM] %d direct matches found for %s", len(res), query)
                     return "\n\n".join(formatted)
@@ -438,17 +459,19 @@ class RLMInterface:
             formatted = []
             for row in results:
                 # Results from find_similar_thoughts:
-                # {"id": row[0], "prompt": row[1], "result": row[2], "score": row[3]}
+                # {"id": row[0], "prompt": row[1], "result": row[2], "semantic_gist": row[3], "score": row[4]}
 
                 tid = row.get("id", "Unknown")
                 prompt = row.get("prompt", "No prompt")
                 result = row.get("result", "No result")
+                gist = row.get("semantic_gist", "")
                 score = float(row.get("score", 0.0))
 
-                formatted.append(
-                    f"- [Similarity: {score:.2f}] (ID: {tid}) "
-                    f"Thought: {prompt} -> Result: {result}"
-                )
+                content = f"Thought: {prompt} -> Result: {result}"
+                if gist:
+                    content = f"GIST: {gist} | Details: {content}"
+
+                formatted.append(f"- [Similarity: {score:.2f}] (ID: {tid}) {content}")
 
             if not formatted:
                 self.agent.emit_event(
