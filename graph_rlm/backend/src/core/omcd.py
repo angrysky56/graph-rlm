@@ -44,6 +44,10 @@ class OmcdParams:
     # Value mode exploration noise scale
     gamma: float = 0.05
 
+    # Minimum steps before oMCD can recommend stopping.
+    # Prevents premature termination on the first few steps.
+    min_steps: int = 3
+
 
 class OmcdController:
     """
@@ -169,7 +173,11 @@ class OmcdController:
         q_stop = benefit - kinetic_energy
 
         decision = {
-            "should_stop": q_stop >= self.params.omega and not is_non_physical,
+            "should_stop": (
+                q_stop >= self.params.omega
+                and not is_non_physical
+                and step >= self.params.min_steps
+            ),
             "is_non_physical": is_non_physical,
             "q_stop": q_stop,
             "threshold": self.params.omega,

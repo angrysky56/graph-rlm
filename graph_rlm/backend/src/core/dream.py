@@ -1281,7 +1281,7 @@ class Dreamer:
         if reasons and not instruction:
             instruction = "RE-EVALUATE:\n" + "\n".join(f"- {r}" for r in reasons)
 
-        if omcd_decision.get("should_stop", False):
+        if omcd_decision.get("should_stop", False) and current_step >= 3:
             logger.warning(
                 "🔸 [Dreamer] Validation failed. Budget exhausted. ESCALATING."
             )
