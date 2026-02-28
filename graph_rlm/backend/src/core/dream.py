@@ -25,7 +25,7 @@ from .core import PythonREPL
 from .db import GraphClient, db
 from .llm import llm
 from .logger import get_logger
-from .nal import TruthValue, merge_truth_values, revision, truth_from_raw
+from .nal import TruthValue, merge_truth_values, truth_from_raw
 from .navigator import navigator
 from .omcd import omcd
 from .services.circuit import protected_llm_with_fallback

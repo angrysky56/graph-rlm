@@ -26,6 +26,19 @@ from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("graph_rlm.thimac")
 
+# Lazy import to avoid circular imports at module level
+_activation_engine = None
+
+
+def _get_activation_engine():
+    """Lazy singleton for the ACT-R activation engine."""
+    global _activation_engine
+    if _activation_engine is None:
+        from .activation import ActivationEngine
+
+        _activation_engine = ActivationEngine()
+    return _activation_engine
+
 
 class ThimacOperation(str, Enum):
     """Five official Thinging Machine stages."""
@@ -160,6 +173,7 @@ class ThimacMemory:
         self.existence: List[ThimacEvent] = []
         self.subsistence: List[ThimacEvent] = []
         self._all_events: List[ThimacEvent] = []
+        self._activation = _get_activation_engine()
 
         # --- THERMODYNAMIC STATE ---
         self.Pi = 0.2  # Inference Pressure (Entropy)
@@ -176,6 +190,22 @@ class ThimacMemory:
     def all_events(self) -> List[ThimacEvent]:
         """Public accessor for the full event history."""
         return self._all_events
+
+    def get_high_utility_events(self, threshold: float = 0.5) -> List[ThimacEvent]:
+        """Returns events with utility or compression gain above certain thresholds."""
+        return [
+            e
+            for e in self._all_events
+            if e.utility_score >= threshold or e.compression_gain >= 0.15
+        ]
+
+    def merge_events(self, events: List[ThimacEvent]) -> None:
+        """Merges external events into the current session trace (Memory Synchronization)."""
+        existing_ids = {e.thought_id for e in self._all_events}
+        for e in events:
+            if e.thought_id not in existing_ids:
+                # Use store() to ensure correct ontological classification
+                self.store(e)
 
     def _get_repo_root(self) -> Path:
         """Dynamic resolution of repo root to avoid hardcoding."""
@@ -205,6 +235,9 @@ class ThimacMemory:
         parent_id: Optional[str] = None,
         sheaf_score: Optional[float] = None,
         omcd_score: Optional[float] = None,
+        frequency: Optional[float] = None,
+        confidence: Optional[float] = None,
+        h0_rank: Optional[int] = None,
     ) -> ThimacEvent:
         """Classifies a thought and updates session state."""
         op, op_reason = self._classify_operation(thought, tool_calls)
@@ -246,7 +279,8 @@ class ThimacMemory:
             embedding=embedding,
             parent_id=parent_id,
             sheaf_score=sheaf_score,
-            h0_rank=thought.get("h0_rank")
+            h0_rank=h0_rank
+            or thought.get("h0_rank")
             or thought.get("metadata", {}).get("h0_rank"),
             omcd_score=omcd_score,
             metadata=thought.get("metadata", {}),
@@ -293,15 +327,21 @@ class ThimacMemory:
 
         # 6. NAL Truth Value Resolution (Jiang et al., 2024)
         # Success = (f=1.0, c=0.9), Failure = (f=0.0, c=0.9), Unknown = (f=0.5, c=0.1)
-        if event.status == "success":
+        if frequency is not None:
+            event.frequency = frequency
+        elif event.status == "success":
             event.frequency = 1.0
-            event.confidence = 0.9
         elif event.status in ["failed", "error", "rejected"]:
             event.frequency = 0.0
+
+        if confidence is not None:
+            event.confidence = confidence
+        elif event.status in ["success", "failed", "error", "rejected"]:
             event.confidence = 0.9
         else:
+            # Default to low confidence for unknown statuses
             event.frequency = 0.5
-            event.confidence = 0.2
+            event.confidence = 0.1
 
         # Standardized CRUD: Store
         self.store(event)
@@ -318,6 +358,15 @@ class ThimacMemory:
             event.status,
             event.summary[:600],
         )
+
+        # 8. ACT-R Activation: Record access and register embedding
+        self._activation.register(
+            chunk_id=event.thought_id,
+            embedding=embedding,
+            metadata={"status": event.status, "operation": event.operation.value},
+        )
+        self._activation.access(event.thought_id)
+
         return event
 
     def _check_rtm_folding(self, depth: int):
@@ -499,7 +548,7 @@ class ThimacMemory:
 
         lines.append(f"### {state_emoji} Cog-Metabolism: {last_event.metabolic_state}")
         lines.append(
-            f"- **Epistemic Eros ($\mathcal{{E}}$):** {last_event.epistemic_eros:.3f} (Tension)"
+            f"- **Epistemic Eros ($\\mathcal{{E}}$):** {last_event.epistemic_eros:.3f} (Tension)"
         )
         lines.append(
             f"- **Free Energy ($FE$):** {last_event.free_energy:.3f} ($P_i={last_event.inference_pressure:.2f}, R_g={last_event.relational_gravity:.2f}$)"
@@ -609,10 +658,16 @@ class ThimacMemory:
         # 1. EXISTENCE: Keep last 10 hard facts
         self.existence = self.existence[-10:]
 
-        # 2. SUBSISTENCE (Persistent Homology):
-        # We define survival based on MDL gain. Nodes with high gain represent
-        # structural 'Closure' and are preserved as persistent homology.
+        # 2. SUBSISTENCE (Persistent Homology + ACT-R Activation):
+        # Nodes survive if: (a) high MDL gain, OR (b) high ACT-R activation
         persistent = [s for s in self.subsistence if s.compression_gain > 0.1]
+
+        # ACT-R: high-activation chunks survive even without compression gain
+        activated = []
+        for s in self.subsistence:
+            act = self._activation.base_level_activation(s.thought_id)
+            if act > -0.5 and s not in persistent:
+                activated.append(s)
 
         # We also keep recent ARRIVE/ACCEPT nodes for grounding
         grounding = [
@@ -629,7 +684,7 @@ class ThimacMemory:
         # Merge, deduplicate, and sort by original timestamp (implied by insertion order)
         seen_ids = set()
         new_sub = []
-        for s in persistent + grounding + latest:
+        for s in persistent + activated + grounding + latest:
             if s.thought_id not in seen_ids:
                 new_sub.append(s)
                 seen_ids.add(s.thought_id)

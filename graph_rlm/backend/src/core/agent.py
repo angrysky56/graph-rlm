@@ -553,6 +553,7 @@ class Agent:
                 memory_trajectory=(
                     self.morph_memory.all_events if self.morph_memory else None
                 ),
+                depth=execution_state.depth if execution_state else 0,
             )
             self.emit_event("scratchpad_text", content=pad, is_internal=True)
             return pad
@@ -580,8 +581,20 @@ class Agent:
         sheaf_score: Optional[float] = None,
         omcd_score: Optional[float] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        nars_f: Optional[float] = None,
+        nars_c: Optional[float] = None,
+        slac_at: Optional[float] = None,
+        slac_stage: Optional[str] = None,
+        slac_bar: Optional[str] = None,
+        slac_critique: Optional[str] = None,
+        h0_rank: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Helper to ingest a thought node into Thimac memory and return classification."""
+        if h0_rank is None:
+            state = agent_state.get()
+            if state:
+                h0_rank = getattr(state, "last_h0_rank", 1)
+
         try:
             # Calculate MDL Compression Gain (Phase 4 Gestalt)
             compression_gain = 0.0
@@ -610,6 +623,7 @@ class Agent:
                 "frequency": 1.0,  # Defaults, will be refined in ingest_thought
                 "confidence": 0.9,
                 "rtm_depth": 0,
+                "h0_rank": h0_rank,
                 "metadata": metadata or {},
             }
 
@@ -635,6 +649,9 @@ class Agent:
                 parent_id=parent_id,
                 sheaf_score=sheaf_score,
                 omcd_score=omcd_score,
+                frequency=nars_f,
+                confidence=nars_c,
+                h0_rank=h0_rank,
             )
 
             # Warm Persistence: Immediate write to DB for UI/refresh consistency
@@ -663,6 +680,12 @@ class Agent:
                     frequency=event.frequency if event else None,
                     confidence=event.confidence if event else None,
                     rtm_depth=event.rtm_depth if event else None,
+                    slac_at=slac_at,
+                    slac_stage=slac_stage,
+                    slac_bar=slac_bar,
+                    slac_critique=slac_critique,
+                    h0_rank=h0_rank,
+                    utility_score=event.utility_score if event else None,
                     validate=False,  # Skip redundant guardrails
                 )
             except (AttributeError, RuntimeError, ValueError) as db_err:
@@ -737,6 +760,8 @@ class Agent:
                     metabolic_state=event.metabolic_state,
                     semantic_gist=event.semantic_gist,
                     step_summary=event.summary,
+                    h0_rank=event.h0_rank,
+                    utility_score=event.utility_score,
                     validate=False,  # Skip guardrails during flush
                 )
                 flushed_ids.add(event.thought_id)
@@ -754,7 +779,7 @@ class Agent:
             "Memory Flush: Consolidated %d nodes to final graph.", len(flushed_ids)
         )
 
-    async def _create_system_node(
+    async def create_system_node(
         self,
         logical_id: str,
         summary: str,
@@ -773,8 +798,20 @@ class Agent:
         is_branching: bool = False,
         sheaf_score: Optional[float] = None,
         omcd_score: Optional[float] = None,
+        nars_f: Optional[float] = None,
+        nars_c: Optional[float] = None,
+        slac_at: Optional[float] = None,
+        slac_stage: Optional[str] = None,
+        slac_bar: Optional[str] = None,
+        slac_critique: Optional[str] = None,
+        h0_rank: Optional[int] = None,
     ) -> str:
         """Standardized helper for materializing system-level reasoning in the graph."""
+        if h0_rank is None:
+            state = agent_state.get()
+            if state:
+                h0_rank = getattr(state, "last_h0_rank", 1)
+
         thought_id = thought_id or str(uuid.uuid4())
         try:
             # Sync system node to Thimac first to get metadata
@@ -795,6 +832,15 @@ class Agent:
                 parent_id=parent_id,
                 sheaf_score=sheaf_score,
                 omcd_score=omcd_score,
+                nars_f=nars_f,
+                nars_c=nars_c,
+                slac_at=slac_at or (analysis.get("slac_at") if analysis else None),
+                slac_stage=slac_stage
+                or (analysis.get("slac_stage") if analysis else None),
+                slac_bar=slac_bar or (analysis.get("slac_bar") if analysis else None),
+                slac_critique=slac_critique
+                or (analysis.get("critique") if analysis else None),
+                h0_rank=h0_rank,
                 metadata={
                     "analysis": analysis,
                     "validate": validate,
@@ -868,6 +914,7 @@ class Agent:
             "thought",
             "synthesis",
             "tool_output",  # FIX: Allow tool outputs to appear in chat
+            "system_event",  # Subsystem transparency (sheaf, reflexion, navigator)
         ]:
             # All important agent/dreamer output goes to chat
             ui_target = "CHAT_RESPONSE"
@@ -933,8 +980,10 @@ class Agent:
         depth: int = 0,
         turn_id: Optional[int] = None,
         root_session_id: Optional[str] = None,
+        round_id: Optional[str] = None,
         recursion_stack: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
+        memory_snapshot: Optional[List[Any]] = None,
     ):
         """
         Execute a query and stream events (thinking, code, output, etc.).
@@ -953,11 +1002,17 @@ class Agent:
                 ExecutionState(
                     depth=depth,
                     current_thought_id=parent_id,
+                    round_id=round_id,
                     turn_id=turn_id or 1,
                     recursion_stack=recursion_stack or [],
+                    metadata=metadata or {},
                 )
             )
             try:
+                # Memory Synchronization: Merge incoming high-utility thoughts
+                if memory_snapshot:
+                    self.morph_memory.merge_events(memory_snapshot)
+
                 # Set initial depth for this agent run
                 self.current_depth = depth
                 asyncio.run(
@@ -968,6 +1023,7 @@ class Agent:
                         depth,
                         root_session_id,
                         turn_id or 1,
+                        round_id=round_id,
                         recursion_stack=recursion_stack or [],
                         metadata=metadata,
                     )
@@ -1053,8 +1109,9 @@ class Agent:
         depth: int,
         root_session_id: Optional[str],
         turn_id: int,
-        recursion_stack: Optional[List[str]],
-        metadata: Optional[Dict[str, Any]],
+        round_id: Optional[str] = None,
+        recursion_stack: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         Initializes the agent state for a new turn (query_sync call).
@@ -1075,6 +1132,7 @@ class Agent:
                 ExecutionState(
                     depth=depth,
                     current_thought_id=parent_id,
+                    round_id=round_id,
                     turn_id=turn_id,
                     recursion_stack=recursion_stack or [],
                     metadata=metadata or {},
@@ -1106,7 +1164,14 @@ class Agent:
         if is_mcp_available():
             set_stop_event(self.global_stop_event)
 
-        current_round_id = f"{session_id}:Round:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
+        current_round_id = (
+            round_id
+            or f"{session_id}:Round:{int(datetime.datetime.now(datetime.timezone.utc).timestamp())}"
+        )
+
+        # Ensure state is updated if it was already set or partially set
+        if state:
+            state.round_id = current_round_id
 
         try:
             task_lid = f"{session_id}:Task:0"
@@ -1129,6 +1194,13 @@ class Agent:
 
             # Breaker Protocol Injection
             if meta_agents.should_spawn_breakers(prompt, len(prompt), depth=depth):
+                # Start tracking collaboration context
+                meta_agents.start_collaboration(
+                    root_session_id=final_root_id,
+                    task=prompt,
+                    round_id=current_round_id,
+                    turn_id=turn_id,
+                )
                 breaker_instructions = meta_agents.get_breaker_instructions(
                     prompt, fragment_index=0
                 )
@@ -1298,7 +1370,7 @@ class Agent:
             morph_gestalt = None
 
         # Dashboard Metrics
-        dashboard_data = await self._get_dashboard_metrics(exec_state)
+        dashboard_data = await self._get_dashboard_metrics(exec_state, session_id)
 
         # Build System Prompt - HIGHER STABILITY: State remains in User Message ONLY
         from .prompts import build_system_prompt
@@ -1340,6 +1412,34 @@ class Agent:
                 session_id,
             )
 
+        # --- TOPOLOGICAL RESOLUTION TRIGGER ---
+        # If topological energy is high, force the agent to use rlm.query to resolve
+        try:
+            energy_str = dashboard_data.get("sheaf_energy", "0.00")
+            energy_val = float(energy_str)
+            if energy_val > 0.7:
+                critique = dashboard_data.get("slac_critique")
+                critique_str = f"\nDIAGNOSIS: {critique}" if critique else ""
+                system_prompt += (
+                    f"\n\n--- ⚠️ TOPOLOGICAL DEFECT DETECTED (Energy: {energy_val:.2f}){critique_str} ---\n"
+                    "Your memory graph shows a high logical contradiction or 'knot'.\n"
+                    "You MUST use 'await rlm.query(...)' to decompose the problem and resolve the "
+                    "contradiction between established 'global sections' and your current trajectory."
+                )
+                if critique:
+                    system_prompt += (
+                        f"\nSpecifically, address this inconsistency: {critique}"
+                    )
+
+                system_prompt += "\nPass this specific diagnosis to your sub-agent to ensure targeted resolution."
+                self.emit_event(
+                    "TOPOLOGICAL_RESOLUTION_REQUIRED",
+                    content=f"High Sheaf Energy ({energy_val:.2f}) triggered resolution requirement.",
+                    tag="SYSTEM",
+                )
+        except (ValueError, TypeError):
+            pass
+
         # Hot Seat Injection
         if getattr(self, "last_dream_insight", None):
             system_prompt += (
@@ -1357,22 +1457,69 @@ class Agent:
             else:
                 system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL SUMMARY mode. NO tools permitted."
 
-        # Navigator/Sheaf/Axioms could be added here similarly or kept in turn_ctx
+        # --- SOAR COGNITIVE CYCLE GUIDANCE ---
+        # Every 3 steps (or on first step), run SOAR to guide the LLM
+        if step % 3 == 1 and morph_gestalt:
+            try:
+                soar_result = await meta_agents.run_cognitive_cycle(
+                    goal=turn_ctx.get("task", "Complete the user's request"),
+                    state_summary=morph_gestalt,
+                    session_id=session_id,
+                )
+                if soar_result.get("phase") == "APPLICATION":
+                    op = soar_result["operator"]
+                    system_prompt += (
+                        f"\n\n--- 🧠 SOAR COGNITIVE GUIDANCE ---\n"
+                        f"The SOAR decision engine has selected this operator:\n"
+                        f"  Action: {op['action']}\n"
+                        f"  Tool: {op['tool']}\n"
+                        f"  Rationale: {op['rationale']}\n"
+                        f"  Confidence: [{op['preference']}]\n"
+                        f"Execute this operator using the specified tool.\n---"
+                    )
+                    self.emit_event(
+                        "SOAR_APPLICATION",
+                        content=f"🧠 **[SOAR]** Operator: [{op['preference']}] {op['action'][:100]}",
+                        tag="SOAR",
+                    )
+                elif soar_result.get("phase") == "SUBGOAL":
+                    subgoal = soar_result.get("subgoal", "")
+                    system_prompt += (
+                        f"\n\n--- ⚡ SOAR IMPASSE ({soar_result.get('impasse_type', '')}) ---\n"
+                        f"{subgoal}\n"
+                        f"This is a SOAR impasse. You must gather more information "
+                        f"before committing to an action. Use rlm.query() or search tools.\n---"
+                    )
+                    self.emit_event(
+                        "SOAR_IMPASSE",
+                        content=f"⚡ **[SOAR]** Impasse: {soar_result.get('impasse_type', '')} — {subgoal[:150]}",
+                        tag="SOAR",
+                    )
+            except (RuntimeError, ValueError, AttributeError, TypeError) as soar_err:
+                logger.warning("SOAR cognitive cycle failed: %s", soar_err)
+
+        slac_meter = dashboard_data.get("slac_meter")
+        if slac_meter:
+            system_prompt += f"\n\n--- 🏗️ SLAC CONCEPTUAL GROWTH ---\n{slac_meter}\n"
 
         self.current_thought_id = thought_id
         turn_ctx.update(
             {
-                "logical_id": logical_id,
                 "thought_id": thought_id,
+                "logical_id": logical_id,
                 "system_prompt": system_prompt,
                 "morph_gestalt": morph_gestalt,
                 "dashboard_data": dashboard_data,
             }
         )
+        if exec_state:
+            exec_state.last_h0_rank = dashboard_data.get("h0_rank", 1)
 
-    async def _get_dashboard_metrics(self, exec_state: Any) -> Dict[str, Any]:
+    async def _get_dashboard_metrics(
+        self, exec_state: Any, session_id: str
+    ) -> Dict[str, Any]:
         """Helper to fetch dashboard metrics."""
-        data = {}
+        data: Dict[str, Any] = {}
         try:
             if self.morph_memory and self.morph_memory.all_events:
                 event = self.morph_memory.all_events[-1]
@@ -1380,16 +1527,33 @@ class Agent:
                     "sheaf_energy": (
                         f"{event.sheaf_score:.2f}" if event.sheaf_score else "0.00"
                     ),
+                    "h0_rank": event.h0_rank if hasattr(event, "h0_rank") else 1,
                     "omcd_score": (
                         f"{event.omcd_score:.2f}" if event.omcd_score else "0.00"
                     ),
                     "thimac_op": (
-                        event.operation.value
+                        str(event.operation.value)
                         if hasattr(event.operation, "value")
-                        else event.operation
+                        else str(event.operation)
                     ),
                     "metabolic_state": event.metabolic_state or "STABLE",
                 }
+
+            # SLAC Advancement State (Conceptual Maturity)
+            # Try to fetch from recent reflexion nodes in the graph
+            cypher = """
+            MATCH (n:Thought)
+            WHERE n.session_id = $sid AND n.status = 'reflexion'
+            RETURN n.slac_at as at_score, n.slac_stage as stage, n.slac_bar as bar, n.slac_critique as critique
+            ORDER BY n.created_at DESC
+            LIMIT 1
+            """
+            reflexion = self.db.query(cypher, {"sid": session_id})
+            if reflexion:
+                data["slac_meter"] = reflexion[0].get("bar")
+                data["slac_at"] = reflexion[0].get("at_score")
+                data["slac_critique"] = reflexion[0].get("critique")
+
             # Add branching state
             data["branching_state"] = getattr(exec_state, "branching_state", "STABLE")
         except (AttributeError, RuntimeError) as e:
@@ -1497,7 +1661,7 @@ class Agent:
                 )
 
                 # Record the healing event as a reflexion node for graph visibility
-                await self._create_system_node(
+                await self.create_system_node(
                     logical_id=f"{session_id}:T{self.current_turn}:S{step}:Healing:{correction['type']}",
                     summary=f"Healing: {correction['type']}",
                     result=f"### Healing Correction\n**Issue**: {correction['message']}\n**Hint**: {correction['hint']}",
@@ -1620,6 +1784,7 @@ class Agent:
         repl_id: str,
         code: bool,
         code_hash: Optional[str] = None,
+        tool_calls: Optional[List[str]] = None,
     ) -> bool:
         """
         Runs validation gates (Epistemic, Axiomatic, Dreamer) and emits final output if valid.
@@ -1646,13 +1811,21 @@ class Agent:
             exec_state.phase = "VALIDATING"
 
         # 1. Epistemic Integrity
+        self.emit_event(
+            "system_event",
+            content="🛡️ **[Validation]** Running epistemic integrity check...",
+            tag="SYSTEM",
+        )
         integrity = self._verify_epistemic_integrity(
-            response_text, prompt, self.execution_logs.get(session_id, [])
+            response_text, prompt, tool_calls or []
         )
         if integrity["status"] == "RETRY":
             self.final_result = None
-            msg = f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {', '.join(integrity['flags'])}"
-            self.current_thought_id = await self._create_system_node(
+            flags_str = ", ".join(integrity["flags"])
+            msg = (
+                f"SYSTEM WARNING: Epistemic integrity check failed. Flags: {flags_str}"
+            )
+            self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:EpistemicWarning",
                 summary=msg,
                 parent_id=self.current_thought_id,
@@ -1666,7 +1839,9 @@ class Agent:
                 analysis={"code_hash": code_hash},
             )
             self.emit_event(
-                "warning", content=f"Epistemic Failure: {', '.join(integrity['flags'])}"
+                "system_event",
+                content=f"❌ **[Epistemic]** Integrity check FAILED — {flags_str}",
+                tag="REFLEXION",
             )
             return False
 
@@ -1680,7 +1855,7 @@ class Agent:
             self.synthesis_triggered = True
             self.final_result = None
             msg = "SYSTEM: You provided code and results. You MUST now provide a COMPREHENSIVE Final Answer summarizing your findings."
-            self.current_thought_id = await self._create_system_node(
+            self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:SynthesisRequired",
                 summary=msg,
                 parent_id=self.current_thought_id,
@@ -1699,6 +1874,11 @@ class Agent:
             self.final_result = response_text
 
         # 3. Axiomatic Consistency
+        self.emit_event(
+            "system_event",
+            content="🛡️ **[Validation]** Running axiomatic consistency check...",
+            tag="SHEAF",
+        )
         axiom_diag = await sheaf.check_axiomatic_consistency(
             proposed_code=self.final_result or "",
             task_tags=["final_synthesis"],
@@ -1708,7 +1888,7 @@ class Agent:
         if axiom_diag.get("status") == "AXIOMATIC_VIOLATION":
             self.final_result = None
             critique = axiom_diag.get("critique")
-            self.current_thought_id = await self._create_system_node(
+            self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:AxiomViolation",
                 summary=f"AXIOM VIOLATION: {critique}",
                 parent_id=self.current_thought_id,
@@ -1721,10 +1901,19 @@ class Agent:
                 repl_id=repl_id,
                 analysis={"code_hash": code_hash},
             )
-            self.emit_event("warning", content=f"Axiom Violation: {critique}")
+            self.emit_event(
+                "system_event",
+                content=f"⚠️ **[Sheaf]** Axiom Violation: {critique}",
+                tag="SHEAF",
+            )
             return False
 
         # 4. Dreamer Validation
+        self.emit_event(
+            "system_event",
+            content="🌙 **[Dreamer]** Starting validation of candidate response...",
+            tag="DREAMER",
+        )
         validation = await dreamer.validate_response(
             candidate=self.final_result or "",
             context=context_scratchpad,
@@ -1738,8 +1927,8 @@ class Agent:
 
         if validation.get("status") in ["valid", "forced_valid"]:
             self.emit_event(
-                "thinking",
-                content="✨ **[Dreamer]** Validation successful! Synthesizing final report...",
+                "system_event",
+                content="✅ **[Dreamer]** Validation passed! Synthesizing final report...",
                 tag="DREAMER",
             )
             self.final_result = await self._generate_validated_response(
@@ -1747,7 +1936,7 @@ class Agent:
             )
             self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
             self._final_output_emitted = True
-            self.current_thought_id = await self._create_system_node(
+            self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:VALIDATED",
                 summary=f"DREAMER VALIDATED: {validation.get('message', 'Passed')}",
                 parent_id=self.current_thought_id,
@@ -1760,6 +1949,8 @@ class Agent:
                 repl_id=repl_id,
                 result=self.final_result,
                 analysis={"code_hash": code_hash},
+                nars_f=validation.get("nars_f"),
+                nars_c=validation.get("nars_c"),
             )
             self.eval_success_count += 1
 
@@ -1798,6 +1989,11 @@ class Agent:
             except (AttributeError, RuntimeError) as e:
                 logger.warning("Post-success dream cycle failed: %s", e)
             return True
+        elif validation.get("status") == "exhausted":
+            self.last_rejected_result = self.final_result
+            instruction = validation.get("instruction", "Economic budget exhausted.")
+            self._emit_terminal_report("BUDGET_EXHAUSTED", instruction)
+            return True  # Terminal state
         else:
             self.last_rejected_result = self.final_result
             self.final_result = None
@@ -1810,7 +2006,7 @@ class Agent:
                 exec_state.last_dreamer_critique = instruction[:200]
                 exec_state.intervention_count += 1
 
-            self.current_thought_id = await self._create_system_node(
+            self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection",
                 summary=feedback,
                 parent_id=self.current_thought_id,
@@ -1824,7 +2020,11 @@ class Agent:
                 analysis={"code_hash": code_hash},
             )
             self.last_dream_insight = instruction
-            self.emit_event("warning", content=f"Dreamer Rejected: {instruction}")
+            self.emit_event(
+                "system_event",
+                content=f"🔴 **[Dreamer]** Rejected: {instruction}\nReasons: {reasons}",
+                tag="DREAMER",
+            )
             return False
 
     async def query_sync(
@@ -1835,6 +2035,7 @@ class Agent:
         depth: int = 0,
         root_session_id: Optional[str] = None,
         turn_id: int = 1,
+        round_id: Optional[str] = None,
         recursion_stack: Optional[List[str]] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
@@ -1849,8 +2050,9 @@ class Agent:
             depth,
             root_session_id,
             turn_id,
-            recursion_stack,
-            metadata,
+            round_id=round_id,
+            recursion_stack=recursion_stack,
+            metadata=metadata,
         )
 
         while exec_ctx["step"] < exec_ctx["max_steps"] and not self.stop_requested:
@@ -1874,9 +2076,11 @@ class Agent:
 
             # 3. Action Execution
             c_hash = None
+            tool_calls: list = []
             if code and self.current_thought_id:
                 # Capture failed state for reflexion
-                _output, execution_failed, execution_summary, c_hash = (
+                # _execute_action returns (output, failed, tool_calls, code_hash)
+                _output, execution_failed, tool_calls, c_hash = (
                     await self._execute_action(
                         code,
                         self.current_thought_id,
@@ -1887,11 +2091,14 @@ class Agent:
                         step,
                     )
                 )
+                execution_summary = _output
 
                 # [REFLEXION] Trigger immediate self-healing if code failed
                 if execution_failed:
-                    logger.warning(
-                        "🚨 [Execution Failure] Triggering Dreamer Reflexion..."
+                    self.emit_event(
+                        "system_event",
+                        content="🔄 **[Reflexion]** Code execution failed. Triggering self-healing analysis...",
+                        tag="REFLEXION",
                     )
                     from .dream import Dreamer
 
@@ -1908,7 +2115,11 @@ class Agent:
                     insight = reflexion_res.get("insight", "")
                     if insight:
                         self.last_dream_insight = insight
-                        logger.info("🛡️ [Reflexion] Captured healing insight.")
+                        self.emit_event(
+                            "system_event",
+                            content=f"💡 **[Reflexion]** Healing insight: {insight[:300]}",
+                            tag="REFLEXION",
+                        )
 
             # 4. Validation & Finalization
             if await self._validate_and_finalize(
@@ -1922,6 +2133,7 @@ class Agent:
                 exec_ctx["repl_id"],
                 bool(code),
                 code_hash=c_hash,
+                tool_calls=tool_calls,
             ):
                 break
 
@@ -1935,6 +2147,34 @@ class Agent:
                 exec_ctx["round_id"],
                 execution_state=agent_state.get(),
             )
+
+            # [GEA] Group Cohesion Monitoring — Fragmentation Check
+            state = agent_state.get()
+            current_h0 = getattr(state, "last_h0_rank", 1) or 1
+            if current_h0 > 1:
+                logger.warning(
+                    "🚨 [Group Cohesion] Fragmentation detected (H0: %d). Triggering Consolidation.",
+                    current_h0,
+                )
+                self.emit_event(
+                    "system_event",
+                    content=f"🧩 **[Sheaf]** Fragmentation detected (H0: {current_h0} disjoint components). Initiating consolidation...",
+                    tag="SHEAF",
+                )
+                self.current_thought_id = await self.create_system_node(
+                    logical_id=f"{session_id[:8]}:T{self.current_turn}:S{step}:FragmentationReflexion",
+                    summary=f"Fragmentation detected (H0: {current_h0})",
+                    parent_id=self.current_thought_id,
+                    status="reflexion",
+                    session_id=session_id,
+                    root_session_id=exec_ctx["root_id"],
+                    round_id=exec_ctx["round_id"],
+                    turn_id=self.current_turn,
+                    step_id=step,
+                    repl_id=exec_ctx["repl_id"],
+                    result=f"The reasoning graph has split into {current_h0} disjoint components. Consolidate your findings and re-align your trajectory.",
+                )
+
             await asyncio.sleep(0.01)
 
         # FINAL REPORTING (Ghost Error Prevention)
