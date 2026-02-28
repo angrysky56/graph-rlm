@@ -1990,9 +1990,30 @@ class Agent:
                 logger.warning("Post-success dream cycle failed: %s", e)
             return True
         elif validation.get("status") == "exhausted":
-            self.last_rejected_result = self.final_result
+            # Budget exhausted — force-accept the best available draft
+            # The dreamer logged ESCALATING, so we must actually deliver output
             instruction = validation.get("instruction", "Economic budget exhausted.")
-            self._emit_terminal_report("BUDGET_EXHAUSTED", instruction)
+            draft = self.final_result or ""
+            self.emit_event(
+                "system_event",
+                content=(
+                    f"⚠️ **[Dreamer]** Budget exhausted — force-accepting best draft.\n"
+                    f"Critique: {instruction[:300]}"
+                ),
+                tag="DREAMER",
+            )
+
+            # Emit the draft with a disclaimer header
+            disclaimer = (
+                "---\n"
+                "⚠️ **Note**: This response was force-accepted after the validation "
+                "budget was exhausted. The Dreamer flagged the following concern:\n"
+                f"> {instruction[:500]}\n"
+                "---\n\n"
+            )
+            self.final_result = disclaimer + draft
+            self.emit_event("RLM_FINAL_OUTPUT", content=self.final_result)
+            self._final_output_emitted = True
             return True  # Terminal state
         else:
             self.last_rejected_result = self.final_result
