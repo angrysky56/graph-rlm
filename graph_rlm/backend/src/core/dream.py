@@ -25,6 +25,7 @@ from .core import PythonREPL
 from .db import GraphClient, db
 from .llm import llm
 from .logger import get_logger
+from .nal import TruthValue, merge_truth_values, revision, truth_from_raw
 from .navigator import navigator
 from .omcd import omcd
 from .services.circuit import protected_llm_with_fallback
@@ -486,6 +487,43 @@ class Dreamer:
                 f"  Result: {tgt_node.get('result', 'Unknown')[:10000]}..."
             )
 
+        # [CAUSAL CONTEXT] Walk the DAG backward from each failed node
+        # to retrieve the full prerequisite chain (Topological Sort order).
+        # This provides exact causal reasoning vs. semantic similarity search.
+        causal_context_section = ""
+        causal_chains_found = 0
+        for event in surprise_events[:3]:  # Limit to top 3 to control prompt size
+            target_id = event.get("target")
+            if target_id:
+                try:
+                    ancestors = self.db.get_causal_ancestors(target_id, max_depth=8)
+                    if ancestors and len(ancestors) > 1:
+                        causal_chains_found += 1
+                        chain_lines = []
+                        for anc in ancestors:
+                            anc_id = str(anc.get("id", "?"))[:8]
+                            anc_status = anc.get("status", "?")
+                            anc_prompt = str(anc.get("prompt") or "")[:200]
+                            chain_lines.append(
+                                f"  {anc_id} [{anc_status}]: {anc_prompt}"
+                            )
+                        causal_context_section += (
+                            f"\n--- CAUSAL CHAIN for {str(target_id)[:8]} "
+                            f"({len(ancestors)} ancestors) ---\n"
+                            + "\n  → ".join(chain_lines)
+                            + "\n"
+                        )
+                except (RuntimeError, KeyError, AttributeError) as e:
+                    logger.debug(
+                        "Causal ancestor lookup failed for %s: %s", target_id, e
+                    )
+
+        if causal_chains_found:
+            logger.info(
+                "[Dreamer] Injected %d causal ancestor chains into dream context.",
+                causal_chains_found,
+            )
+
         candidate_section = ""
         if final_response_candidate:
             candidate_section = (
@@ -562,15 +600,15 @@ class Dreamer:
         system_signal_section = f"\n*** SYSTEM SIGNAL: {axiom_reason} ***\n"
         if axiom_required:
             system_signal_section += (
-                "ACTION REQUIRED: The system has flagged a breakdown (Logical Knot/Surprise). "
-                "Even if the agent recovered, you MUST codify an Axiom/Rule to prevent "
-                "this initial failure from ever recurring.\n"
+                "IMPASSE DETECTED: A reasoning breakdown (Logical Knot / High Surprise) occurred. "
+                "Focus your analysis on WHY it happened and what PRINCIPLE was violated. "
+                "Only codify a Rule/Axiom if you identify a NOVEL, GENERALIZABLE insight — "
+                "not about file verification, path checking, or report existence.\n"
             )
         else:
             system_signal_section += (
-                "OPPORTUNITY ANALYSIS: The system is stable. Look for SKILLS, TOOL USAGE PATTERNS, "
-                "or DOMAIN KNOWLEDGE that should be preserved for future efficiency.\n"
-                "If you see a useful pattern, codify it as an Axiom/Skill.\n"
+                "STABLE STATE: The system is operating normally. Focus on analysis only. "
+                "Do NOT generate axioms unless you discover a genuinely novel principle.\n"
             )
 
         # [NAVIGATOR INTEGRATION]
@@ -625,7 +663,10 @@ class Dreamer:
             "Here are the High-Surprise Events from the Monitoring Layer:\n"
             + "\n".join(events_desc)
             + "\n\n"
-            "--- IMMEDIATE RECENT CONTEXT (THE TRUTH) ---\n" + recent_context_str + "\n"
+            + (causal_context_section + "\n" if causal_context_section else "")
+            + "--- IMMEDIATE RECENT CONTEXT (THE TRUTH) ---\n"
+            + recent_context_str
+            + "\n"
             f"{context_section}"
             f"{episodic_trace_section}"
             f"{candidate_section}\n"
@@ -789,20 +830,16 @@ class Dreamer:
         # 7. [SYNAPTIC HOMEOSTASIS] Run Garbage Collection
         self.db.perform_synaptic_homeostasis(retention_window=24)
 
-        # 8. [CAG Pivot] Auto-Axiom Generation
-        # [B3] Broadened trigger: catches markdown headers, bold text, and more keywords.
-        # Also includes a fallback for code blocks when ACTION REQUIRED was signaled.
-        trigger_pattern = r"(?:#+\s*)?(?:\*{0,2})?\s*(?:Rule|Guardrail|Skill|Tool Pattern|Actionable Advice|Axiom|Lesson|Pattern)\s*(?:\*{0,2})?[:\-]"
-        should_codify = bool(re.search(trigger_pattern, insight_text, re.IGNORECASE))
-        if (
-            not should_codify
-            and axiom_required
-            and re.search(r"```python", insight_text)
-        ):
-            should_codify = True
-            logger.info(
-                "🤖 Fallback axiom trigger: code block found with ACTION REQUIRED signal."
-            )
+        # 8. [SOAR CHUNKING] Codify only from resolved impasses with novel content
+        # Only codify when: (a) genuine impasse was resolved, (b) insight has code,
+        # (c) the insight is semantically novel vs existing axioms.
+        should_codify = False
+        if axiom_required and re.search(r"```python", insight_text):
+            should_codify = await self._is_novel_insight(insight_text)
+            if not should_codify:
+                logger.info(
+                    "🚫 [Chunking] Insight skipped — too similar to existing axioms."
+                )
 
         if should_codify:
             logger.info(
@@ -891,6 +928,9 @@ class Dreamer:
         # ── -1. Active Verification / Reality Grounding ──
         # Instead of a passive snapshot, we ask the Dreamer what to verify.
         verification_result = "No verification performed."
+        # Pre-resolve KB paths as strings so they survive subprocess serialization
+        kb_reports_dir = str(Path(settings.KNOWLEDGE_BASE_PATH) / "reports")
+        kb_root_dir = str(Path(settings.KNOWLEDGE_BASE_PATH))
         try:
             # A) Ask for verification code
             term_signal = (
@@ -902,13 +942,15 @@ class Dreamer:
                 f"You are the Dreamer, a verifiable guardian of truth.{term_signal}\n"
                 f"The Agent has produced this candidate response:\n"
                 f"---\n{candidate}\n---\n"
-                f"Based on the scratchpad context below, identify ONE critical empirical claim (like file creation, data existence).\n"
-                f"Write Python code to verify it. You MUST use the globally available `kb` proxy for paths.\n"
-                f"For example: `if os.path.exists(os.path.join(kb.reports_dir, 'filename.md')): ...`\n"
-                f"If you are verifying a report or file, you MUST ALSO read back a sample of its content to confirm it is not empty or malformed.\n"
-                f"Do NOT attempt to import `kb` or `knowledge_base`; it is already in the global namespace.\n"
-                f"If checking a file path, use `os.walk` or recursive glob to FIND it if the direct path fails.\n"
-                f"If found in a different location, print 'FOUND: <actual_path>'.\n"
+                f"Based on the candidate, identify ONE critical empirical claim (file creation, data existence).\n"
+                f"Write Python code to verify it.\n"
+                f"IMPORTANT PATHS (use as string literals, do NOT import or use `kb` object):\n"
+                f"  - Reports directory: '{kb_reports_dir}'\n"
+                f"  - KB root: '{kb_root_dir}'\n"
+                f"Use `os.path.join('{kb_reports_dir}', 'filename.md')` for file checks.\n"
+                f"If verifying a report or file, ALSO read back a sample of content to confirm it is not empty.\n"
+                f"Use `os.listdir()` or `glob.glob()` to find files. Match on the SPECIFIC filename mentioned in the candidate, not broad patterns.\n"
+                f"Print 'VERIFIED: <path>' on success or 'FAILURE: <reason>' on failure.\n"
                 f"If no physical claim is made, write 'pass'.\n"
                 f"Output ONLY the python code block."
             )
@@ -924,23 +966,16 @@ class Dreamer:
 
             if verify_code and "pass" not in verify_code.lower():
                 # B) Execute in REPL
-                # Inject minimal context for verification
-                preamble = "import os\n" + "import sys\n" + "from pathlib import Path\n"
-                from .core import KnowledgeBaseStructure
-
-                kb = KnowledgeBaseStructure(settings.KNOWLEDGE_BASE_PATH)
+                # Inject paths as string constants (survive subprocess serialization)
+                preamble = (
+                    "import os\nimport sys\nimport glob\nfrom pathlib import Path\n"
+                    f"REPORTS_DIR = '{kb_reports_dir}'\n"
+                    f"KB_ROOT = '{kb_root_dir}'\n"
+                )
 
                 repl = PythonREPL(
                     repl_id=f"verify_{uuid.uuid4().hex[:8]}"
                 )  # Ephemeral REPL for verification
-                repl.namespace.update(
-                    {
-                        "sys": __import__("sys"),
-                        "os": __import__("os"),
-                        "Path": __import__("pathlib").Path,
-                        "kb": kb,
-                    }
-                )
                 try:
                     stdout, stderr, _, _ = await repl.execute(
                         preamble + "\n" + verify_code, timeout=30.0
@@ -993,6 +1028,11 @@ class Dreamer:
         topo_status = diagnosis.get("status", "HEALTHY")
         topo_energy = diagnosis.get("energy", 0.0)
         topo_critique = diagnosis.get("critique", "")
+        nars_f = diagnosis.get("nars_f", 1.0)
+        nars_c = diagnosis.get("nars_c", 0.9)
+
+        # NAL Truth Value from Sheaf (primary source)
+        tv_sheaf = truth_from_raw(f=nars_f, c=nars_c)
 
         # ── 3.5 Semantic Utility Diagnostic ──
         # Measure if the agent is actually USING the retrieved context (Jiang et al., 2026)
@@ -1026,15 +1066,58 @@ class Dreamer:
         )
         has_todo = any(m in candidate for m in ["[TODO]", "TODO:", "FIXME"])
         has_truncation = "[Output Truncated]" in context or "[...]" in context
-        rlm_patterns = ["task_input", "await rlm.query", ".split(", "print("]
-        rlm_compliance = any(p in context for p in rlm_patterns)
+
+        # Turn-local RLM compliance: Did we use REPL in the immediate series of steps?
+        timeline = trace.get("status_timeline", [])
+        rlm_compliance_local = any(entry.get("repl") for entry in timeline)
 
         # ── 5.5 Structural Information Grounding (Rule 5 & Phase 5) ──
         # Check if the session has pending side-effects (unverified writes)
         exec_state = agent_state.get()
         pending_effects = getattr(exec_state, "pending_side_effects", [])
-        grounding_status = (
-            "GROUNDED" if not pending_effects else "UNVERIFIED_SIDE_EFFECTS"
+
+        # Mandatory Programmatic Grounding for large inputs
+        task_input_match = re.search(r"## 👤 Task Input\n(.*?)\n", context, re.DOTALL)
+        task_input_len = len(task_input_match.group(1)) if task_input_match else 0
+
+        grounding_status = "GROUNDED"
+        if pending_effects:
+            grounding_status = "UNVERIFIED_SIDE_EFFECTS"
+        elif task_input_len > 1000 and not rlm_compliance_local:
+            # If the task input is large and no REPL was used, it's a zero-shot risk
+            grounding_status = "FIDELITY_VIOLATION (Zero-Shot Synthesis)"
+
+        # ── 5.75 NAL Composite Truth Value (Multi-Source Revision) ──
+        # Combine independent evidence from different diagnostic systems
+        # via NAL revision to produce a single composite truth value.
+        nal_judgments = [tv_sheaf]
+
+        # RepE evidence: positive axes = grounded, negative = shaky
+        if psych_profile:
+            repe_mean = sum(psych_profile.values()) / max(len(psych_profile), 1)
+            # Map RepE [-1,1] to frequency [0,1]
+            repe_f = max(0.0, min(1.0, (repe_mean + 1.0) / 2.0))
+            tv_repe = TruthValue(frequency=repe_f, confidence=0.4)
+            nal_judgments.append(tv_repe)
+
+        # Verification evidence: did the REPL check pass?
+        if "VERIFIED:" in verification_result:
+            tv_verify = TruthValue(frequency=1.0, confidence=0.8)
+            nal_judgments.append(tv_verify)
+        elif "FAILURE:" in verification_result:
+            tv_verify = TruthValue(frequency=0.0, confidence=0.8)
+            nal_judgments.append(tv_verify)
+
+        # Deterministic flags evidence
+        if placeholders or has_todo:
+            tv_flags = TruthValue(frequency=0.0, confidence=0.95)
+            nal_judgments.append(tv_flags)
+
+        composite_tv = merge_truth_values(nal_judgments)
+        logger.info(
+            "📐 [NAL] Composite Truth Value: %s (from %d sources)",
+            composite_tv,
+            len(nal_judgments),
         )
 
         # ── 6. Assemble metrics block for LLM classification ──
@@ -1090,11 +1173,14 @@ class Dreamer:
             f"\n### Deterministic Flags\n"
             f"- Placeholders: {placeholders if placeholders else 'None'}\n"
             f"- TODO markers: {has_todo}\n"
-            f"- Output truncation: {has_truncation} | RLM compliant: {rlm_compliance}\n"
+            f"- Output truncation: {has_truncation} | RLM compliant: {rlm_compliance_local}\n"
             f"- Empirical contradiction: {topo_status == 'EMPIRICAL_CONTRADICTION'}\n"
             f"### Structural Information Grounding (Rule 5)\n"
             f"- Grounding Status: {grounding_status}\n"
             f"- Pending Side-Effects: {pending_effects if pending_effects else 'None'}\n"
+            f"\n### NAL Composite Truth Value\n"
+            f"- ⟨f={composite_tv.frequency:.3f}, c={composite_tv.confidence:.3f}⟩\n"
+            f"- Expectation: {composite_tv.expectation:.3f} (Sources: {len(nal_judgments)})\n"
             f"\n### Active Verification Results (REPL)\n"
             f"{verification_result}\n"
         )
@@ -1121,8 +1207,8 @@ class Dreamer:
             f"Crucially, check for **STRUCTURAL GROUNDING**: If the agent claims to have written files, "
             f"ensure they are verified (Grounding Status: GROUNDED).\n"
             f"**IMPORTANT: NO SELF-ECHO**: If the candidate response is simply a repetition or shallow summary of the original task or the scratchpad instructions WITHOUT providing a new, grounded contribution, you MUST reject it as 'invalid'.\n"
-            f"Reject as invalid if Grounding Status is 'UNVERIFIED_SIDE_EFFECTS'.\n"
-            f"**IMPORTANT**: If the grounding status is unverified, YOU MUST list the specific 'Pending Side-Effects' in your 'instruction' field so the agent knows what to verify next.\n"
+            f"Reject as invalid if Grounding Status contains 'FIDELITY_VIOLATION'.\n"
+            f"**IMPORTANT**: If the grounding status is 'FIDELITY_VIOLATION (Zero-Shot Synthesis)', you MUST reject and instruct the agent to use `PROBE`, `FILTER`, or `CHUNK` via the REPL to interact with the task_input before summarizing.\n"
             f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
             f"- [SEMANTIC UTILITY] If 'Semantic Utility' is very low (< 0.05) but the 'Session Trace' shows that relevant documents or nodes were searched/viewed, the agent is ignoring its memory (Backbone Dependence). Reject as invalid and instruct the agent to ground its response in the retrieved evidence.\n"
             f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
@@ -1176,8 +1262,10 @@ class Dreamer:
                 "event": "RLM_DREAMER_VALIDATED",
                 "message": (
                     f"Response verified (confidence: {judgment.confidence:.2f}). "
-                    f"Topo: {topo_status}, RepE: {psych_profile}"
+                    f"NAL: {composite_tv} | Topo: {topo_status}, RepE: {psych_profile}"
                 ),
+                "nars_f": composite_tv.frequency,
+                "nars_c": composite_tv.confidence,
             }
 
         # Build instruction from LLM judgment + trace context
@@ -1199,6 +1287,7 @@ class Dreamer:
         return {
             "status": "invalid",
             "event": "RLM_DREAMER_ISSUES",
+            "reasons": reasons,
             "instruction": instruction,
         }
 
@@ -1766,7 +1855,65 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
         except (RuntimeError, ValueError, TypeError) as e:
             logger.error("Axiom Quality Control failed: %s", e)
 
-    async def _prune_redundant_axioms(self, threshold: float = 0.95):
+    async def _is_novel_insight(self, insight: str, threshold: float = 0.80) -> bool:
+        """Check if insight is semantically distinct from existing axioms.
+
+        Uses cosine similarity of embeddings. If the insight is > threshold
+        similar to any of the 20 most recent axioms, it is NOT novel and
+        should not be codified (SOAR Chunking gate).
+
+        Args:
+            insight: The insight text to check for novelty.
+            threshold: Maximum similarity before an insight is considered redundant.
+
+        Returns:
+            True if the insight is novel and should be codified.
+        """
+        try:
+            insight_vec = await self.llm.get_embedding(insight[:2000])
+            if insight_vec is None:
+                return True  # Can't check, allow through
+
+            axioms_mgr = get_axioms_manager()
+            existing = axioms_mgr.list_axioms()
+            if not existing or len(existing) < 5:
+                return True  # Few axioms exist, allow
+
+            # Compare against the 20 most recent axioms
+            recent = list(existing.items())[-20:]
+            insight_np = np.array(insight_vec)
+            insight_norm = np.linalg.norm(insight_np)
+            if insight_norm == 0:
+                return True
+
+            for name, meta in recent:
+                desc = meta.get("description", "")
+                if not desc:
+                    continue
+                desc_vec = await self.llm.get_embedding(desc[:500])
+                if desc_vec is not None:
+                    desc_np = np.array(desc_vec)
+                    desc_norm = np.linalg.norm(desc_np)
+                    if desc_norm > 0:
+                        sim = float(
+                            np.dot(insight_np, desc_np) / (insight_norm * desc_norm)
+                        )
+                        if sim > threshold:
+                            logger.info(
+                                "🚫 [Chunking] Insight too similar to '%s' "
+                                "(%.2f > %.2f). Skipping codification.",
+                                name,
+                                sim,
+                                threshold,
+                            )
+                            return False
+            logger.info("✅ [Chunking] Insight is novel. Proceeding to codify.")
+            return True
+        except (ValueError, RuntimeError, AttributeError, TypeError) as e:
+            logger.warning("Novelty check failed: %s. Allowing codification.", e)
+            return True
+
+    async def _prune_redundant_axioms(self, threshold: float = 0.85):
         """
         Find and archive axioms that are semantically identical to prevent node bloat.
         Uses cosine similarity of embeddings.

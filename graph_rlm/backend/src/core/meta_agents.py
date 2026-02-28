@@ -26,6 +26,7 @@ from .config import settings
 from .db import db
 from .llm import llm
 from .logger import get_logger
+from .nal import TruthValue, desire_value
 from .omcd import omcd
 from .trace import trace_action
 
@@ -59,6 +60,8 @@ class CollaborationState:
 
     root_session_id: str
     task: str
+    round_id: str = "unknown"
+    turn_id: int = 1
     fragments: List[Fragment] = field(default_factory=list)
     iteration: int = 0
     coherence_score: float = 0.0
@@ -75,6 +78,43 @@ class SubAgentProfile(BaseModel):
         ..., description="Exact available tool names (mcp.x, skills.y, rlm.z)."
     )
     reasoning: str = Field(..., description="Why these tools were selected.")
+
+
+class OperatorPreference(str, Enum):
+    """SOAR operator preference ranking."""
+
+    BETTER = "BETTER"
+    ACCEPTABLE = "ACCEPTABLE"
+    WORSE = "WORSE"
+
+
+class Operator(BaseModel):
+    """A proposed action in the SOAR Elaboration phase.
+
+    Each operator represents a candidate action the agent could take,
+    with a preference ranking and rationale.
+    """
+
+    action: str = Field(..., description="What to do (concrete, executable step).")
+    tool: str = Field(
+        ..., description="Which tool/approach to use (REPL, MCP, search, etc.)."
+    )
+    preference: str = Field(
+        ..., description="BETTER, ACCEPTABLE, or WORSE."
+    )
+    rationale: str = Field(..., description="Why this operator was proposed.")
+
+
+class OperatorProposal(BaseModel):
+    """LLM output for the Elaboration phase."""
+
+    current_goal: str = Field(..., description="The current goal being pursued.")
+    current_state: str = Field(
+        ..., description="Known facts about the current state."
+    )
+    operators: List[Operator] = Field(
+        ..., description="2-3 proposed operators with preferences."
+    )
 
 
 class MetaAgentController:
@@ -97,10 +137,19 @@ class MetaAgentController:
         self.db = db
 
     def start_collaboration(
-        self, root_session_id: str, task: str
+        self,
+        root_session_id: str,
+        task: str,
+        round_id: str = "unknown",
+        turn_id: int = 1,
     ) -> CollaborationState:
         """Initialize a new collaboration for a complex task."""
-        state = CollaborationState(root_session_id=root_session_id, task=task)
+        state = CollaborationState(
+            root_session_id=root_session_id,
+            task=task,
+            round_id=round_id,
+            turn_id=turn_id,
+        )
         self.active_collaborations[root_session_id] = state
         trace_action(
             "META_AGENT",
@@ -120,6 +169,8 @@ class MetaAgentController:
                 status="system",
                 session_id=root_session_id,
                 root_session_id=root_session_id,
+                round_id=round_id,
+                turn_id=turn_id,
                 repl_id="BRK",
                 execution_summary="Initializing Breaker/Synthesizer protocol.",
                 validate=False,
@@ -422,6 +473,8 @@ OUTPUT FORMAT:
                 result=f"## Analysis\n{fragment.raw_output}",
                 session_id=fragment.session_id,
                 root_session_id=root_session_id,
+                round_id=state.round_id,
+                turn_id=state.turn_id,
                 status="fragment",
                 repl_id="BRK",
                 execution_summary=f"Fragment Confidence: {fragment.confidence:.2f}",
@@ -478,6 +531,8 @@ OUTPUT FORMAT:
                     status="system",
                     session_id=root_session_id,
                     root_session_id=root_session_id,
+                    round_id=state.round_id,
+                    turn_id=state.turn_id,
                     repl_id="SYN",
                     execution_summary=f"Score: {avg_confidence:.2f}, Iterations: {state.iteration}",
                     validate=False,
@@ -547,6 +602,288 @@ OUTPUT FORMAT:
 - [Gap 1]
 ═══════════════════════════════════════════════════════════════
 """
+
+    # ─────────────────────────────────────────────────────────
+    # SOAR COGNITIVE CYCLE
+    # ─────────────────────────────────────────────────────────
+
+    async def propose_operators(
+        self,
+        goal: str,
+        state_summary: str,
+        available_tools: Optional[List[str]] = None,
+    ) -> OperatorProposal:
+        """SOAR Elaboration Phase: Propose 2-3 operators with preferences.
+
+        The LLM analyzes the current goal and state, then proposes
+        concrete action operators ranked by expected effectiveness.
+
+        Args:
+            goal: The current goal the agent is pursuing.
+            state_summary: Working memory summary (from ThimacMemory gestalt).
+            available_tools: List of available tool names.
+
+        Returns:
+            OperatorProposal with goal, state, and ranked operators.
+        """
+        tools_str = ", ".join(available_tools) if available_tools else "REPL, MCP tools, rlm commands"
+
+        prompt = (
+            f"You are the SOAR Elaboration Engine. Analyze the current cognitive state "  # noqa: E501
+            f"and propose 2-3 concrete operators (actions) to advance toward the goal.\n\n"
+            f"## Current Goal\n{goal}\n\n"
+            f"## Current State (Working Memory)\n{state_summary}\n\n"
+            f"## Available Tools\n{tools_str}\n\n"
+            f"## Instructions\n"
+            f"Propose 2-3 CONCRETE operators. Each must be an executable step, "
+            f"not a vague intention. Rank each with a preference:\n"
+            f"- BETTER: Highly likely to succeed, directly advances the goal.\n"
+            f"- ACCEPTABLE: Plausible but suboptimal or indirect.\n"
+            f"- WORSE: Risky, inefficient, or speculative.\n\n"
+            f"At least one operator must be BETTER or ACCEPTABLE."
+        )
+
+        try:
+            proposal = await llm.generate_structured(
+                prompt=prompt,
+                output_type=OperatorProposal,
+                system="You are the SOAR Elaboration Engine. Output structured operator proposals.",
+            )
+            logger.info(
+                "🧠 [SOAR] Elaboration: %d operators proposed for goal: %s",
+                len(proposal.operators),
+                goal[:80],
+            )
+            trace_action(
+                "SOAR",
+                "ELABORATION",
+                result=f"Proposed {len(proposal.operators)} operators: "
+                + ", ".join(
+                    f"[{op.preference}] {op.action[:50]}" for op in proposal.operators
+                ),
+                tag="SOAR",
+            )
+            return proposal
+        except (RuntimeError, ValueError, AttributeError, httpx.RequestError) as e:
+            logger.warning("SOAR Elaboration failed: %s. Using fallback.", e)
+            return OperatorProposal(
+                current_goal=goal,
+                current_state=state_summary[:200],
+                operators=[
+                    Operator(
+                        action="Execute the task directly using available tools.",
+                        tool="REPL",
+                        preference="BETTER",
+                        rationale=f"Fallback: LLM elaboration failed ({e}).",
+                    )
+                ],
+            )
+
+    def detect_impasse(self, proposal: OperatorProposal) -> Dict[str, Any]:
+        """SOAR Decision Phase: Detect if an impasse exists.
+
+        Impasse types:
+        - TIE: Multiple operators ranked equally, cannot decide.
+        - NO_KNOWLEDGE: No BETTER operators, insufficient info.
+        - NONE: Clear winner exists, proceed to application.
+
+        Args:
+            proposal: The operator proposal from elaboration.
+
+        Returns:
+            Dict with 'impasse_type', 'chosen_operator' (if no impasse),
+            and 'subgoal' (if impasse detected).
+        """
+        operators = proposal.operators
+        if not operators:
+            return {
+                "impasse_type": "NO_KNOWLEDGE",
+                "chosen_operator": None,
+                "subgoal": f"Unable to propose any operators for: {proposal.current_goal}",
+            }
+
+        # Score operators using NAL desire values
+        scored = []
+        for op in operators:
+            # Map preference to NAL truth value
+            pref_map = {
+                "BETTER": TruthValue(frequency=0.9, confidence=0.8),
+                "ACCEPTABLE": TruthValue(frequency=0.6, confidence=0.5),
+                "WORSE": TruthValue(frequency=0.3, confidence=0.3),
+            }
+            tv_pref = pref_map.get(
+                op.preference.upper(), TruthValue(frequency=0.5, confidence=0.5)
+            )
+            # Goal desirability assumed high
+            tv_goal = TruthValue(frequency=1.0, confidence=0.9)
+            dv = desire_value(tv_goal, tv_pref)
+            scored.append((dv.expectation, dv, op))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+
+        # Decision procedure
+        best_exp, best_tv, best_op = scored[0]
+
+        if len(scored) >= 2:
+            second_exp = scored[1][0]
+            # TIE: top two within 0.05 expectation
+            if abs(best_exp - second_exp) < 0.05:
+                logger.info(
+                    "⚡ [SOAR] IMPASSE: Tie between '%s' (%.3f) and '%s' (%.3f)",
+                    scored[0][2].action[:40],
+                    best_exp,
+                    scored[1][2].action[:40],
+                    second_exp,
+                )
+                trace_action(
+                    "SOAR",
+                    "IMPASSE_TIE",
+                    result=f"Tie between {len(scored)} operators.",
+                    tag="SOAR",
+                )
+                return {
+                    "impasse_type": "TIE",
+                    "chosen_operator": None,
+                    "tied_operators": [s[2] for s in scored[:2]],
+                    "subgoal": (
+                        f"IMPASSE: Cannot decide between operators. "
+                        f"Gather more information to break the tie between: "
+                        f"'{scored[0][2].action[:50]}' vs '{scored[1][2].action[:50]}'."
+                    ),
+                }
+
+        # NO_KNOWLEDGE: best operator has low expectation
+        if best_exp < 0.55:
+            logger.info(
+                "⚡ [SOAR] IMPASSE: No confident operator (best=%.3f)",
+                best_exp,
+            )
+            trace_action(
+                "SOAR",
+                "IMPASSE_NO_KNOWLEDGE",
+                result=f"Best operator expectation too low: {best_exp:.3f}",
+                tag="SOAR",
+            )
+            return {
+                "impasse_type": "NO_KNOWLEDGE",
+                "chosen_operator": None,
+                "subgoal": (
+                    f"IMPASSE: Insufficient knowledge to proceed confidently. "
+                    f"Research or test hypothesis before committing to an action. "
+                    f"Context: {proposal.current_state[:200]}"
+                ),
+            }
+
+        # Clear winner
+        logger.info(
+            "✅ [SOAR] Decision: '%s' (expectation=%.3f, NAL=%s)",
+            best_op.action[:60],
+            best_exp,
+            best_tv,
+        )
+        trace_action(
+            "SOAR",
+            "DECISION",
+            result=f"Chosen: [{best_op.preference}] {best_op.action[:80]}",
+            tag="SOAR",
+        )
+        return {
+            "impasse_type": "NONE",
+            "chosen_operator": best_op,
+            "desire_value": best_tv,
+        }
+
+    async def run_cognitive_cycle(
+        self,
+        goal: str,
+        state_summary: str,
+        session_id: str,
+        available_tools: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Execute one full SOAR cognitive cycle.
+
+        Phases:
+            1. INPUT: Working Memory update (state_summary from ThimacMemory)
+            2. ELABORATION: Propose 2-3 operators with preferences
+            3. DECISION: Evaluate operators, detect impasse
+            4. OUTPUT: Return chosen operator or subgoal
+
+        The APPLICATION phase (executing the operator) is handled by
+        the caller (agent.py) since it requires REPL access.
+
+        Args:
+            goal: The current task goal.
+            state_summary: Working memory gestalt (from ThimacMemory).
+            session_id: Current session ID for tracing.
+            available_tools: Available tool names.
+
+        Returns:
+            Dict with 'phase' (APPLICATION or SUBGOAL), 'operator' or 'subgoal',
+            and associated metadata.
+        """
+        trace_action(
+            "SOAR",
+            "CYCLE_START",
+            result=f"Goal: {goal[:80]}",
+            tag="SOAR",
+        )
+
+        # Phase 1: INPUT (Working Memory already provided via state_summary)
+        logger.info("🧠 [SOAR] Phase 1: Working Memory Update")
+
+        # Phase 2: ELABORATION
+        logger.info("🧠 [SOAR] Phase 2: Elaboration")
+        proposal = await self.propose_operators(
+            goal=goal,
+            state_summary=state_summary,
+            available_tools=available_tools,
+        )
+
+        # Phase 3: DECISION
+        logger.info("🧠 [SOAR] Phase 3: Decision Procedure")
+        decision = self.detect_impasse(proposal)
+
+        if decision["impasse_type"] == "NONE":
+            # Phase 4a: APPLICATION (return operator for caller to execute)
+            chosen = decision["chosen_operator"]
+            logger.info(
+                "🧠 [SOAR] Phase 4: Application → %s via %s",
+                chosen.action[:50],
+                chosen.tool,
+            )
+            return {
+                "phase": "APPLICATION",
+                "operator": {
+                    "action": chosen.action,
+                    "tool": chosen.tool,
+                    "preference": chosen.preference,
+                    "rationale": chosen.rationale,
+                },
+                "working_memory": {
+                    "goal": proposal.current_goal,
+                    "state": proposal.current_state,
+                },
+                "desire_value": str(decision.get("desire_value", "")),
+            }
+
+        # Phase 4b: SUBGOALING (impasse detected)
+        logger.info(
+            "🧠 [SOAR] Phase 4: Subgoaling (impasse=%s)",
+            decision["impasse_type"],
+        )
+        return {
+            "phase": "SUBGOAL",
+            "impasse_type": decision["impasse_type"],
+            "subgoal": decision["subgoal"],
+            "working_memory": {
+                "goal": proposal.current_goal,
+                "state": proposal.current_state,
+            },
+            "tied_operators": [
+                {"action": op.action, "tool": op.tool, "preference": op.preference}
+                for op in decision.get("tied_operators", [])
+            ],
+        }
 
 
 # Singleton instance
