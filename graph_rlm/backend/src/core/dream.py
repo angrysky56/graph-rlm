@@ -1032,7 +1032,8 @@ class Dreamer:
         nars_c = diagnosis.get("nars_c", 0.9)
 
         # NAL Truth Value from Sheaf (primary source)
-        tv_sheaf = truth_from_raw(f=nars_f, c=nars_c)
+        # Cap confidence to 0.85 to prevent single-source domination
+        tv_sheaf = truth_from_raw(f=nars_f, c=min(nars_c, 0.85))
 
         # ── 3.5 Semantic Utility Diagnostic ──
         # Measure if the agent is actually USING the retrieved context (Jiang et al., 2026)
@@ -1100,17 +1101,23 @@ class Dreamer:
             tv_repe = TruthValue(frequency=repe_f, confidence=0.4)
             nal_judgments.append(tv_repe)
 
-        # Verification evidence: did the REPL check pass?
-        if "VERIFIED:" in verification_result:
-            tv_verify = TruthValue(frequency=1.0, confidence=0.8)
+        # Verification evidence: parse only the Output section
+        # verification_result format: "Code:\n{code}\nOutput:\n{stdout}\nErrors:\n{stderr}"
+        # We must NOT match keywords in the Code section (which contains print statements)
+        verify_output = verification_result
+        if "\nOutput:\n" in verification_result:
+            verify_output = verification_result.split("\nOutput:\n", 1)[1]
+
+        if "VERIFIED:" in verify_output:
+            tv_verify = TruthValue(frequency=1.0, confidence=0.7)
             nal_judgments.append(tv_verify)
-        elif "FAILURE:" in verification_result:
-            tv_verify = TruthValue(frequency=0.0, confidence=0.8)
+        elif "FAILURE:" in verify_output:
+            tv_verify = TruthValue(frequency=0.0, confidence=0.7)
             nal_judgments.append(tv_verify)
 
         # Deterministic flags evidence
         if placeholders or has_todo:
-            tv_flags = TruthValue(frequency=0.0, confidence=0.95)
+            tv_flags = TruthValue(frequency=0.0, confidence=0.85)
             nal_judgments.append(tv_flags)
 
         composite_tv = merge_truth_values(nal_judgments)
