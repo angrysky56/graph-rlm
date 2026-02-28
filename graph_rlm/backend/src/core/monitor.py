@@ -75,6 +75,13 @@ class BackgroundMonitor:
                             "Monitor: Topological Calibration Complete. Avg Surprise: %.2f",
                             avg_surprise,
                         )
+
+                        # Wire HUD: push sheaf energy to ExecutionState
+                        from .state import agent_state
+
+                        _state = agent_state.get()
+                        if _state:
+                            _state.last_sheaf_energy = avg_surprise
             except (RuntimeError, AttributeError, ValueError) as e:
                 logger.error("Monitor Loop Error: %s", e)
 

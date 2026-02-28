@@ -1514,6 +1514,19 @@ class Agent:
         )
         if exec_state:
             exec_state.last_h0_rank = dashboard_data.get("h0_rank", 1)
+            # Wire sheaf energy and oMCD q_stop to HUD
+            try:
+                exec_state.last_sheaf_energy = float(
+                    dashboard_data.get("sheaf_energy", 0.0)
+                )
+            except (ValueError, TypeError):
+                pass
+            try:
+                exec_state.last_omcd_qstop = float(
+                    dashboard_data.get("omcd_score", 0.0)
+                )
+            except (ValueError, TypeError):
+                pass
 
     async def _get_dashboard_metrics(
         self, exec_state: Any, session_id: str
@@ -1954,6 +1967,12 @@ class Agent:
             )
             self.eval_success_count += 1
 
+            # Wire HUD: record validation success
+            if exec_state:
+                exec_state.consecutive_successes += 1
+                exec_state.consecutive_failures = 0
+                exec_state.step_outcomes.append("success")
+
             try:
                 # 5. Persistent Memory Flush (Phase 4 Consolidation)
                 # Flush the successful thought chain from RAM to FalkorDB
@@ -2026,6 +2045,10 @@ class Agent:
                 exec_state.phase = "EXPLORING"
                 exec_state.last_dreamer_critique = instruction[:200]
                 exec_state.intervention_count += 1
+                # Wire HUD: record validation failure
+                exec_state.consecutive_failures += 1
+                exec_state.consecutive_successes = 0
+                exec_state.step_outcomes.append("failed")
 
             self.current_thought_id = await self.create_system_node(
                 logical_id=f"{session_id}:T{self.current_turn}:S{step}:DreamerRejection",
@@ -2097,6 +2120,7 @@ class Agent:
 
             # 3. Action Execution
             c_hash = None
+            execution_failed = False
             tool_calls: list = []
             if code and self.current_thought_id:
                 # Capture failed state for reflexion
@@ -2116,6 +2140,10 @@ class Agent:
 
                 # [REFLEXION] Trigger immediate self-healing if code failed
                 if execution_failed:
+                    # Wire HUD: record execution failure outcome
+                    _hud_state = agent_state.get()
+                    if _hud_state:
+                        _hud_state.step_outcomes.append("error")
                     self.emit_event(
                         "system_event",
                         content="🔄 **[Reflexion]** Code execution failed. Triggering self-healing analysis...",
@@ -2141,6 +2169,12 @@ class Agent:
                             content=f"💡 **[Reflexion]** Healing insight: {insight[:300]}",
                             tag="REFLEXION",
                         )
+
+            # Wire HUD: record step completed (if code ran without failure)
+            if code and not execution_failed:
+                _hud_state = agent_state.get()
+                if _hud_state:
+                    _hud_state.step_outcomes.append("completed")
 
             # 4. Validation & Finalization
             if await self._validate_and_finalize(
