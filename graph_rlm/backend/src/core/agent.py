@@ -7,7 +7,6 @@ import asyncio
 import datetime
 import hashlib
 import json
-import logging
 import queue
 import re
 import shutil
