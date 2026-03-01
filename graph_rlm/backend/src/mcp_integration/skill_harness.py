@@ -138,6 +138,7 @@ def ensure_skills_venv() -> Path:
                         "mcp",
                         "pydantic",
                         "fastapi",
+                        "PyMuPDF",
                     ],
                     env={**os.environ, "VIRTUAL_ENV": str(SKILLS_VENV_PATH)},
                     check=True,

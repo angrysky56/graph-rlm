@@ -280,9 +280,11 @@ async def get_history(session_id: str):
     """
     Get message history for a session.
     Prioritizes 'Round' nodes (stable turn-level summaries).
-    Falls back to 'Thought' nodes for legacy or un-finalized sessions.
+    Also fetches unbundled 'Thought' nodes for incomplete sessions.
     """
-    # 1. Try to get completed Rounds first
+    messages = []
+
+    # 1. Try to get completed Rounds
     q_rounds = """
     MATCH (r:Round)
     WHERE r.root_session_id = $id OR r.session_id = $id
@@ -296,7 +298,6 @@ async def get_history(session_id: str):
     res_rounds = db.query(q_rounds, {"id": session_id})
 
     if res_rounds:
-        messages = []
         for row in res_rounds:
             # Add User Message
             messages.append(
@@ -317,13 +318,13 @@ async def get_history(session_id: str):
                     "status": "success",
                 }
             )
-        return messages
 
-    # 2. Fallback to nodes if no Rounds found
+    # 2. Fetch unbundled nodes (active/incomplete turns not yet in a Round)
     q_nodes = """
     MATCH (node)
     WHERE (node:Thought OR node:Insight OR node:Axiom)
     AND (node.root_session_id = $id OR node.session_id = $id)
+    AND NOT (:Round)-[:CONTAINS]->(node)
     RETURN node.prompt AS prompt,
            node.content AS content,
            node.result AS result,
@@ -337,23 +338,28 @@ async def get_history(session_id: str):
     """
     res_nodes = db.query(q_nodes, {"id": session_id})
 
-    messages = []
     for row in res_nodes:
         # Field fallback: Insight/Axiom use 'content', Thought uses 'prompt'
         content = row.get("prompt") or row.get("content") or ""
         result = row.get("result", "")
         labels = row.get("labels", [])
-
-        # Determine role
         status = row.get("status")
-        role = "assistant"
-        if status == "task":
-            role = "user"
-        elif not messages and "Thought" in labels:
-            # First node in a legacy session is usually the User's first prompt
-            role = "user"
+        repl_id = row.get("repl_id")
+        execution_summary = row.get("execution_summary")
 
-        if role == "user":
+        # --- Status-based role/type classification ---
+        # System-level nodes: dreamer, reflexion, sheaf, meta-agent events
+        system_statuses = {
+            "system",
+            "reflexion",
+            "sheaf",
+            "meta_agent",
+            "dreamer_rejection",
+            "dreamer_validation",
+        }
+
+        if status == "task":
+            # User input
             messages.append(
                 {
                     "role": "user",
@@ -362,8 +368,59 @@ async def get_history(session_id: str):
                     "id": row.get("id"),
                 }
             )
+        elif not messages and "Thought" in labels:
+            # First node in a legacy session is usually the user's first prompt
+            messages.append(
+                {
+                    "role": "user",
+                    "content": content,
+                    "created_at": row.get("created_at"),
+                    "id": row.get("id"),
+                }
+            )
+        elif status in system_statuses or repl_id in ("BRK", "SYS"):
+            # System transparency events — dreamer, sheaf, reflexion, meta-agents
+            # Detect subsystem tag from content prefix (e.g., "🔴 [Dreamer]")
+            tag = "SYSTEM"
+            if "[Dreamer]" in content or status == "dreamer_rejection":
+                tag = "DREAMER"
+            elif "[Reflexion]" in content or status == "reflexion":
+                tag = "REFLEXION"
+            elif "[Sheaf]" in content or status == "sheaf":
+                tag = "SHEAF"
+            elif "[SOAR]" in content or status == "meta_agent":
+                tag = "META_AGENT"
+            elif repl_id == "BRK":
+                tag = "SYSTEM"
+
+            messages.append(
+                {
+                    "role": "system",
+                    "content": content,
+                    "created_at": row.get("created_at"),
+                    "id": row.get("id"),
+                    "status": status,
+                    "subsystem": tag,
+                }
+            )
+        elif status in ("valid", "success"):
+            # Validated/successful output
+            final_text = content
+            if result and str(result) != "None":
+                final_text += f"\n\nResult: {result}"
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": final_text,
+                    "created_at": row.get("created_at"),
+                    "id": row.get("id"),
+                    "status": "success",
+                    "repl_id": repl_id,
+                    "execution_summary": execution_summary,
+                }
+            )
         else:
-            # Assistant logic
+            # Default assistant output (code execution, intermediate steps)
             final_text = content
             if result and str(result) != "None":
                 final_text += f"\n\nResult: {result}"
@@ -374,9 +431,9 @@ async def get_history(session_id: str):
                     "content": final_text,
                     "created_at": row.get("created_at"),
                     "id": row.get("id"),
-                    "status": row.get("status"),
-                    "repl_id": row.get("repl_id"),
-                    "execution_summary": row.get("execution_summary"),
+                    "status": status,
+                    "repl_id": repl_id,
+                    "execution_summary": execution_summary,
                 }
             )
 
@@ -493,10 +550,10 @@ async def get_graph(session_id: Optional[str] = None):
         """
         raw_nodes = db.query(node_query, params)
 
-        # 2. Fetch Relationships (Undirected to catch all connections)
-        # Use simple label matching for m as well
+        # 2. Fetch Relationships (DIRECTED to preserve DAG causality)
+        # Use directed pattern -> to maintain DECOMPOSES_INTO parent→child flow
         rel_query = f"""
-        MATCH (n)-[r]-(m)
+        MATCH (n)-[r]->(m)
         {where_clause}
         AND (m:Thought OR m:Insight OR m:Axiom OR m:Round)
         RETURN n.id as sid, m.id as tid, type(r) as type
@@ -550,6 +607,8 @@ async def get_graph(session_id: Optional[str] = None):
                 "omcd_score": props.get("omcd_score"),
                 "round_id": props.get("round_id"),
                 "turn_id": props.get("turn_id"),
+                "step_id": props.get("step_id"),
+                "parent_id": props.get("parent_id"),
                 "val": 5,
             }
 
@@ -565,11 +624,19 @@ async def get_graph(session_id: Optional[str] = None):
             rtype = row.get("type")
 
             if sid and tid and sid in nodes and tid in nodes:
-                # Deduplicate links (undirected query finds both A-B and B-A)
-                pair = tuple(sorted([sid, tid]))
-                if pair not in seen_links:
-                    links.append({"source": sid, "target": tid, "type": rtype})
-                    seen_links.add(pair)
+                # Directed deduplication: (source, target) is an ordered pair
+                # A→B and B→A are preserved as distinct edges
+                directed_pair = (sid, tid)
+                if directed_pair not in seen_links:
+                    links.append(
+                        {
+                            "source": sid,
+                            "target": tid,
+                            "type": rtype,
+                            "directed": True,
+                        }
+                    )
+                    seen_links.add(directed_pair)
 
         # Dynamic group assignment for coloring
         for node in nodes.values():
@@ -602,7 +669,15 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
     sid = chat_req.session_id or "default"
     model_name = llm.config.get("model")
 
-    banner(f"SESSION START: {sid} | MODEL: {model_name}")
+    # Calculate turn_id properly based on completed rounds
+    try:
+        completed_rounds = db.get_completed_rounds(sid)
+        turn_id = len(completed_rounds) + 1
+    except Exception as e:
+        logger.warning(f"Failed to calculate turn_id: {e}")
+        turn_id = 1
+
+    banner(f"SESSION START: {sid} | MODEL: {model_name} | TURN: {turn_id}")
     trace_action("API", "QUERY", result=prompt, tag="AGENT")
 
     logger.info("Processing Prompt: %s", prompt)
@@ -616,7 +691,12 @@ async def chat_completions(chat_req: ChatCompletionRequest, req: Request):
             # Use provided session_id or fallback to default
             sid = chat_req.session_id or "default"
             async for event in agent.stream_query(
-                prompt, parent_id=None, session_id=sid, metadata=chat_req.metadata
+                prompt,
+                parent_id=None,
+                session_id=sid,
+                root_session_id=sid,
+                turn_id=turn_id,
+                metadata=chat_req.metadata,
             ):
                 if await req.is_disconnected():
                     logger.info("Client disconnected. Stopping agent.")

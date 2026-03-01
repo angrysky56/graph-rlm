@@ -101,7 +101,7 @@ def trace_action(
 
 
 def banner(title: str):
-    """Prints a bright banner to find transitions easily in logs."""
+    """Logs a bright banner to find transitions easily in logs."""
     bar_symbols = "✨" + "=" * 60 + "✨"
     msg = f"\n{BOLD}{CYAN}{bar_symbols}\n {title}\n{bar_symbols}{RESET}\n"
-    print(msg)
+    logger.info(msg)

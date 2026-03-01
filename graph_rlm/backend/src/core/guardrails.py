@@ -7,94 +7,123 @@ and "Null-Context Cascades".
 import ast
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
+from .exceptions import ErrorCode, ValidationError
 from .logger import get_logger
 
 logger = get_logger("graph_rlm.core.guardrails")
 
 
 def extract_python_code(text: str) -> str:
-    """Extract all Python code blocks from an LLM response into a single string.
-
-    Handles both complete fenced blocks and unclosed blocks at the end of a
-    truncated response.  Multiple blocks are joined with a separator comment so
-    they execute as a single sequence in the REPL.
-
-    Returns an empty string when no Python code is found.
     """
+    Extracts all Python code blocks from an LLM response into a single sequence.
+
+    Handles:
+    1. Standard ```python ... ``` blocks.
+    2. Unclosed blocks at the end of truncated streams.
+    3. Joins multiple blocks with a separator to maintain execution order.
+
+    @param text The raw LLM response text.
+    @returns A unified string of Python code ready for AST parsing or REPL execution.
+    """
+    if not text:
+        return ""
+
+    # 1. Extraction of closed blocks
     blocks = re.findall(r"```python\s*(.*?)\s*```", text, re.DOTALL)
     if blocks:
         return "\n\n# --- RLM BLOCK SEPARATOR ---\n\n".join(blocks)
 
-    # Fallback: unclosed block at end of response (common with streaming truncation)
+    # 2. Heuristic for unclosed block at end of response
+    # (Common in streaming scenarios where the LLM hits a token limit)
     match_open = re.search(r"```python\s*(.*)", text, re.DOTALL)
     if match_open:
         raw_code = match_open.group(1)
-        clean_code = re.split(r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE)[0]
-        logger.warning("Found unclosed code block, extracting tail (and stripping chat).")
+        # Strip trailing "Final Answer" markers if the LLM hallucinated them inside the block
+        clean_code = re.split(
+            r"\*\*?Final Answer:?\*\*?", raw_code, flags=re.IGNORECASE
+        )[0]
+        logger.warning("Guardrails: Extracting tail of unclosed code block.")
         return clean_code.strip()
 
     return ""
 
 
-class GuardrailError(Exception):
-    """Exception raised when a graph invariant is violated."""
-
-
 class EmpiricalGuard:
     """
-    Empirical validation for code integrity.
-    Checks for syntax errors, invalid tool signatures, and naming mistakes.
+    Psychologically grounded code integrity checks.
+    Ensures that generated code adheres to syntax, interface, and environment constraints.
     """
 
     @staticmethod
-    def extract_code_blocks(text: str) -> List[str]:
-        """Extracts python code blocks from text."""
-        return re.findall(r"```python\n(.*?)\n```", text, re.DOTALL)
+    def validate_syntax(code: str) -> None:
+        """
+        Performs static analysis of the code using Python's AST.
 
-    @staticmethod
-    def validate_syntax(code: str):
-        """Standard AST syntax check."""
+        @param code The Python source string to validate.
+        @throws ValidationError if the code is syntactically invalid (GR-05).
+        """
+        if not code.strip():
+            return
+
         try:
             ast.parse(code)
         except SyntaxError as e:
-            raise GuardrailError(
-                f"Syntax Error in code (GR-05): {e.msg} at line {e.lineno}"
-            ) from e
+            raise ValidationError(
+                message=f"Syntax Error in RLM code: {e.msg} at line {e.lineno}",
+                error_code=ErrorCode.VALIDATION_CONSTRAINT_FAILED,
+            ).with_field("line", e.lineno).with_constraint("AST_PARSE") from e
 
     @staticmethod
-    def validate_rlm_signatures(code: str):
-        """Checks for common RLM interface mistakes."""
-        # Async check
+    def validate_rlm_signatures(code: str) -> None:
+        """
+        Verifies correct usage of the RLM control interface (e.g. async/await).
+
+        @param code The code string.
+        @throws ValidationError for signature or async mismatches (GR-06).
+        """
+        # Async Enforcement: rlm.done() is an async call in the Graph-RLM bridge
         if "rlm.done(" in code and "await rlm.done(" not in code:
-            raise GuardrailError("Async Error (GR-06): 'rlm.done()' must be awaited.")
+            raise ValidationError(
+                message="Graph-RLM Protocol Error: 'rlm.done()' must be awaited.",
+                error_code=ErrorCode.VALIDATION_CONSTRAINT_FAILED,
+            ).with_field("method", "rlm.done").with_constraint("ASYNC_AWAIT")
 
     @staticmethod
-    def validate_mcp_imports(code: str):
-        """Verifies that imports from mcp_tools point to existing files."""
+    def validate_mcp_imports(code: str) -> None:
+        """
+        Verifies that dynamically generated tool imports are valid.
+
+        @param code The code string.
+        @throws ValidationError if an MCP tool module is hallucinated (GR-07).
+        """
+        # Pattern matches: from graph_rlm.backend.mcp_tools.<tool> import <member>
         mcp_import_matches = re.finditer(
             r"from graph_rlm\.backend\.mcp_tools\.(\w+) import", code
         )
-        # Assuming we are in graph_rlm/backend/src/core/guardrails.py
-        # mcp_tools is in graph_rlm/backend/mcp_tools
+
+        # Resolve path relative to this file
         mcp_tools_dir = Path(__file__).resolve().parents[2] / "mcp_tools"
 
         if not mcp_tools_dir.exists():
-            return  # Skip if directory is missing (e.g. in minimal dev env)
+            return
 
         for match in mcp_import_matches:
             module_name = match.group(1)
             module_file = mcp_tools_dir / f"{module_name}.py"
+
             if not module_file.exists():
                 available = [
                     f.stem
                     for f in mcp_tools_dir.glob("*.py")
                     if not f.name.startswith("__")
                 ]
-                raise GuardrailError(
-                    f"Import Error (GR-07): Module '{module_name}' not found. "
-                    f"Available: {', '.join(available)}"
+                raise ValidationError(
+                    message=f"Hallucinated MCP Module: '{module_name}' not found.",
+                    error_code=ErrorCode.VALIDATION_FIELD_INVALID,
+                ).with_field("import_path", module_name).with_context(
+                    available_tools=available
                 )
 
 
@@ -109,35 +138,41 @@ def validate_thought_node(
     step_id: Optional[int] = None,
     node_type: str = "Thought",
     parent_metadata: Optional[Dict[str, Any]] = None,
-):
+) -> None:
     """
     Validates a node before it is committed to the graph.
 
     Checks:
-    1. Orphan Prevention: If not a root session, a parent_id is strongly recommended.
-    2. Context Continuity: session_id and root_session_id must remain consistent in a chain.
-    3. Tool Causality: (Optional/Future) TOOL_RESULT requires TOOL_CALL.
+    1. Structural Orphanage: Prevents detached nodes in non-root sessions.
+    2. Context Continuity: Ensures root_session_id consistency.
+    3. Empirical Integrity: Scans for failure signatures in reasoning/output.
+    4. Introspective Code Integrity: AST and Proto-code validation.
     """
 
-    # 1. Context Continuity
+    # 1. Context Continuity (Graph Integrity)
     if parent_metadata:
         parent_rsid = parent_metadata.get("root_session_id")
-        # parent_sid = parent_metadata.get("session_id") # Removed unused
 
         if parent_rsid and root_session_id != parent_rsid:
-            raise GuardrailError(
-                f"Root Session ID Mismatch (GR-02): Child({root_session_id}) "
-                f"!= Parent({parent_rsid})"
+            raise ValidationError(
+                message=f"Structural Orphanage: Child({root_session_id}) detached from Parent({parent_rsid})",
+                error_code=ErrorCode.GRAPH_INVALID_STRUCTURE,
+            ).with_field("root_session_id", root_session_id).with_context(
+                parent_id=parent_id
             )
 
     # 2. Basic Sanitization
     if not prompt or not prompt.strip():
-        raise GuardrailError(
-            "Empty Prompt (GR-03): Thought content cannot be null or empty."
-        )
+        raise ValidationError(
+            message="Null-Context Cascade: Thought content cannot be empty.",
+            error_code=ErrorCode.VALIDATION_FIELD_REQUIRED,
+        ).with_field("prompt", "None")
 
     if not session_id:
-        raise GuardrailError("Missing Session ID (GR-04)")
+        raise ValidationError(
+            message="Ghost Thread: Missing session_id.",
+            error_code=ErrorCode.VALIDATION_FIELD_REQUIRED,
+        ).with_field("session_id", "None")
 
     # 3. Empirical Integrity (Scan for error signatures)
     failure_patterns = [
@@ -170,20 +205,19 @@ def validate_thought_node(
     found_errors = [p for p in failure_patterns if p.lower() in prompt.lower()]
 
     if found_errors:
-        logger.error(
-            "Guardrail Integrity Breach: Empirical Failure Patterns detected in node %s: %s",
+        logger.warning(
+            "Guardrails: Empirical failure signature detected in node %s: %s",
             thought_id,
             ", ".join(found_errors),
         )
 
-    # 4. Code Validation (Introspective Integrity)
-    code_blocks = EmpiricalGuard.extract_code_blocks(prompt)
-    if code_blocks:
-        full_code = "\n".join(code_blocks)
-        # These will raise GuardrailError if they fail
-        EmpiricalGuard.validate_syntax(full_code)
-        EmpiricalGuard.validate_rlm_signatures(full_code)
-        EmpiricalGuard.validate_mcp_imports(full_code)
+    # 4. Introspective Code Integrity (AST + Protocol)
+    code = extract_python_code(prompt)
+    if code:
+        # These raise ValidationError if constraints are breached
+        EmpiricalGuard.validate_syntax(code)
+        EmpiricalGuard.validate_rlm_signatures(code)
+        EmpiricalGuard.validate_mcp_imports(code)
 
     # All checks passed
     logger.debug(
@@ -199,7 +233,7 @@ def validate_thought_node(
 
 def validate_no_blind_transitions(
     node_type: str, _content: str, parent_type: Optional[str]
-):
+) -> None:
     """
     Enforces causal semantics.
     e.g. A TOOL_RESULT must follow a TOOL_CALL.

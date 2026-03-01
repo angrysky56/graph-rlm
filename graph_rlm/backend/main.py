@@ -74,8 +74,6 @@ async def lifespan(fastapi_app: FastAPI):
         if config_path.exists():
             output_dir = Path(__file__).parent / "mcp_tools"
 
-            output_dir = Path(__file__).parent / "mcp_tools"
-
             should_regenerate = True
             if output_dir.exists():
                 # Load config to check if any servers are missing files

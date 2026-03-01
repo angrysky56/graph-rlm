@@ -136,6 +136,29 @@ class RLMInterface:
                 state.pending_side_effects.append(name)
                 logger.info("[VERIFICATION] Added pending side-effect: %s", name)
 
+        # Emit a dedicated Motor/Tool Node into Thimac Memory
+        try:
+            import uuid
+
+            tool_node_id = f"motor-{uuid.uuid4().hex[:8]}"
+            current_thought_id = getattr(self.agent, "current_thought_id", None)
+
+            if current_thought_id and hasattr(self.agent, "db"):
+                self.agent.db.create_thought_node(
+                    thought_id=tool_node_id,
+                    prompt=f"Motor Invocation: {name}",
+                    parent_id=current_thought_id,
+                    session_id=self.session_id,
+                    root_session_id=self.root_session_id,
+                    status="success",
+                    thimac_intent="MOTOR",
+                    thimac_level="EXISTENCE",
+                    step_summary=f"Invoked tool: {name}",
+                    validate=False,
+                )
+        except Exception as e:
+            logger.warning("Failed to emit Motor node: %s", e)
+
     async def history(self, limit: int = 1000):
         """Retrieve recent thought history for the current session."""
         self.record_tool_use("rlm.history")
@@ -160,9 +183,10 @@ class RLMInterface:
         # CRITICAL: Each thought gets a FRESH session_id (Atomic REPL)
         new_session_id = session_id or str(uuid.uuid4())
 
-        # Turn tracking: Inherit from parent turn
+        # Turn tracking: Inherit from parent turn/round
         current_state = agent_state.get()
         current_turn = current_state.turn_id if current_state else 1
+        current_round_id = current_state.round_id if current_state else None
 
         # Depth tracking: Increment depth for children
         current_depth = (
@@ -243,11 +267,26 @@ class RLMInterface:
             subtask=prompt, tools=profile.get("tools", [])
         )
 
-        # 3. Inject Persona and Instructions
+        # 4. Contextual Grounding (GEA Shared Insights)
+        recent_insights = self.agent.db.get_recent_insights(
+            self.root_session_id, limit=5
+        )
+        insight_context = ""
+        if recent_insights:
+            insight_context = "\n### Shared Session Insights (GEA):\n"
+            for i in recent_insights:
+                insight_context += f"- [{i['type'].upper()}]: {i['content']}\n"
+
+        # 5. Injection
         persona_prefix = f"[PERSONA: {profile['persona']}]\n"
+        if insight_context:
+            worker_instructions = f"{insight_context}\n{worker_instructions}"
 
         # 4. Contextual Grounding (REPL ID & Axioms)
         parent_repl_id = self.agent.active_repls.get(self.session_id, "unknown")
+
+        # [MEMORY SYNC] Extract high-utility thoughts from parent for child context
+        memory_snapshot = self.agent.morph_memory.get_high_utility_events()
 
         # Semantic Axiom Retrieval for Child Context
         axioms_ctx = ""
@@ -284,6 +323,26 @@ class RLMInterface:
                             "[PARENT CONTEXT GISTS]\n" + "\n".join(gists) + "\n\n"
                         )
 
+                # [GEA] Shared Experience Pool: Fetch sibling insights (failures/successes)
+                insights_ctx = ""
+                recent_insights = self.agent.db.get_recent_insights(
+                    self.root_session_id, limit=5
+                )
+                if recent_insights:
+                    insights = []
+                    for ins in recent_insights:
+                        insights.append(f"- [{ins['type'].upper()}] {ins['content']}")
+                    if insights:
+                        insights_ctx = (
+                            "[SHARED INSIGHTS (SIBLINGS)]\n"
+                            + "\n".join(insights)
+                            + "\n\n"
+                        )
+
+                # Combine insights into axioms_ctx for now or a new section
+                if insights_ctx:
+                    axioms_ctx = (axioms_ctx or "") + insights_ctx
+
             except (RuntimeError, AttributeError, ValueError) as e:
                 logger.warning("Failed to load context for child query: %s", e)
 
@@ -307,14 +366,23 @@ class RLMInterface:
             depth=new_depth,
             turn_id=current_turn,
             root_session_id=self.root_session_id,
+            round_id=current_round_id,
             recursion_stack=stack,
             metadata=metadata,
+            memory_snapshot=memory_snapshot,
         ):
             # Pipe child events up to parent's queue
             # We prefix the type or content to show it's a sub-agent
             if event["type"] == "done":
                 results = event["content"]
-                # DO NOT pipe "done" to parent's UI, it kills the stream
+                # Silent UI Bug Fix: Emit the final answer explicitly to the parent UI
+                # so it's not swallowed.
+                if results:
+                    self.agent.emit_event(
+                        "answer",
+                        content=f"✅ [Child Conclusion]: {results}",
+                        is_sub_event=True,
+                    )
                 continue
 
             if event["type"] == "error":
@@ -350,6 +418,13 @@ class RLMInterface:
 
         logger.info("[RLM] Recursion completed with results: %s", results)
 
+        # [MEMORY SYNC] Back-propagate high-utility thoughts from child to parent
+        # We use a higher threshold (0.7) for back-propagation to only surface critical results.
+        child_critical_memory = self.agent.morph_memory.get_high_utility_events(
+            threshold=0.7
+        )
+        self.agent.morph_memory.merge_events(child_critical_memory)
+
         # --- META-AGENT: Register Fragment for Synthesizer ---
         # Register this Sub-REPL's output as a Fragment for the parent to synthesize
         fragment = Fragment(
@@ -367,6 +442,35 @@ class RLMInterface:
         meta_agents.register_fragment(
             self.root_session_id, fragment, metadata=fragment_metadata
         )
+
+        # [GEA] Shared Experience Pool: Register Insight node for sibling agents
+        insight_id = f"insight-{new_session_id}"
+        self.agent.db.create_insight_node(
+            insight_id=insight_id,
+            content=results,
+            session_id=new_session_id,
+            root_session_id=self.root_session_id,
+            round_id=current_round_id or "unknown",
+            source_thought_id=self.agent.current_thought_id,
+            insight_type="success" if results else "trace",
+        )
+
+        # Success-to-Insight Promotion: Ensure the parent agent also flags this path as high utility
+        if results:
+            # Register a virtual success thought in the parent's memory
+            # to ensure the parent's own loop sees this as a 'resolved' direction.
+            self.agent.morph_memory.ingest_thought(
+                {
+                    "id": f"syn-{new_session_id}",
+                    "prompt": f"Recursive Synthesis for: {prompt}",
+                    "result": results,
+                    "status": "success",
+                    "utility_score": 0.95,  # High utility for recursive success
+                    "session_id": self.session_id,
+                    "root_session_id": self.root_session_id,
+                    "round_id": current_round_id,
+                }
+            )
 
         return results
 
@@ -692,8 +796,8 @@ class RLMInterface:
         # Ensure we stringify before slicing to avoid KeyError if final_answer is a dict
         answer_str = str(final_answer) if final_answer else ""
         summary = (answer_str[:200] + "...") if answer_str else "(no answer provided)"
-        print(
-            f"\n[RLM] 📋 Initial Response submitted for Dreamer Validation: {summary}"
+        logger.info(
+            "[RLM] 📋 Initial Response submitted for Dreamer Validation: %s", summary
         )
 
         # Emit to UI as a status update (not final)

@@ -12,10 +12,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from .guardrails import EmpiricalGuard, GuardrailError, extract_python_code
+from .guardrails import EmpiricalGuard, ValidationError, extract_python_code
 from .llm import llm
 from .logger import get_logger
 from .omcd import omcd
+from .slac import SLACEngine
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.reflexion")
@@ -33,6 +34,7 @@ class IntelliSynth:
         self.llm = llm
         self.alpha = 1.0  # Weight for Scrutiny
         self.beta = 1.5  # Weight for Improvement
+        self.slac = SLACEngine(alpha=self.alpha, beta=self.beta)
         self._genesis_cache: Dict[str, List[float]] = {}  # MD5(genesis) -> embedding
 
     # --- INTROSPECTIVE HEALING (Semantic & Structural) ---
@@ -231,8 +233,8 @@ class IntelliSynth:
             EmpiricalGuard.validate_syntax(full_code)
             EmpiricalGuard.validate_rlm_signatures(full_code)
             EmpiricalGuard.validate_mcp_imports(full_code)
-        except GuardrailError as e:
-            # Map GuardrailError back to the correction format for healing
+        except ValidationError as e:
+            # Map ValidationError back to the correction format for healing
             error_msg = str(e)
             severity = "CRITICAL"
             error_type = "GUARDRAIL_VIOLATION"
@@ -439,6 +441,14 @@ class IntelliSynth:
         elif metrics["shakiness"] > 0.5:
             action = "GROUND_YOURSELF"
 
+        # 5. Run SLAC Advancement Cycle
+        slac_metrics = {
+            "truth": metrics.get("sheaf_score", 0.8),
+            "shakiness": metrics["shakiness"],
+            "improvement": (0.3 if action == "CONTINUE" else -0.1),  # Heuristic for now
+        }
+        slac_result = self.slac.run_cycle(slac_metrics)
+
         result = {
             "type": "REFLEXION_ANALYSIS",
             "shakiness": metrics["shakiness"],
@@ -448,6 +458,10 @@ class IntelliSynth:
             "genesis_anchor": (genesis_anchor[:300] if genesis_anchor else "NO_ANCHOR"),
             "drift_score": drift_score,
             "action": action,
+            "slac_at": slac_result["at_score"],
+            "slac_stage": slac_result["stage"],
+            "slac_bar": slac_result["progress_bar"],
+            "critique": metrics.get("critique", ""),
             "metrics_report": metrics["report"],
             "v2_engine": True,
         }
@@ -461,7 +475,7 @@ class IntelliSynth:
                 node_label = f"Reflexion: {action} ({divergence_point[:30]}...)"
                 node_result = f"### IntelliSynth Analysis\n{_json.dumps(result, indent=2, default=str)}"
 
-                await agent._create_system_node(
+                await agent.create_system_node(
                     logical_id=f"REF_ANALYSIS_{step_id}",
                     summary=node_label,
                     status="reflexion",
@@ -526,7 +540,7 @@ class IntelliSynth:
         shakiness = 0.0
         loop_energy = 0.0
         topo_status = "UNKNOWN"
-
+        critique = ""
         try:
             vec = await self.llm.get_embedding(current_thought)
 
@@ -547,6 +561,7 @@ class IntelliSynth:
                     )
                     topo_status = diagnosis.get("status", "UNKNOWN")
                     loop_energy = float(diagnosis.get("energy", 0.0))
+                    critique = diagnosis.get("critique", "")
         except (ValueError, TypeError, AttributeError, ArithmeticError) as e:
             logger.warning("Metrics gathering failed: %s", e)
         except RuntimeError as e:
@@ -557,11 +572,14 @@ class IntelliSynth:
             f"Topology: {topo_status} | "
             f"Loop Energy: {loop_energy:.2f}"
         )
+        if critique:
+            report += f" | Critique: {critique}"
 
         return {
             "shakiness": shakiness,
             "loop_energy": loop_energy,
             "topo_status": topo_status,
+            "critique": critique,
             "report": report,
         }
 

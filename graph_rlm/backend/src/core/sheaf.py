@@ -23,7 +23,8 @@ from .core import PythonREPL
 from .db import db
 from .llm import llm
 from .logger import get_logger
-from .topology import compute_sheaf_laplacian
+from .slac import TemporalLogicSystem
+from .topology import compute_directed_laplacian, compute_sheaf_laplacian
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.sheaf")
@@ -97,8 +98,10 @@ class SheafMonitor:
         )
         self.drift_threshold = 0.3
 
-    def _normalize(self, vec: List[float]) -> np.ndarray:
-        v = np.array(vec)
+    def _normalize(self, vec: Optional[List[float]]) -> np.ndarray:
+        if vec is None:
+            return np.zeros(3072)
+        v = np.array(vec, dtype=float)
         norm = np.linalg.norm(v)
         return v / norm if norm > 0 else v
 
@@ -375,7 +378,8 @@ class SheafMonitor:
     ) -> Dict[str, Any]:
         """
         Calculates the H1 Cohomology Obstruction (Logical Knot Strength) mathematically.
-        Uses the Sheaf Laplacian to measure Consistency Energy (topological defect).
+        Uses the **directed** Sheaf Laplacian (B·W·B^T) to measure Consistency Energy,
+        respecting the causal direction of parent→child DECOMPOSES_INTO edges.
 
         Returns:
             A score 0.0 - 1.0 (Higher = more obstructed/contradictory).
@@ -387,11 +391,16 @@ class SheafMonitor:
         edges = [
             (thought_path[i - 1]["id"], thought_path[i]["id"]) for i in range(1, n)
         ]
-        laplacian = self.compute_sheaf_laplacian(thought_path, edges)
+        # Use DIRECTED Laplacian: energy flows parent→child, not bidirectionally.
+        # L_dir = B · W · B^T where B is the signed incidence (coboundary) matrix.
+        laplacian = compute_directed_laplacian(thought_path, edges)
 
-        # In the Sheaf Laplacian (L = D - A), the trace is the sum of degrees,
-        # which is 2 * (sum of all edge weights).
+        # In the directed Laplacian, the trace equals the sum of all edge weights
+        # (each weight counted once per incident node, but B·W·B^T diagonal = sum
+        # of weights for edges incident to that node).
+        # For a chain of n nodes with n-1 edges, the trace = sum of all edge weights.
         # A perfectly consistent path (all weights = 1.0) has trace = 2 * (n - 1)
+        # because each edge contributes weight to exactly 2 nodes.
         actual_weight_sum = np.trace(laplacian) / 2.0
         ideal_weight_sum = float(n - 1)
 
@@ -403,7 +412,7 @@ class SheafMonitor:
         score = float(max(0.0, min(1.0, inconsistency_energy)))
 
         rationale = (
-            f"Consistency Energy: {score:.2f}. "
+            f"Directed Consistency Energy: {score:.2f}. "
             f"Actual Weights: {actual_weight_sum:.2f} (Ideal: {ideal_weight_sum:.2f})."
         )
         if score > 0.5:
@@ -552,6 +561,10 @@ class SheafMonitor:
         stress = stress_res["score"]
         stress_rationale = stress_res["rationale"]
 
+        max_similarity = 0.0
+        high_sim_count = 0
+        prev_vec: Optional[np.ndarray] = None
+
         # 1. Fetch Context (The "Tail" of the trajectory)
         history_nodes = []
         if memory_trajectory:
@@ -574,6 +587,15 @@ class SheafMonitor:
             """
             history_nodes = db.query(cypher, {"sid": root_id})
 
+        if history_nodes:
+            for node in history_nodes:
+                if not node.get("embedding"):
+                    continue
+                hist_vec = self._normalize(node["embedding"])
+                sim = np.dot(current_vec, hist_vec)
+                if sim > max_similarity:
+                    max_similarity = sim
+
         if not history_nodes:
             return {"status": "HEALTHY", "energy": 0.0, "topological_stress": stress}
 
@@ -585,9 +607,72 @@ class SheafMonitor:
         if hypothetical_node:
             path_nodes.append(hypothetical_node)
 
+        # --- H0 RANK CALCULATION (Connected Components) ---
+        num_nodes = len(path_nodes)
+        h0_rank = 1
+        if num_nodes > 1:
+            try:
+                # Construct adjacency matrix based on high semantic similarity
+                adj_data, adj_row, adj_col = [], [], []
+                threshold = 0.8  # Strong connection threshold
+                for i in range(num_nodes):
+                    v1 = self._normalize(path_nodes[i]["embedding"])
+                    for j in range(i + 1, num_nodes):
+                        v2 = self._normalize(path_nodes[j]["embedding"])
+                        sim = np.dot(v1, v2)
+                        if sim > threshold:
+                            adj_data.append(1.0)
+                            adj_row.append(i)
+                            adj_col.append(j)
+                            # Also add reverse edge for weak connectivity test
+                            adj_data.append(1.0)
+                            adj_row.append(j)
+                            adj_col.append(i)
+
+                if adj_row:
+                    matrix = sp.csc_matrix(
+                        (adj_data, (adj_row, adj_col)), shape=(num_nodes, num_nodes)
+                    )
+                    # Use directed=True with weak connectivity to respect DAG
+                    # structure while still detecting disconnected components.
+                    n_components, _labels = connected_components(
+                        csgraph=matrix,
+                        directed=True,
+                        connection="weak",
+                        return_labels=True,
+                    )
+                    h0_rank = n_components
+                else:
+                    # No strong connections -> every node is a component
+                    h0_rank = num_nodes
+            except Exception as e:
+                logger.warning("Failed to calculate H0 rank in diagnose_trace: %s", e)
+                h0_rank = 1
+
         h1_res = self.calculate_h1_obstruction(path_nodes)
         inconsistency_energy = h1_res["score"]
         h1_rationale = h1_res["rationale"]
+
+        # --- DIAGNOSTIC 0.5: TEMPORAL CONSISTENCY (Prior Logic) ---
+        all_text = [
+            n.get("content", "") + " " + n.get("prompt", "") for n in path_nodes
+        ]
+        temporal_audit = TemporalLogicSystem.audit_temporal_consistency(all_text)
+        if temporal_audit["status"] == "INCONSISTENT":
+            return {
+                "status": "LOGICAL_KNOT",
+                "energy": 0.8,
+                "consistency_energy": inconsistency_energy,
+                "nars_f": max_similarity,
+                "nars_c": 0.3,
+                "critique": (
+                    f"Temporal Inconsistency Detected: {', '.join(temporal_audit['contradictions'])}. "
+                    "Your plan involves actions that your own history documents as already completed "
+                    "or contradictory in tense. Resolve the Tense Conflict (G/F vs H/P)."
+                ),
+                "should_halt": False,
+                "topological_stress": stress,
+            }
 
         if inconsistency_energy > 0.5:
             trace_action(
@@ -600,6 +685,8 @@ class SheafMonitor:
                 "status": "EMPIRICAL_CONTRADICTION",
                 "energy": inconsistency_energy,
                 "consistency_energy": inconsistency_energy,
+                "nars_f": max_similarity,
+                "nars_c": 1.0 / (1.0 + inconsistency_energy),
                 "critique": (
                     "Empirical Contradiction: Your reasoning path has exceeded the topological "
                     f"stress threshold (Energy = {inconsistency_energy:.2f} > 0.5). {h1_rationale} "
@@ -634,6 +721,8 @@ class SheafMonitor:
                     "status": "EMPIRICAL_CONTRADICTION",
                     "energy": 1.0,
                     "consistency_energy": 1.0,
+                    "nars_f": 0.0,
+                    "nars_c": 0.0,
                     "critique": (
                         "Empirical Contradiction: Your proposed response contains a Python Traceback. "
                         "You cannot submit an error stack trace as a final answer. "
@@ -642,17 +731,12 @@ class SheafMonitor:
                     "should_halt": False,
                     "topological_stress": stress,
                 }
-        max_similarity = 0.0
-        prev_vec: Optional[np.ndarray] = None
-        high_sim_count = 0
         for node in history_nodes:
             if not node.get("embedding"):
                 continue
 
             hist_vec = self._normalize(node["embedding"])
             sim = np.dot(current_vec, hist_vec)
-            if sim > max_similarity:
-                max_similarity = sim
             if sim > self.loop_threshold:
                 high_sim_count += 1
 
@@ -676,6 +760,8 @@ class SheafMonitor:
                 "status": "LOGICAL_KNOT",
                 "energy": max_similarity,
                 "consistency_energy": max_similarity,
+                "nars_f": max_similarity,
+                "nars_c": 1.0 / (1.0 + max_similarity),
                 "critique": (
                     f"Holonomy Detected: You are circling the same semantic point "
                     f"(Similarity {max_similarity:.2f}, {high_sim_count} matches). Break the loop."
@@ -707,6 +793,8 @@ class SheafMonitor:
                         "status": "LOGICAL_KNOT",
                         "energy": 1.0,
                         "consistency_energy": 1.0,
+                        "nars_f": 1.0,
+                        "nars_c": 0.0,
                         "confidence": 0.0,  # oMCD P_c (knot = no confidence)
                         "critique": (
                             "Semantic Echoing: You are repeating a logically equivalent "
@@ -749,6 +837,8 @@ class SheafMonitor:
                 "status": "SEMANTIC_DRIFT",
                 "energy": total_energy,
                 "consistency_energy": total_energy,
+                "nars_f": max_similarity,
+                "nars_c": 1.0 / (1.0 + total_energy),
                 "confidence": max(0.0, min(1.0, float(1.0 - total_energy))),  # oMCD P_c
                 "critique": (
                     f"Field Deviation: You are moving AWAY from the goal "
@@ -756,6 +846,7 @@ class SheafMonitor:
                 ),
                 "should_halt": False,  # Changed to False to allow Self-Healing
                 "topological_stress": stress,
+                "h0_rank": h0_rank,
             }
 
         # Trigger H1 Obstruction Check
@@ -773,6 +864,8 @@ class SheafMonitor:
                 "status": "COHOMOLOGY_OBSTRUCTION",
                 "energy": h1_obstruction,
                 "consistency_energy": h1_obstruction,
+                "nars_f": max_similarity,
+                "nars_c": 1.0 / (1.0 + h1_obstruction),
                 "confidence": 1.0 - h1_obstruction,
                 "critique": (
                     f"Structural Paradox (H1={h1_obstruction:.2f}): Your current line of "
@@ -781,15 +874,19 @@ class SheafMonitor:
                 ),
                 "should_halt": False,
                 "topological_stress": stress,
+                "h0_rank": h0_rank,
             }
 
         return {
             "status": "HEALTHY",
             "energy": total_energy,
             "consistency_energy": total_energy,
+            "nars_f": max_similarity,
+            "nars_c": 1.0 / (1.0 + total_energy),
             "confidence": max(0.0, min(1.0, float(1.0 - total_energy))),  # oMCD P_c
             "should_halt": False,
             "topological_stress": stress,
+            "h0_rank": h0_rank,
             "rationale": (f"Sheaf Healthy. {stress_rationale} | {h1_final_rationale}"),
         }
 

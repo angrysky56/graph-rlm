@@ -28,6 +28,10 @@ from .llm import llm
 from .logger import get_logger
 from .nal import TruthValue, desire_value
 from .omcd import omcd
+from .prompts import get_breaker_instructions as prompt_get_breaker_instructions
+from .prompts import get_evaluator_instructions as prompt_get_evaluator_instructions
+from .prompts import get_synthesizer_instructions as prompt_get_synthesizer_instructions
+from .prompts import get_worker_instructions as prompt_get_worker_instructions
 from .trace import trace_action
 
 logger = get_logger("graph_rlm.meta_agents")
@@ -229,61 +233,13 @@ class MetaAgentController:
 
     def get_breaker_instructions(self, subtask: str, fragment_index: int = 0) -> str:
         """Generate Breaker-specific system prompt injection (Legacy/Contextualization only)."""
-        return f"""
-═══════════════════════════════════════════════════════════════
-[BREAKER PROTOCOL] — Fragment #{fragment_index}
-═══════════════════════════════════════════════════════════════
-Role: CONTEXTUALIZATION (Extract & Summarize)
-Task Fragment: {subtask}
-
-INSTRUCTIONS:
-1. Extract core ideas.
-2. Create structured subtopics.
-3. Return a detailed analysis (the Synthesizer will integrate this).
-4. Feel free to use all tools to provide a complete picture.
-
-OUTPUT FORMAT:
-## Analysis
-[Detailed analysis here - Be comprehensive]
-
-## Key Findings
-- Finding 1: [Explanation]
-- Finding 2: [Explanation]
-
-## Subtopics Identified
-- Topic A: [Description]
-═══════════════════════════════════════════════════════════════
-"""
+        return prompt_get_breaker_instructions(subtask, fragment_index)
 
     def get_worker_instructions(
         self, subtask: str, tools: Optional[List[str]] = None
     ) -> str:
         """Generate specialized Worker instructions for atomic task execution."""
-        tools_str = ", ".join(tools) if tools else "All Available Tools"
-        return f"""
-═══════════════════════════════════════════════════════════════
-[ATOMIC WORKER PROTOCOL]
-═══════════════════════════════════════════════════════════════
-Role: EXECUTION (Act & Solve)
-Task: {subtask}
-Available Tools: {tools_str}
-
-INSTRUCTIONS:
-1. You are an autonomous sub-process dedicated to this specific task.
-2. EXECUTE the task as far as possible using your tools (Code, Search, etc.).
-3. DO NOT summarize what you *would* do. DO IT.
-4. If the task requires research, perform it. If it requires code, write/run it.
-5. Return the raw output, artifacts, or definitive answers.
-6. Use rlm.done() or rlm.stop() when finished.
-
-OUTPUT FORMAT:
-## Execution Results
-[The actual work performed]
-
-## Artifacts Produced
-- [File paths, data points, or code blocks]
-═══════════════════════════════════════════════════════════════
-"""
+        return prompt_get_worker_instructions(subtask, tools)
 
     async def generate_sub_agent_profile(
         self,
@@ -410,38 +366,12 @@ INSTRUCTIONS:
             )
             digest_ref = "Error creating digest file. Proceed with available context."
 
-        return f"""
-═══════════════════════════════════════════════════════════════
-[SYNTHESIZER PROTOCOL]
-═══════════════════════════════════════════════════════════════
-Role: INTEGRATION (Combine & Produce)
-Fragments Received: {len(state.fragments)}
-Iteration: {state.iteration}
-Coherence Score: {state.coherence_score:.2f}
-
-CONTEXT REFERENCE:
-{digest_ref}
-
-INSTRUCTIONS:
-1. Combine fragments into a COMPREHENSIVE NARRATIVE REPORT.
-2. You MUST read the digest file above to see the fragment details.
-3. Use 'await rlm.read_document(path)' or standard file tools to ingest the data.
-4. Ensure logical flow between sections.
-5. Identify any GAPS or contradictions requiring additional investigation.
-6. If gaps are found, use 'await rlm.query(...)' to resolve them BEFORE finalizing.
-7. Produce a FINAL SYNTHESIZED ANSWER only when coherence is maximal.
-
-OUTPUT FORMAT:
-## Synthesized Analysis
-[Your integrated, comprehensive report here. Stitch facts together.]
-
-## Gaps Identified (if any)
-- [Gap that needs more investigation]
-
-## Conclusion
-[Final summary]
-═══════════════════════════════════════════════════════════════
-"""
+        return prompt_get_synthesizer_instructions(
+            fragment_count=len(state.fragments),
+            iteration=state.iteration,
+            coherence_score=state.coherence_score,
+            digest_ref=digest_ref,
+        )
 
     def register_fragment(
         self,
@@ -571,37 +501,7 @@ OUTPUT FORMAT:
 
     def get_evaluator_instructions(self, draft: str, fragments: List[Fragment]) -> str:
         """Generate Evaluator instructions for feedback loop."""
-        return f"""
-═══════════════════════════════════════════════════════════════
-[EVALUATOR PROTOCOL]
-═══════════════════════════════════════════════════════════════
-Role: FEEDBACK (Evaluate & Refine)
-
-DRAFT TO EVALUATE:
-{draft}
-
-ORIGINAL FRAGMENTS: {len(fragments)}
-
-EVALUATION CRITERIA:
-1. COHERENCE: Does the draft logically connect all fragments?
-2. COMPLETENESS: Are all key ideas from fragments represented?
-3. ACCURACY: Does the synthesis accurately reflect the source material?
-4. GAPS: What's missing that requires additional Breaker investigation?
-
-OUTPUT FORMAT:
-## Coherence Score: [0.0 - 1.0]
-## Completeness Score: [0.0 - 1.0]
-## Accuracy Score: [0.0 - 1.0]
-## Overall Score: [Average of above]
-
-## Improvement Suggestions
-- [Suggestion 1]
-- [Suggestion 2]
-
-## Gaps Requiring Investigation
-- [Gap 1]
-═══════════════════════════════════════════════════════════════
-"""
+        return prompt_get_evaluator_instructions(draft, len(fragments))
 
     # ─────────────────────────────────────────────────────────
     # SOAR COGNITIVE CYCLE
@@ -829,7 +729,7 @@ OUTPUT FORMAT:
         )
 
         # Phase 1: INPUT (Working Memory already provided via state_summary)
-        logger.info("🧠 [SOAR] Phase 1: Working Memory Update")
+        logger.info("🧠 [SOAR] Phase 1: Working Memory Update (Session: %s)", session_id)
 
         # Phase 2: ELABORATION
         logger.info("🧠 [SOAR] Phase 2: Elaboration")

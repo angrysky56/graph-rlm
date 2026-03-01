@@ -6,14 +6,14 @@ vector indexing, and session management.
 
 import time
 import traceback
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import redis
 from falkordb import FalkorDB
 from langchain_community.graphs import FalkorDBGraph
 
 from .config import settings
-from .guardrails import GuardrailError, validate_thought_node
+from .guardrails import ValidationError, validate_thought_node
 from .logger import get_logger
 
 logger = get_logger("graph_rlm.db")
@@ -97,12 +97,14 @@ class GraphClient:
         repe_confluence: Optional[float] = None,
         repe_freedom: Optional[float] = None,
         omcd_score: Optional[float] = None,
+        utility_score: Optional[float] = None,
         thimac_op: Optional[str] = None,
         thimac_level: Optional[str] = None,
         thimac_intent: Optional[str] = None,
         thimac_op_reason: Optional[str] = None,
         thimac_level_reason: Optional[str] = None,
         navigator_insight: Optional[str] = None,
+        tool_calls: Optional[List[str]] = None,
         metadata_json: Optional[str] = None,
         step_summary: Optional[str] = None,
         semantic_gist: Optional[str] = None,
@@ -114,6 +116,10 @@ class GraphClient:
         frequency: Optional[float] = None,
         confidence: Optional[float] = None,
         rtm_depth: Optional[int] = None,
+        slac_at: Optional[float] = None,
+        slac_stage: Optional[str] = None,
+        slac_bar: Optional[str] = None,
+        slac_critique: Optional[str] = None,
         validate: bool = True,
     ):
         """
@@ -192,7 +198,7 @@ class GraphClient:
                     _content=prompt,
                     parent_type=parent_type,
                 )
-            except GuardrailError as ge:
+            except ValidationError as ge:
                 logger.error("Guardrail Violation: %s", ge)
                 raise
             except (
@@ -250,6 +256,22 @@ class GraphClient:
         if dreamer_analysis:
             params["dreamer_analysis"] = dreamer_analysis
             cypher += ", t.dreamer_analysis = $dreamer_analysis"
+
+        if slac_at is not None:
+            params["slac_at"] = float(slac_at)
+            cypher += ", t.slac_at = $slac_at"
+
+        if slac_stage:
+            params["slac_stage"] = slac_stage
+            cypher += ", t.slac_stage = $slac_stage"
+
+        if slac_bar:
+            params["slac_bar"] = slac_bar
+            cypher += ", t.slac_bar = $slac_bar"
+
+        if slac_critique:
+            params["slac_critique"] = slac_critique
+            cypher += ", t.slac_critique = $slac_critique"
 
         if thimac_state:
             params["thimac_state"] = thimac_state
@@ -342,6 +364,10 @@ class GraphClient:
             params["omcd_score"] = float(omcd_score)
             cypher += ", t.omcd_score = $omcd_score"
 
+        if utility_score is not None:
+            params["ut"] = float(utility_score)
+            cypher += ", t.utility_score = $ut"
+
         if thimac_op is not None:
             params["thimac_op"] = thimac_op
             cypher += ", t.thimac_op = $thimac_op"
@@ -413,6 +439,74 @@ class GraphClient:
                         {"tid": thought_id, "mid": hit["id"], "score": hit["score"]},
                     )
 
+        # --- INVOKES: Explicit Tool Connectivity (MolHIT Van der Waals Bonds) ---
+        if tool_calls:
+            for tool_name in tool_calls:
+                # Strip absolute namespace prefixes if present (e.g. mcp.desktop_commander.foo -> foo)
+                clean_name = tool_name.split(".")[-1]
+                edge_cypher = """
+                MATCH (t:Thought {id: $tid})
+                MERGE (s:Skill {name: $skill_name})
+                MERGE (t)-[:INVOKES]->(s)
+                """
+                self.query(edge_cypher, {"tid": thought_id, "skill_name": clean_name})
+
+    def create_insight_node(
+        self,
+        insight_id: str,
+        content: str,
+        session_id: str,
+        root_session_id: str,
+        round_id: str,
+        source_thought_id: Optional[str] = None,
+        insight_type: str = "trace",  # success | failure | trace
+    ):
+        """
+        GEA Shared Experience Pool: Creates an 'Insight' node.
+        Insights are shared execution traces (failures/successes) that
+        provide context for sibling agents to avoid repeating mistakes.
+        """
+        params = {
+            "iid": insight_id,
+            "content": content,
+            "sid": session_id,
+            "rsid": root_session_id,
+            "rid": round_id,
+            "type": insight_type,
+        }
+        cypher = (
+            "MERGE (i:Insight {id: $iid}) "
+            "SET i.content = $content, i.session_id = $sid, i.root_session_id = $rsid, "
+            "i.round_id = $rid, i.type = $type, i.created_at = timestamp()"
+        )
+        self.query(cypher, params)
+
+        if source_thought_id:
+            edge_params = {"iid": insight_id, "tid": source_thought_id}
+            edge_cypher = """
+            MATCH (t:Thought {id: $tid})
+            MATCH (i:Insight {id: $iid})
+            MERGE (t)-[:GENERATED]->(i)
+            """
+            self.query(edge_cypher, edge_params)
+        logger.info("💡 GEA: Registered Insight node %s (%s)", insight_id, insight_type)
+
+    def get_recent_insights(
+        self, root_session_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieves recent insight nodes for a session.
+        """
+        params = {"rsid": root_session_id, "limit": limit}
+        cypher = """
+        MATCH (i:Insight)
+        WHERE i.root_session_id = $rsid
+        RETURN i.content as content, i.type as type, i.created_at as created_at
+        ORDER BY i.created_at DESC
+        LIMIT $limit
+        """
+        return self.query(cypher, params)
+
     def get_parent_id(self, thought_id: str) -> Optional[str]:
         """
         Retrieves the parent ID of a thought node.
@@ -438,6 +532,95 @@ class GraphClient:
         self.query(cypher, {"tid": thought_id})
         logger.info("♻️ Graph Hygiene: Pruned thought node %s", thought_id)
 
+    def get_causal_ancestors(
+        self, thought_id: str, max_depth: int = 10
+    ) -> List[Dict[str, Any]]:
+        """Retrieves the causal ancestor chain of a thought node.
+
+        Walks DECOMPOSES_INTO edges **backwards** from a target node to find
+        the full chain of prerequisites (root → ... → target). Used for
+        Causal Context Engineering during impasse resolution: instead of
+        searching by semantic similarity, retrieve the exact topologically
+        sorted chain that led to this node.
+
+        Args:
+            thought_id: The ID of the target thought node.
+            max_depth: Maximum ancestor depth to traverse (default: 10).
+
+        Returns:
+            List of node dicts in topological order (root first, target last).
+            Empty list if the node has no ancestors or doesn't exist.
+        """
+        cypher = f"""
+        MATCH path = (root:Thought)-[:DECOMPOSES_INTO*1..{max_depth}]->(target:Thought {{id: $tid}})
+        RETURN [n IN nodes(path) |
+            {{id: n.id, prompt: n.prompt, status: n.status,
+             execution_summary: n.execution_summary,
+             step_id: n.step_id, round_id: n.round_id}}] as chain
+        ORDER BY length(path) DESC
+        LIMIT 1
+        """
+        try:
+            results = self.query(cypher, {"tid": thought_id})
+            if results and results[0].get("chain"):
+                return results[0]["chain"]
+            return []
+        except (RuntimeError, redis.exceptions.RedisError) as e:
+            logger.warning("Failed to get causal ancestors for %s: %s", thought_id, e)
+            return []
+
+    def get_execution_layers(
+        self, root_session_id: str
+    ) -> Tuple[List[str], List[List[str]]]:
+        """Returns topologically sorted execution layers for a session's DAG.
+
+        Fetches all DECOMPOSES_INTO edges for a session and runs Python-side
+        topological sort to identify parallelizable execution layers.
+        Each layer contains nodes whose dependencies are all satisfied.
+
+        Args:
+            root_session_id: The root session ID to scope the query.
+
+        Returns:
+            Tuple of (linear_order, layers) from topological_sort.
+            Returns ([], []) if no edges exist or on error.
+        """
+        from .topology import topological_sort
+
+        # Fetch all nodes and DECOMPOSES_INTO edges for this session
+        q_nodes = """
+        MATCH (n:Thought)
+        WHERE n.root_session_id = $rsid
+        RETURN n.id as id
+        """
+        q_edges = """
+        MATCH (n:Thought)-[:DECOMPOSES_INTO]->(m:Thought)
+        WHERE n.root_session_id = $rsid
+        RETURN n.id as source, m.id as target
+        """
+        try:
+            node_results = self.query(q_nodes, {"rsid": root_session_id})
+            edge_results = self.query(q_edges, {"rsid": root_session_id})
+
+            if not node_results:
+                return [], []
+
+            graph_nodes = [{"id": r["id"]} for r in node_results if r.get("id")]
+            graph_edges = [
+                (r["source"], r["target"])
+                for r in edge_results
+                if r.get("source") and r.get("target")
+            ]
+
+            return topological_sort(graph_nodes, graph_edges)
+        except (RuntimeError, ValueError, redis.exceptions.RedisError) as e:
+            logger.warning(
+                "Failed to compute execution layers for %s: %s",
+                root_session_id,
+                e,
+            )
+            return [], []
+
     def update_thought_result(
         self,
         thought_id: str,
@@ -458,6 +641,11 @@ class GraphClient:
         frequency: Optional[float] = None,
         confidence: Optional[float] = None,
         rtm_depth: Optional[int] = None,
+        slac_at: Optional[float] = None,
+        slac_stage: Optional[str] = None,
+        slac_bar: Optional[str] = None,
+        slac_critique: Optional[str] = None,
+        utility_score: Optional[float] = None,
     ):
         """
         Updates the execution result and status of an existing thought node.
@@ -517,6 +705,11 @@ class GraphClient:
             params["free_e"] = float(free_energy)
             cypher += ", t.free_energy = $free_e"
 
+        if utility_score is not None:
+            params["ut"] = float(utility_score)
+            # Actually, the existing pattern is to append to cypher
+            cypher += ", t.utility_score = $ut"
+
         if metabolic_state is not None:
             params["m_state"] = metabolic_state
             cypher += ", t.metabolic_state = $m_state"
@@ -532,6 +725,22 @@ class GraphClient:
         if rtm_depth is not None:
             params["rdepth"] = int(rtm_depth)
             cypher += ", t.rtm_depth = $rdepth"
+
+        if slac_at is not None:
+            params["slac_at"] = float(slac_at)
+            cypher += ", t.slac_at = $slac_at"
+
+        if slac_stage:
+            params["slac_stage"] = slac_stage
+            cypher += ", t.slac_stage = $slac_stage"
+
+        if slac_bar:
+            params["slac_bar"] = slac_bar
+            cypher += ", t.slac_bar = $slac_bar"
+
+        if slac_critique:
+            params["slac_critique"] = slac_critique
+            cypher += ", t.slac_critique = $slac_critique"
 
         self.query(cypher, params)
 

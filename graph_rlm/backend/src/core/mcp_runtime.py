@@ -26,14 +26,23 @@ def is_mcp_available():
     )
 
 
-def is_skills_available():
-    """Defensive check for skills/manager availability."""
-    return (
-        importlib.util.find_spec(
-            ".skill_storage", package="graph_rlm.backend.src.mcp_integration"
+def is_skills_available() -> bool:
+    """Defensive check for skills/manager availability without importing."""
+    try:
+        # Check absolute and relative paths
+        return (
+            importlib.util.find_spec(
+                "graph_rlm.backend.src.mcp_integration.skill_storage"
+            )
+            is not None
+            or importlib.util.find_spec("mcp_integration.skill_storage") is not None
+            or importlib.util.find_spec(
+                ".skill_storage", package="graph_rlm.backend.src.mcp_integration"
+            )
+            is not None
         )
-        is not None
-    )
+    except (ImportError, ValueError, AttributeError):
+        return False
 
 
 class MCPServerNamespace:
@@ -62,7 +71,9 @@ class MCPServerNamespace:
                 for attr in dir(self._module):
                     if not attr.startswith("_"):
                         func = getattr(self._module, attr)
-                        if callable(func):
+                        if inspect.isfunction(func) or inspect.iscoroutinefunction(
+                            func
+                        ):
                             # Use actual function name, no aliases
                             def make_wrapper(f, n):
                                 async def wrapped(*args, **kwargs):
@@ -77,8 +88,10 @@ class MCPServerNamespace:
                             wrapper = make_wrapper(func, f"mcp.{self._alias}.{attr}")
                             self._tools[attr] = wrapper
                             self._docs[attr] = func.__doc__
-            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-                logger.warning("Failed to load MCP server %s: %s", self._mod_name, e, exc_info=True)
+            except Exception as e:
+                logger.warning(
+                    "Failed to load MCP server %s: %s", self._mod_name, e, exc_info=True
+                )
                 self._module = False  # Mark as failed
 
     def __getattr__(self, name):
@@ -93,7 +106,21 @@ class MCPServerNamespace:
         return list(self._tools.keys())
 
     def __repr__(self):
-        return f"<MCPServerNamespace '{self._alias}' (from {self._mod_name})>"
+        self._ensure_loaded()
+        if not self._tools:
+            return f"<MCPServerNamespace '{self._alias}' (from {self._mod_name} - No tools)>"
+        res = [f"--- MCP Server '{self._alias}' Tools ---"]
+        for name in self._tools:
+            doc = self._docs.get(name, "No description provided.")
+            res.append(f"\n* mcp.{self._alias}.{name}:")
+            if doc:
+                for line in doc.strip().split("\n"):
+                    res.append(f"    {line}")
+            else:
+                res.append("    No description provided.")
+        res.append("\n------------------------------------------")
+        res.append(f"Execute a tool: mcp.{self._alias}.tool_name(args...)")
+        return "\n".join(res)
 
 
 class LazyMCPNamespace:
@@ -129,7 +156,7 @@ class LazyMCPNamespace:
 
                 self._scan_done = True
                 logger.info("MCP server discovery completed.")
-            except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+            except Exception as e:
                 logger.warning("MCP Scan Error: %s", e, exc_info=True)
 
     def __getattr__(self, name):
@@ -147,7 +174,16 @@ class LazyMCPNamespace:
         return self.list_servers()
 
     def __repr__(self):
-        return f"<LazyMCPNamespace with {len(self._aliases)} server aliases>"
+        self._scan()
+        servers = list(self._aliases.keys())
+        if not servers:
+            return "<MCP Client (No servers discovered)>"
+        res = ["--- Available MCP Servers ---"]
+        for s in servers:
+            res.append(f"- mcp.{s}")
+        res.append("-----------------------------")
+        res.append("Type mcp.<server_name> to see its tools and descriptions.")
+        return "\n".join(res)
 
 
 def get_mcp_server_names() -> list[str]:
@@ -163,6 +199,6 @@ def get_mcp_server_names() -> list[str]:
             if mod_name.startswith("_") or mod_name == "skills":
                 continue
             names.append(mod_name)
-    except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
+    except Exception as e:
         logger.warning("Quick MCP name scan failed: %s", e, exc_info=True)
     return names

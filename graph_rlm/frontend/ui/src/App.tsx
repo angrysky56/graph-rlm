@@ -153,9 +153,26 @@ function App() {
               | "trace"
               | "success"
               | "error"
+              | "system"
               | undefined = undefined;
             let finalType: "input" | "output" | "info" | "error" =
               msg.role === "user" ? "input" : "output";
+
+            // System events (dreamer, reflexion, sheaf, meta-agents)
+            if (msg.role === "system") {
+              finalStyle = "system";
+              return {
+                id: msg.id,
+                type: "output" as const,
+                content: finalContent,
+                timestamp: msg.created_at
+                  ? new Date(msg.created_at).getTime()
+                  : Date.now(),
+                style: "system",
+                role: "system",
+                subsystem: msg.subsystem || "SYSTEM",
+              };
+            }
 
             if (msg.status === "success" && msg.role !== "user") {
               finalStyle = "success";
@@ -349,6 +366,35 @@ function App() {
               timestamp: Date.now(),
               style: "monitor",
               metrics: event.metrics || event.data,
+            },
+          ]);
+        } else if (event.type === "system_event") {
+          // System transparency: subsystem events (sheaf, reflexion, dreamer, etc.)
+          setChatEntries((prev) => [
+            ...prev,
+            {
+              type: "output",
+              role: "system",
+              content: safeContent,
+              timestamp: Date.now(),
+              style: "system",
+              subsystem: event.tag || "SYSTEM",
+            },
+          ]);
+        } else if (
+          event.type === "trace" &&
+          event.ui_target === "CHAT_RESPONSE"
+        ) {
+          // broadcast_trace messages routed to chat (subsystem logs)
+          setChatEntries((prev) => [
+            ...prev,
+            {
+              type: "output",
+              role: "system",
+              content: safeContent,
+              timestamp: Date.now(),
+              style: "system",
+              subsystem: event.ui_component || "SYSTEM",
             },
           ]);
         } else if (event.ui_target === "CODE_RESULT") {

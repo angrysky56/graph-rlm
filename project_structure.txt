@@ -9,7 +9,9 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
     MCP_TOOL_USAGE.md
     README.md
     coverage.lcov
+    diagnose_systems.py
     image.png
+    manual_db_check.py
     mcp_servers_example.json
     project_structure.txt
     pyproject.toml
@@ -20,16 +22,569 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
     src_reference.md
     start.sh
     uv.lock
+    verify_architectural_cohesion.py
+    verify_gea.py
+    verify_grounding_fidelity.py
+    verify_termination.py
+    verify_thimac_error.py
+    .claude/
+        worktrees/
+            priceless-lehmann/
+                .coverage
+                .env.example
+                .git
+                .gitignore
+                LICENSE
+                MCP_TOOL_USAGE.md
+                README.md
+                coverage.lcov
+                diagnose_systems.py
+                image.png
+                mcp_servers_example.json
+                project_structure.txt
+                pyproject.toml
+                pytest.ini
+                reports.txt
+                research_reports.txt
+                setup_env.sh
+                src_reference.md
+                start.sh
+                uv.lock
+                .claude/
+                    settings.local.json
+                CODEAGENCY/
+                    diagnosis.md
+                    evaluation.md
+                    plan.md
+                    trace_analysis.md
+                .ralph/
+                    GUARDRAILS.md
+                    PROGRESS.md
+                    SPEC.md
+                skills_tmp/
+                    __init__.py
+                .planning/
+                    PROJECT.md
+                    REQUIREMENTS.md
+                    ROADMAP.md
+                    STATE.md
+                    config.json
+                    research/
+                        ARCHITECTURE.md
+                        FEATURES.md
+                        PITFALLS.md
+                        STACK.md
+                        SUMMARY.md
+                    codebase/
+                        ARCHITECTURE.md
+                        CONCERNS.md
+                        CONVENTIONS.md
+                        INTEGRATIONS.md
+                        STACK.md
+                        STRUCTURE.md
+                        TESTING.md
+                    phases/
+                        04-business-logic-integration/
+                            04-01-PLAN.md
+                            04-01-SUMMARY.md
+                            04-02-PLAN.md
+                            04-02-SUMMARY.md
+                            04-03-PLAN.md
+                            04-03-SUMMARY.md
+                            04-RESEARCH.md
+                            04-VERIFICATION.md
+                        02-core-abstractions/
+                            02-01-PLAN.md
+                            02-01-SUMMARY.md
+                            02-02-PLAN.md
+                            02-02-SUMMARY.md
+                            02-03-PLAN.md
+                            02-03-SUMMARY.md
+                            02-RESEARCH.md
+                        03-test-infrastructure/
+                            03-01-PLAN.md
+                            03-01-SUMMARY.md
+                            03-02-PLAN.md
+                            03-02-SUMMARY.md
+                            03-03-PLAN.md
+                            03-03-SUMMARY.md
+                            03-RESEARCH.md
+                            03-VERIFICATION.md
+                        01-foundation/
+                            01-RESEARCH.md
+                            01-VERIFICATION.md
+                            plans/
+                                01-WAVE1-SUMMARY.md
+                                02-WAVE2-SUMMARY.md
+                                03-WAVE3-SUMMARY.md
+                                PLAN.md
+                                plan-01-exception-base.md
+                                plan-02-logging-config.md
+                                plan-03-serialization.md
+                                plan-04-handler-migration.md
+                                plan-05-config-cleanup.md
+                        05-api-integration/
+                            05-01-PLAN.md
+                            05-01-SUMMARY.md
+                            05-02-PLAN.md
+                            05-02-SUMMARY.md
+                            05-03-PLAN.md
+                            05-03-SUMMARY.md
+                            05-RESEARCH.md
+                            05-VERIFICATION.md
+                    debug/
+                        resolved/
+                            report_template_not_filled.md
+                            scientific_orchestrator_ipc_failures.md
+                .trunk/
+                    .gitignore
+                    trunk.yaml
+                    configs/
+                        .isort.cfg
+                        .markdownlint.yaml
+                        .shellcheckrc
+                        .yamllint.yaml
+                        ruff.toml
+                        svgo.config.mjs
+                knowledge_base/
+                    research-reports/
+                        2410.06277.pdf
+                        2410.06277.txt
+                        arxiv_2103.00079_llm_ad_quantization_report.md
+                        graph_rlm_framework_report.md
+                        graph_rlm_implementation_audit.md
+                        toe-report.md
+                    plans/
+                        implementation_plan.md
+                    outputs/
+                        raw_demo_results/
+                            gen_idea_test_1.md
+                            jan-27-test1.md
+                            meta-workflow-system.md
+                docs/
+                    10 Advanced Feature Engineering Methods.md
+                    2025-02-channels-tree-representations-brain.pdf
+                    2025-11-memory-perception-hebbian-recall-events.pdf
+                    2512.24601v1.md
+                    2512.24601v1.pdf
+                    2601.03204v1.pdf
+                    5 Useful Python Scripts for Effective Feature Engineering.md
+                    A Succinct Guide To Bidirectional Associative Memory (BAM).md
+                    Bootstrapping-Core-Self-via-AI-Feedback.md
+                    Designing-a-Self-Healing-RLM-Framework.md
+                    Enhancing-LLM-Critical-Thinking-and-Reasoning.md
+                    Human-Centered-AI-Interfaces.md
+                    Integrating-RLM-and-Ralph-Wiggum-Loop.md
+                    LCM.pdf
+                    MCP_CODE_COMPARISON.md
+                    MCP_DEVELOPER_GUIDE.md
+                    MCP_FIX_SUMMARY.md
+                    MCP_QUICK_REFERENCE.md
+                    Mapping-Infinite-Rulial-Space.md
+                    Micro-Node-Cognitive-Architecture.md
+                    Neurosciences_New_Atlas.pdf
+                    RLM-LCM-MAS.md
+                    Representation-Engineering-for-LLMs.md
+                    agentic_tdd_spec.md
+                    consciousness.pdf
+                    googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
+                    implementation_plan.md
+                    rlm_prompting_from_paper.md
+                    rlm_self_healing_pipeline.md
+                    rlm_system_alignment.md
+                    schmid-applied-sheaf-theory.pdf
+                    sheaf-theoretic-autonomous-discovery-engine-spec.tex
+                .github/
+                    FUNDING.yml
+                    copilot-instructions.md
+                graph_rlm/
+                    __init__.py
+                    frontend/
+                        .gitignore
+                        README.md
+                        eslint.config.js
+                        index.html
+                        package-lock.json
+                        package.json
+                        postcss.config.js
+                        tsconfig.app.json
+                        tsconfig.json
+                        tsconfig.node.json
+                        vite.config.ts
+                        ui/
+                            .gitignore
+                            README.md
+                            eslint.config.js
+                            index.html
+                            package-lock.json
+                            package.json
+                            postcss.config.js
+                            tsconfig.app.json
+                            tsconfig.json
+                            tsconfig.node.json
+                            vite.config.ts
+                            public/
+                                vite.svg
+                            src/
+                                App.css
+                                App.tsx
+                                api.ts
+                                index.css
+                                main.tsx
+                                hooks/
+                                    useResizeObserver.ts
+                                    useRetryFetch.ts
+                                assets/
+                                    react.svg
+                                components/
+                                    Scratchpad.tsx
+                                    mcp/
+                                        InspectorPanel.tsx
+                                    layout/
+                                        Layout.tsx
+                                        ModelStatus.tsx
+                                        RightSidebar.tsx
+                                        SessionList.tsx
+                                        Sidebar.tsx
+                                    settings/
+                                        SettingsModal.tsx
+                                        SystemPromptEditor.tsx
+                                    graph/
+                                        GraphExplorer.tsx
+                                    chat/
+                                        ChatArea.tsx
+                                        ChatHistory.tsx
+                                        ChatInput.tsx
+                                        ChatInterface.tsx
+                                        GraphCanvas.tsx
+                                        ModelSelector.tsx
+                                        ReplConsole.tsx
+                                        ThinkingBlock.tsx
+                                        ToolBlock.tsx
+                                        graphProcessor.ts
+                        public/
+                            vite.svg
+                    backend/
+                        .coverage
+                        .gitignore
+                        .python-version
+                        __init__.py
+                        main.py
+                        rules.md
+                        uv.lock
+                        mcp_tools/
+                            README.md
+                            __init__.py
+                            advanced_reasoning.py
+                            arxiv_mcp_server.py
+                            ast_mcp_server.py
+                            brave_search.py
+                            chatdag.py
+                            chroma.py
+                            coinbase_trade_assistant.py
+                            community_server_llm_txt.py
+                            context7.py
+                            data_forge.py
+                            desktop_commander.py
+                            diagram_server.py
+                            docker_mcp.py
+                            fermat_mcp.py
+                            gitmcp.py
+                            hybrid_ai.py
+                            mcp_logic.py
+                            mcp_obsidian.py
+                            mcp_server_firecrawl.py
+                            memory.py
+                            neo4j_mcp.py
+                            notebooklm.py
+                            playwright.py
+                            reflective_agent_architecture.py
+                            verifier_graph.py
+                            wolframalpha.py
+                        axioms_dir/
+                            __init__.py
+                            axiom_context_ingestion_advisor.py
+                            axiom_discrete_sheaf_computational_solver.py
+                            axiom_no_hallucinated_execution_validator.py
+                            axiom_paradigm_consistency_checker.py
+                            axiom_rate_limit_resilience_solver.py
+                            axiom_raw_string_integrity_validator.py
+                            axiom_resolve_filing_system_path.py
+                            axiom_rlm_programmatic_interaction_validator.py
+                            axiom_skill_signature_guard_advisor.py
+                            axiom_spectral_topological_optimization_advisor.py
+                            axiom_validate_fidelity_gap.py
+                            axiom_validate_fidelity_high_surprise.py
+                            axiom_validate_signature_binding.py
+                            axiom_verification_first_persistence_solver.py
+                            axiom_verified_path_persistence_solver.py
+                        src/
+                            __init__.py
+                            cli.py
+                            mcp_integration/
+                                __init__.py
+                                circuit.py
+                                client.py
+                                config.py
+                                discovery.py
+                                generator.py
+                                kernel.py
+                                runtime.py
+                                skill_harness.py
+                                skill_storage.py
+                                utils/
+                                    __init__.py
+                                    schema_builder.py
+                                    task_schema.py
+                                core/
+                                    __init__.py
+                                    client.py
+                                    config.py
+                            core/
+                                __init__.py
+                                agent.py
+                                circuit.py
+                                config.py
+                                context_index.py
+                                core.py
+                                db.py
+                                dream.py
+                                endpoints.py
+                                guardrails.py
+                                llm.py
+                                log_stream.py
+                                logger.py
+                                logging.py
+                                manager.py
+                                mcp_runtime.py
+                                meta_agents.py
+                                monitor.py
+                                navigator.py
+                                navigator_config.py
+                                omcd.py
+                                prompts.py
+                                reflexion.py
+                                repe.py
+                                rlm_interface.py
+                                scratchpad_builder.py
+                                semantic_summarizer.py
+                                sheaf.py
+                                state.py
+                                stealth.py
+                                thimac_memory.py
+                                topology.py
+                                trace.py
+                                services/
+                                    __init__.py
+                                    circuit.py
+                                exceptions/
+                                    __init__.py
+                                    base.py
+                                    codes.py
+                                    handlers.py
+                                    types.py
+                        tests/
+                            diagnostic_dreamer.py
+                            print_system_paths.py
+                            test_phase11_stealth.py
+                            test_phase12_docs.py
+                            test_rlm_done_logic.py
+                            test_slac_framework.py
+                            test_string_safety.py
+                            verify_axiom_defaults.py
+                            verify_dreamer_codification.py
+                            verify_dreamer_success_codification.py
+                            verify_kb_proxy.py
+                            verify_kernel_robustness.py
+                            verify_pruning_fix.py
+                        scripts/
+                            regenerate_tools.py
+                            verify_mcp_alias.py
+                            verify_paths.py
+                    data/
+                        repe_cache.json
+                tests/
+                    __init__.py
+                    check_db.py
+                    check_dim.py
+                    conftest.py
+                    debug_db_session.py
+                    debug_llm_response.py
+                    debug_paper_read.py
+                    debug_prompt.py
+                    debug_skills_path.py
+                    diagnose_overlap.py
+                    exam_cli.py
+                    find_invalid_escapes.py
+                    full_prompt.txt
+                    full_prompt_fixed.txt
+                    get_axiom_code.py
+                    inspect_db.py
+                    inspect_logging.py
+                    list_skills_db.py
+                    print_last_thoughts.py
+                    purge_poisonous_axiom.py
+                    regenerate_tools.py
+                    reproduce_dream_warning.py
+                    reproduce_filtering_failure.py
+                    reproduce_metric_persistence.py
+                    reproduce_scratchpad.py
+                    reproduce_system_fixes.py
+                    reproduce_warning.py
+                    rope_research_buffer.txt
+                    test_agent_morph_integration.py
+                    test_agent_save.py
+                    test_auto_pruning.py
+                    test_axiom_query.py
+                    test_axiom_relevance.py
+                    test_cag_basics.py
+                    test_cag_ingest.py
+                    test_create_syntax.py
+                    test_cypher_diag.py
+                    test_cypher_edge.py
+                    test_cypher_fail.py
+                    test_db_correlations.py
+                    test_db_repe.py
+                    test_debug_pipeline.py
+                    test_deccp_suite.py
+                    test_discovery.py
+                    test_drop_syntax.py
+                    test_embed.py
+                    test_emergency_fix.py
+                    test_epistemic_loop_break.py
+                    test_execution_verification.txt
+                    test_falkordb_insert.py
+                    test_graph_logic.py
+                    test_hamiltonian.py
+                    test_import.py
+                    test_indexes.py
+                    test_integrity_upgrade.py
+                    test_kb_proxy.py
+                    test_kernel_kb.py
+                    test_llm_refresh.py
+                    test_llm_resilience.py
+                    test_mcp_reflection.py
+                    test_morphogenesis.py
+                    test_numpy.py
+                    test_phase2_unification.py
+                    test_pydantic_ai.py
+                    test_reflexion.py
+                    test_reliability_fix.py
+                    test_reliability_simple.py
+                    test_repe_discrepancy.py
+                    test_repe_gatekeeper.py
+                    test_repe_state.py
+                    test_report_data_pipeline.py
+                    test_rlm_list_skills.py
+                    test_scratchpad_collapse.py
+                    test_shadowing_fail.py
+                    test_skill_import_fix.py
+                    test_skills.py
+                    test_structural_gestalt.py
+                    test_sync.py
+                    test_thermodynamic_penalty.py
+                    test_thimac_refinement.py
+                    test_tltg_dynamics.py
+                    test_tool_recovery.py
+                    test_validation_protocol.py
+                    test_vec_dist.py
+                    test_vector_syntax.py
+                    verify_agent_recovery.py
+                    verify_agentic_axioms.py
+                    verify_axiom_transparency.py
+                    verify_backend.py
+                    verify_chat_filtering.py
+                    verify_comm_flow.py
+                    verify_curiosity.py
+                    verify_empirical_grounding.py
+                    verify_guardrails.py
+                    verify_harness_logic.py
+                    verify_healing_logic.py
+                    verify_honest_sheaf.py
+                    verify_ipc_fix.py
+                    verify_loop_fix.py
+                    verify_mcp_counts.py
+                    verify_mcp_fix.py
+                    verify_meta_agent_discovery.py
+                    verify_metabolism.py
+                    verify_namespacing.py
+                    verify_output.txt
+                    verify_prompt.py
+                    verify_recall.py
+                    verify_reliability.py
+                    verify_repl_v2.py
+                    verify_routing.py
+                    verify_runtime_refactor.py
+                    verify_scratchpad_compression.py
+                    verify_scratchpad_restore.py
+                    verify_scratchpad_truncation.py
+                    verify_self_healing.py
+                    verify_semantics.py
+                    verify_sheaf.py
+                    verify_skill_import.py
+                    verify_skill_output.py
+                    verify_stateless.py
+                    verify_step_visibility.py
+                    verify_theory.py
+                    verify_traceability.py
+                    verify_truncation_fix.py
+                    legacy/
+                        __init__.py
+                        test_agent.py
+                    unit/
+                        __init__.py
+                        test_config.py
+                        test_logging_lazy.py
+                        test_exceptions/
+                            __init__.py
+                            test_base.py
+                        test_integration/
+                            test_circuit_breaker.py
+                            test_validation.py
+                    integration/
+                        test_mcp_circuit_breaker.py
+                    tests/
+                        __init__.py
+                        probe_index.py
+                        probe_index_2.py
+                        probe_vector.py
+                        test_agent_isolation.py
+                        test_agent_manual.py
+                        test_core_isolation.py
+                        test_mcp_ipc_resolution.py
+                        test_normalization.py
+                        test_recursive_isolation.py
+                        test_repl_auto_await.py
+                        test_sheaf.py
+                        test_skill_proxy.py
+                        test_vectors.py
+                        verify_traceability.py
+                    mocking/
+                        __init__.py
+                        external.py
+                        falkordb.py
+                        llm.py
+                        mocks.py
+                tasks/
+                    lessons.md
+                    todo.md
+                .agent/
+                    rules/
+                        ast-asg-tools.md
+                        tdd.md
+                scripts/
+                    generate_structure.py
+                    purge_orphaned_axioms.py
+                    regenerate_tools.py
+                    verify_cod_summary.py
+                    verify_scratchpad_tui.py
+                    verify_thimac_restoration.py
     falkordb_data/
     CODEAGENCY/
         diagnosis.md
         evaluation.md
         plan.md
         trace_analysis.md
-    .ralph/
-        GUARDRAILS.md
-        PROGRESS.md
-        SPEC.md
     skills_tmp/
         __init__.py
     .planning/
@@ -117,13 +672,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
             svgo.config.mjs
         plugins/
     knowledge_base/
-        research-reports/
-            2410.06277.pdf
-            2410.06277.txt
-            arxiv_2103.00079_llm_ad_quantization_report.md
-            graph_rlm_framework_report.md
-            graph_rlm_implementation_audit.md
-            toe-report.md
         plans/
             implementation_plan.md
         outputs/
@@ -133,6 +681,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                 meta-workflow-system.md
     docs/
         10 Advanced Feature Engineering Methods.md
+        2025-02-channels-tree-representations-brain.pdf
         2025-11-memory-perception-hebbian-recall-events.pdf
         2512.24601v1.md
         2512.24601v1.pdf
@@ -144,14 +693,18 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         Enhancing-LLM-Critical-Thinking-and-Reasoning.md
         Human-Centered-AI-Interfaces.md
         Integrating-RLM-and-Ralph-Wiggum-Loop.md
+        LCM.pdf
         MCP_CODE_COMPARISON.md
         MCP_DEVELOPER_GUIDE.md
         MCP_FIX_SUMMARY.md
         MCP_QUICK_REFERENCE.md
         Mapping-Infinite-Rulial-Space.md
         Micro-Node-Cognitive-Architecture.md
+        Neurosciences_New_Atlas.pdf
+        RLM-LCM-MAS.md
         Representation-Engineering-for-LLMs.md
         agentic_tdd_spec.md
+        consciousness.pdf
         googlelangextract A Python library for extracting structured information from unstructured text using LLMs with precise source grounding and interactive visualization..md
         implementation_plan.md
         rlm_prompting_from_paper.md
@@ -272,17 +825,14 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                 __init__.py
                 axiom_context_ingestion_advisor.py
                 axiom_discrete_sheaf_computational_solver.py
-                axiom_latex_regex_escape_solver.py
                 axiom_no_hallucinated_execution_validator.py
                 axiom_paradigm_consistency_checker.py
                 axiom_rate_limit_resilience_solver.py
                 axiom_raw_string_integrity_validator.py
                 axiom_resolve_filing_system_path.py
-                axiom_rlm_paradigm_compliance_validator.py
                 axiom_rlm_programmatic_interaction_validator.py
                 axiom_skill_signature_guard_advisor.py
                 axiom_spectral_topological_optimization_advisor.py
-                axiom_validate_epistemic_integrity.py
                 axiom_validate_fidelity_gap.py
                 axiom_validate_fidelity_high_surprise.py
                 axiom_validate_signature_binding.py
@@ -291,6 +841,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
             src/
                 __init__.py
                 cli.py
+                test_dreamer_flow.py
                 mcp_integration/
                     __init__.py
                     circuit.py
@@ -302,7 +853,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                     runtime.py
                     skill_harness.py
                     skill_storage.py
-                    utils.py
                     utils/
                         __init__.py
                         schema_builder.py
@@ -313,6 +863,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                         config.py
                 core/
                     __init__.py
+                    activation.py
                     agent.py
                     circuit.py
                     config.py
@@ -330,6 +881,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                     mcp_runtime.py
                     meta_agents.py
                     monitor.py
+                    nal.py
                     navigator.py
                     navigator_config.py
                     omcd.py
@@ -338,8 +890,11 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
                     repe.py
                     rlm_interface.py
                     scratchpad_builder.py
+                    semantic_summarizer.py
                     sheaf.py
+                    slac.py
                     state.py
+                    stealth.py
                     thimac_memory.py
                     topology.py
                     trace.py
@@ -355,18 +910,31 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
             tests/
                 diagnostic_dreamer.py
                 print_system_paths.py
+                test_knot_propagation.py
+                test_meta_synthesis.py
+                test_phase11_stealth.py
+                test_phase12_docs.py
                 test_rlm_done_logic.py
+                test_sheaf_nars.py
                 test_slac_framework.py
+                test_slac_integration.py
                 test_string_safety.py
                 verify_axiom_defaults.py
+                verify_dreamer_agent_flow.py
                 verify_dreamer_codification.py
                 verify_dreamer_success_codification.py
                 verify_kb_proxy.py
                 verify_kernel_robustness.py
+                verify_pruning_fix.py
+            scripts/
+                regenerate_tools.py
+                verify_mcp_alias.py
+                verify_paths.py
         data/
             repe_cache.json
     tests/
         __init__.py
+        check_db.py
         check_dim.py
         conftest.py
         debug_db_session.py
@@ -383,15 +951,20 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         inspect_db.py
         inspect_logging.py
         list_skills_db.py
+        print_last_thoughts.py
         purge_poisonous_axiom.py
         regenerate_tools.py
         reproduce_dream_warning.py
         reproduce_filtering_failure.py
         reproduce_metric_persistence.py
         reproduce_scratchpad.py
+        reproduce_system_fixes.py
         reproduce_warning.py
         rope_research_buffer.txt
+        test_activation.py
         test_agent_morph_integration.py
+        test_agent_save.py
+        test_auto_pruning.py
         test_axiom_query.py
         test_axiom_relevance.py
         test_cag_basics.py
@@ -400,31 +973,51 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         test_cypher_diag.py
         test_cypher_edge.py
         test_cypher_fail.py
+        test_db_correlations.py
+        test_db_repe.py
         test_debug_pipeline.py
         test_deccp_suite.py
+        test_directed_topology.py
         test_discovery.py
         test_drop_syntax.py
+        test_embed.py
         test_emergency_fix.py
         test_epistemic_loop_break.py
         test_execution_verification.txt
+        test_falkordb_insert.py
+        test_graph_logic.py
+        test_hamiltonian.py
         test_import.py
         test_indexes.py
         test_integrity_upgrade.py
+        test_kb_proxy.py
         test_kernel_kb.py
+        test_llm_refresh.py
         test_llm_resilience.py
         test_mcp_reflection.py
         test_morphogenesis.py
+        test_nal.py
         test_numpy.py
+        test_phase2_unification.py
         test_pydantic_ai.py
         test_reflexion.py
+        test_reliability_fix.py
+        test_reliability_simple.py
+        test_repe_discrepancy.py
         test_repe_gatekeeper.py
+        test_repe_state.py
         test_report_data_pipeline.py
         test_rlm_list_skills.py
         test_scratchpad_collapse.py
         test_shadowing_fail.py
         test_skill_import_fix.py
         test_skills.py
+        test_soar_decision.py
+        test_structural_gestalt.py
         test_sync.py
+        test_thermodynamic_penalty.py
+        test_thimac_refinement.py
+        test_tltg_dynamics.py
         test_tool_recovery.py
         test_validation_protocol.py
         test_vec_dist.py
@@ -436,16 +1029,21 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         verify_chat_filtering.py
         verify_comm_flow.py
         verify_curiosity.py
+        verify_empirical_grounding.py
+        verify_guardrails.py
         verify_harness_logic.py
         verify_healing_logic.py
         verify_honest_sheaf.py
         verify_ipc_fix.py
         verify_loop_fix.py
         verify_mcp_counts.py
+        verify_mcp_fix.py
         verify_meta_agent_discovery.py
+        verify_metabolism.py
         verify_namespacing.py
         verify_output.txt
         verify_prompt.py
+        verify_recall.py
         verify_reliability.py
         verify_repl_v2.py
         verify_routing.py
@@ -454,6 +1052,7 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         verify_scratchpad_restore.py
         verify_scratchpad_truncation.py
         verify_self_healing.py
+        verify_semantics.py
         verify_sheaf.py
         verify_skill_import.py
         verify_skill_output.py
@@ -499,6 +1098,9 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
             falkordb.py
             llm.py
             mocks.py
+    tasks/
+        lessons.md
+        todo.md
     .agent/
         rules/
             ast-asg-tools.md
@@ -507,3 +1109,6 @@ Project Structure for: /home/ty/Repositories/ai_workspace/graph-rlm
         generate_structure.py
         purge_orphaned_axioms.py
         regenerate_tools.py
+        verify_cod_summary.py
+        verify_scratchpad_tui.py
+        verify_thimac_restoration.py

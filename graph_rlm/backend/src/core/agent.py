@@ -6,7 +6,8 @@ Handles the core execution loop, recursive querying, and tool integration.
 import asyncio
 import datetime
 import hashlib
-import importlib.util
+import json
+import logging
 import queue
 import re
 import shutil
@@ -22,7 +23,9 @@ import httpx
 import redis
 
 from ..mcp_integration.runtime import AgentRuntime, set_stop_event
-from ..mcp_integration.skill_storage import get_skills_manager
+
+# Lazy import for get_skills_manager to prevent ImportError in restricted environments
+# from ..mcp_integration.skill_storage import get_skills_manager
 from .circuit import (
     CircuitOpenError,
     generate_correlation_id,
@@ -35,11 +38,14 @@ from .exceptions import ValidationError
 from .exceptions.codes import ErrorCode
 from .llm import llm
 from .logger import get_logger
-from .mcp_runtime import get_mcp_server_names, is_mcp_available
+from .mcp_runtime import (
+    get_mcp_server_names,
+    is_mcp_available,
+    is_skills_available,
+)
 from .meta_agents import AgentRole, meta_agents
 from .navigator import Navigator
-
-# from .prompts import build_system_prompt
+from .prompts import build_system_prompt
 from .reflexion import intelli_synth
 from .rlm_interface import RLMInterface
 from .scratchpad_builder import scratchpad_builder
@@ -55,18 +61,22 @@ from .state import (
 from .thimac_memory import ThimacIntention, ThimacMemory
 from .trace import register_monitor, trace_action
 
+
+def get_skills_manager():
+    """Proxy for lazy loading skills manager to support existing tests and optionality."""
+    try:
+        from ..mcp_integration.skill_storage import get_skills_manager as _get_mgr
+
+        return _get_mgr()
+    except ImportError as e:
+        raise ImportError(f"Skills manager not available: {e}") from e
+
+
 if TYPE_CHECKING:
     from graph_rlm.backend.src.mcp_integration.skill_storage import SkillsManager
 
 
-# Skills System
-def is_skills_available():
-    """Defensive check for Skills system availability."""
-    return (
-        importlib.util.find_spec("graph_rlm.backend.src.mcp_integration.skill_storage")
-        is not None
-        or importlib.util.find_spec("mcp_integration.skill_storage") is not None
-    )
+# Skills System removed - now imported from .mcp_runtime
 
 
 logger = get_logger("graph_rlm.agent")
@@ -203,7 +213,13 @@ class Agent:
         self.round_started_at: int = 0
 
         if is_skills_available():
-            self.skills_manager = get_skills_manager()
+            try:
+                self.skills_manager = get_skills_manager()
+            except ImportError:
+                logger.warning(
+                    "Skills system reported as available but skill_storage could not be imported."
+                )
+                self.skills_manager = None
         else:
             self.skills_manager = None
 
@@ -509,13 +525,16 @@ class Agent:
             "thinking", content=f"\n📖 Agent: Reading skill '{name}' source..."
         )
         try:
-            mgr = get_skills_manager()
-            skill = mgr.get_skill(name)
-            if not skill:
-                self.emit_event("error", content=f"Skill '{name}' not found.")
-                return f"Error: Skill '{name}' not found."
-            return skill["code"]
-        except (AttributeError, KeyError, OSError, RuntimeError) as e:
+            if is_skills_available():
+                mgr = get_skills_manager()
+                skill = mgr.get_skill(name)
+                if not skill:
+                    self.emit_event("error", content=f"Skill '{name}' not found.")
+                    return f"Error: Skill '{name}' not found."
+                return skill["code"]
+            else:
+                return "Error: Skills system not available."
+        except (ImportError, AttributeError, KeyError, OSError, RuntimeError) as e:
             self.emit_event(
                 "error", content=f"Error reading skill (state/io error): {e}"
             )
@@ -588,6 +607,11 @@ class Agent:
         slac_bar: Optional[str] = None,
         slac_critique: Optional[str] = None,
         h0_rank: Optional[int] = None,
+        repe_shakiness: Optional[float] = None,
+        repe_confluence: Optional[float] = None,
+        repe_evasion: Optional[float] = None,
+        repe_freedom: Optional[float] = None,
+        repe_rationale: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Helper to ingest a thought node into Thimac memory and return classification."""
         if h0_rank is None:
@@ -624,8 +648,19 @@ class Agent:
                 "confidence": 0.9,
                 "rtm_depth": 0,
                 "h0_rank": h0_rank,
-                "metadata": metadata or {},
+                "metadata": dict(metadata or {}),
+                "repe_shakiness": repe_shakiness,
+                "repe_confluence": repe_confluence,
+                "repe_evasion": repe_evasion,
+                "repe_freedom": repe_freedom,
+                "repe_rationale": repe_rationale,
             }
+            # Inject rationales into metadata for persistent storage
+            t_meta = thimac_thought_data["metadata"]
+            if repe_rationale:
+                t_meta["repe_rationale"] = repe_rationale
+            if slac_critique:
+                t_meta["sheaf_rationale"] = slac_critique
 
             # Generate Semantic Gist (Phase 4.6)
             semantic_gist = ""
@@ -652,6 +687,10 @@ class Agent:
                 frequency=nars_f,
                 confidence=nars_c,
                 h0_rank=h0_rank,
+                repe_shakiness=repe_shakiness,
+                repe_confluence=repe_confluence,
+                repe_evasion=repe_evasion,
+                repe_freedom=repe_freedom,
             )
 
             # Warm Persistence: Immediate write to DB for UI/refresh consistency
@@ -685,7 +724,13 @@ class Agent:
                     slac_bar=slac_bar,
                     slac_critique=slac_critique,
                     h0_rank=h0_rank,
+                    repe_shakiness=repe_shakiness,
+                    repe_confluence=repe_confluence,
+                    repe_evasion=repe_evasion,
+                    repe_freedom=repe_freedom,
                     utility_score=event.utility_score if event else None,
+                    tool_calls=tool_calls,
+                    metadata_json=json.dumps(thimac_thought_data.get("metadata", {})),
                     validate=False,  # Skip redundant guardrails
                 )
             except (AttributeError, RuntimeError, ValueError) as db_err:
@@ -762,6 +807,7 @@ class Agent:
                     step_summary=event.summary,
                     h0_rank=event.h0_rank,
                     utility_score=event.utility_score,
+                    tool_calls=event.tool_calls,
                     validate=False,  # Skip guardrails during flush
                 )
                 flushed_ids.add(event.thought_id)
@@ -805,12 +851,22 @@ class Agent:
         slac_bar: Optional[str] = None,
         slac_critique: Optional[str] = None,
         h0_rank: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """Standardized helper for materializing system-level reasoning in the graph."""
         if h0_rank is None:
             state = agent_state.get()
             if state:
                 h0_rank = getattr(state, "last_h0_rank", 1)
+
+        _meta = metadata or {}
+        _meta.update(
+            {
+                "analysis": analysis,
+                "validate": validate,
+                "root_session_id": root_session_id,
+            }
+        )
 
         thought_id = thought_id or str(uuid.uuid4())
         try:
@@ -841,11 +897,7 @@ class Agent:
                 slac_critique=slac_critique
                 or (analysis.get("critique") if analysis else None),
                 h0_rank=h0_rank,
-                metadata={
-                    "analysis": analysis,
-                    "validate": validate,
-                    "root_session_id": root_session_id,
-                },
+                metadata=_meta,
             )
 
             # Note: The system node is now purely in Thimac RAM.
@@ -1316,7 +1368,12 @@ class Agent:
         """Helper to generate sub-agent profile with timeout."""
         try:
             mcp_names = get_mcp_server_names() if is_mcp_available() else []
-            skills_mgr = get_skills_manager() if is_mcp_available() else None
+            skills_mgr = None
+            if is_mcp_available() and is_skills_available():
+                try:
+                    skills_mgr = get_skills_manager()
+                except ImportError:
+                    pass
 
             task_profile = await asyncio.wait_for(
                 meta_agents.generate_sub_agent_profile(
@@ -1373,7 +1430,6 @@ class Agent:
         dashboard_data = await self._get_dashboard_metrics(exec_state, session_id)
 
         # Build System Prompt - HIGHER STABILITY: State remains in User Message ONLY
-        from .prompts import build_system_prompt
 
         system_prompt = await build_system_prompt(
             skills_manager=self.skills_manager,
@@ -1442,20 +1498,29 @@ class Agent:
 
         # Hot Seat Injection
         if getattr(self, "last_dream_insight", None):
+            rejected_code = getattr(self, "last_rejected_result", None)
+            code_context = (
+                f"\nYour Rejected Candidate:\n```\n{rejected_code}\n```\n"
+                if rejected_code
+                else ""
+            )
+
             system_prompt += (
                 "\n\n--- ⚠️ HOT SEAT: EPISTEMIC RECOVERY ACTIVE ---\n"
                 f"Your previous response was REJECTED by the Dreamer Gatekeeper.\n"
                 f"CRITIQUE: {self.last_dream_insight}\n"
+                f"{code_context}"
                 "Address the contradiction and provide a GROUNDED response.\n---"
             )
 
         # Synthesis Hardening
         if getattr(self, "synthesis_triggered", False):
+            task_prompt = turn_ctx.get("prompt", "")
             # If we hit forced synthesis but the role is Synthesizer, allow Gap investigation
             if task_profile.get("role") == AgentRole.SYNTHESIZER:
-                system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL INTEGRATION mode. Focus on the synthesized response. You may use tools ONLY to investigate CRITICAL GAPS identified in your analysis."
+                system_prompt += f"\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL INTEGRATION mode. You MUST answer the USER's actual goal: '{task_prompt}'. Do NOT output a meta-report of how you fixed tools unless explicitly asked. Focus on the actual data/answers."
             else:
-                system_prompt += "\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL SUMMARY mode. NO tools permitted."
+                system_prompt += f"\n\n--- ⚠️ SYNTHESIS ENFORCEMENT ---\nFINAL SUMMARY mode. NO tools permitted. Focus entirely on answering: '{task_prompt}'"
 
         # --- SOAR COGNITIVE CYCLE GUIDANCE ---
         # Every 3 steps (or on first step), run SOAR to guide the LLM
@@ -1607,20 +1672,88 @@ class Agent:
                     self.emit_event("token_usage", data=usage_data, is_internal=True)
 
                 llm_config = self.llm.config
-                if llm_config.get("provider") == "openrouter":
-                    content = [
+                provider = llm_config.get("provider")
+
+                # --- MolHIT Phase 1: Topological Generation ---
+                self.emit_event(
+                    "debug_thought",
+                    content="[MolHIT] Phase 1: Topological Diffusion...",
+                )
+                topo_sys = system_prompt + (
+                    "\n\n[MOLHIT DIFFUSION: PHASE 1 - TOPOLOGY]\n"
+                    "Generate the structural intent of your next action.\n"
+                    "1. Provide a brief description of the goal.\n"
+                    "2. List the specific tools or skills you plan to use.\n"
+                    "Do NOT write any Python code yet. Format strictly as:\n"
+                    "INTENT: <description>\n"
+                    "TOOLS: <tool1, tool2, ...>"
+                )
+
+                if provider == "openrouter":
+                    topo_messages = [
                         {
-                            "type": "text",
-                            "text": system_prompt,
-                            "cache_control": {"type": "ephemeral"},
-                        }
+                            "role": "system",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": topo_sys,
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ],
+                        },
+                        {"role": "user", "content": temp_context},
                     ]
-                    messages = [
-                        {"role": "system", "content": content},
+                    topo_response = await protected_llm_generate(
+                        prompt=topo_messages,
+                        system=None,
+                        stream=False,
+                        on_usage=on_usage_update,
+                    )
+                else:
+                    topo_response = await protected_llm_generate(
+                        prompt=temp_context,
+                        system=topo_sys,
+                        stream=False,
+                        on_usage=on_usage_update,
+                    )
+
+                # --- MolHIT Phase 2: Axiomatic Validation ---
+                self.emit_event(
+                    "debug_thought",
+                    content=f"[MolHIT] Phase 2: Axiomatic Validation...\n{topo_response[:200]}",
+                )
+                # We validate the topological intent as an intermediate grounding step
+                # In the future, this hooks into the AxiomsManager.find_similar_axioms directly to block bad topology.
+                validation_injection = f"\n[VALIDATED TOPOLOGY]:\n{topo_response}\n"
+
+                # --- MolHIT Phase 3: Node Instantiation (Code Generation) ---
+                self.emit_event(
+                    "debug_thought",
+                    content="[MolHIT] Phase 3: Node Instantiation (Code Generation)...",
+                )
+                inst_sys = system_prompt + (
+                    f"\n\n[MOLHIT DIFFUSION: PHASE 3 - INSTANTIATION]\n"
+                    f"Your structurally validated intent is:\n{validation_injection}\n"
+                    f"Now, generate the complete Python code block to instantiate this intent. "
+                    f"Follow all system formatting instructions carefully."
+                )
+
+                if provider == "openrouter":
+                    inst_messages = [
+                        {
+                            "role": "system",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": inst_sys,
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ],
+                        },
                         {"role": "user", "content": temp_context},
                     ]
                     response_text = await protected_llm_generate(
-                        prompt=messages,
+                        prompt=inst_messages,
                         system=None,
                         stream=False,
                         stop=["</invoke>", "<|endoftext|>"],
@@ -1629,7 +1762,7 @@ class Agent:
                 else:
                     response_text = await protected_llm_generate(
                         prompt=temp_context,
-                        system=system_prompt,
+                        system=inst_sys,
                         stream=False,
                         stop=["</invoke>", "<|endoftext|>"],
                         on_usage=on_usage_update,
@@ -1685,6 +1818,7 @@ class Agent:
                     ),
                     turn_id=self.current_turn,
                     step_id=step,
+                    metadata={"node_type": "HYDROGEN_BOND"},
                 )
 
                 temp_context += f"\n\n[SYSTEM ERROR]: {correction['message']}\nHINT: {correction['hint']}\nFix and retry."
@@ -2111,6 +2245,51 @@ class Agent:
             )
             if not response_text:
                 break
+
+            # 1.5 Real-time RepE Scan & Sync
+            from .repe import repe
+
+            embedding = await self.llm.get_embedding(response_text)
+            if embedding:
+                repe_scan = repe.scan_thought(embedding, text=response_text)
+                repe_scores = repe_scan.get("scores", {})
+                repe_rationale = repe_scan.get("rationale")
+            else:
+                repe_scores = {}
+                repe_rationale = None
+
+            # Materialize the thinking node immediately for UI real-time awareness
+            thought_id = str(uuid.uuid4())
+            await self._sync_thimac(
+                thought_id=thought_id,
+                prompt=response_text,
+                status="thinking",
+                result=None,
+                step=step,
+                session_id=session_id,
+                round_id=exec_ctx["round_id"],
+                turn_id=self.current_turn,
+                repl_id=exec_ctx["repl_id"],
+                embedding=embedding,
+                repe_shakiness=repe_scores.get("Shakiness"),
+                repe_confluence=repe_scores.get("Confluence"),
+                repe_evasion=repe_scores.get("Evasion"),
+                repe_freedom=repe_scores.get("Freedom"),
+                repe_rationale=repe_rationale,
+                parent_id=self.current_thought_id,
+            )
+            self.current_thought_id = thought_id
+
+            # Refresh scratchpad immediately to push the 'thinking' node to UI
+            exec_ctx["pad"] = await self._refresh_scratchpad(
+                session_id,
+                exec_ctx["root_id"],
+                prompt,
+                step,
+                exec_ctx["max_steps"],
+                exec_ctx["round_id"],
+                execution_state=agent_state.get(),
+            )
 
             # 2. Response Processing
             rlm_ctx = RLMInterface(

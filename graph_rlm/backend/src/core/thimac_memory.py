@@ -27,17 +27,17 @@ from typing import Any, Dict, List, Optional, Tuple
 logger = logging.getLogger("graph_rlm.thimac")
 
 # Lazy import to avoid circular imports at module level
-_activation_engine = None
+_ACTIVATION_ENGINE = None
 
 
 def _get_activation_engine():
     """Lazy singleton for the ACT-R activation engine."""
-    global _activation_engine
-    if _activation_engine is None:
+    global _ACTIVATION_ENGINE
+    if _ACTIVATION_ENGINE is None:
         from .activation import ActivationEngine
 
-        _activation_engine = ActivationEngine()
-    return _activation_engine
+        _ACTIVATION_ENGINE = ActivationEngine()
+    return _ACTIVATION_ENGINE
 
 
 class ThimacOperation(str, Enum):
@@ -238,6 +238,11 @@ class ThimacMemory:
         frequency: Optional[float] = None,
         confidence: Optional[float] = None,
         h0_rank: Optional[int] = None,
+        repe_shakiness: Optional[float] = None,
+        repe_confluence: Optional[float] = None,
+        repe_evasion: Optional[float] = None,
+        repe_freedom: Optional[float] = None,
+        repe_rationale: Optional[str] = None,
     ) -> ThimacEvent:
         """Classifies a thought and updates session state."""
         op, op_reason = self._classify_operation(thought, tool_calls)
@@ -268,13 +273,17 @@ class ThimacMemory:
             intent_type=intent_type or self._align_intent(op, lvl, tool_calls),
             code_hash=thought.get("code_hash")
             or thought.get("metadata", {}).get("code_hash"),
-            repe_shakiness=thought.get("repe_shakiness")
+            repe_shakiness=repe_shakiness
+            or thought.get("repe_shakiness")
             or thought.get("metadata", {}).get("repe_shakiness"),
-            repe_confluence=thought.get("repe_confluence")
+            repe_confluence=repe_confluence
+            or thought.get("repe_confluence")
             or thought.get("metadata", {}).get("repe_confluence"),
-            repe_evasion=thought.get("repe_evasion")
+            repe_evasion=repe_evasion
+            or thought.get("repe_evasion")
             or thought.get("metadata", {}).get("repe_evasion"),
-            repe_freedom=thought.get("repe_freedom")
+            repe_freedom=repe_freedom
+            or thought.get("repe_freedom")
             or thought.get("metadata", {}).get("repe_freedom"),
             embedding=embedding,
             parent_id=parent_id,
@@ -285,6 +294,12 @@ class ThimacMemory:
             omcd_score=omcd_score,
             metadata=thought.get("metadata", {}),
         )
+
+        # Inject rationales into metadata if provided
+        if repe_rationale:
+            event.metadata["repe_rationale"] = repe_rationale
+        if thought.get("metadata", {}).get("sheaf_rationale"):
+            event.metadata["sheaf_rationale"] = thought["metadata"]["sheaf_rationale"]
 
         # --- THERMODYNAMIC ENGINE ---
         # 1. Update Inference Pressure (Pi)
@@ -395,9 +410,17 @@ class ThimacMemory:
             # We take the 4 most recent siblings
             to_fold = sibling_events[-K:]
 
-            # Concatenate summaries for metadata
-            folded_summaries = "; ".join(
-                [e.summary.split("|")[-1].strip() for e in to_fold]
+            # Latent Space Compaction via Attention Matching (ArXiv 2602.16284)
+            nodes_to_compact = []
+            for e in to_fold:
+                d = e.to_dict()
+                d["vec"] = e.embedding
+                nodes_to_compact.append(d)
+
+            from .topology import compute_attention_matched_embedding
+
+            compacted_embedding = compute_attention_matched_embedding(
+                nodes_to_compact, dim=3072
             )
 
             # Create the folded event
@@ -407,13 +430,18 @@ class ThimacMemory:
                 operation=ThimacOperation.PROCESS,
                 level=ThimacLevel.SUBSISTENCE,
                 status="success",
-                operation_reason="RTM Hierarchical Folding",
-                summary=f"[RTM D:{depth+1}] | Summary of previous {K} segments",
-                semantic_gist=f"Folded summary: {folded_summaries}",
+                operation_reason="RTM Hierarchical Latent Compaction",
+                summary=f"[RTM D:{depth+1}] | Latent Context Block of previous {K} segments",
+                semantic_gist="Latent Spatial Block (Attention matched)",
                 rtm_depth=depth + 1,
                 session_id=to_fold[0].session_id,
                 root_session_id=to_fold[0].root_session_id,
                 timestamp=int(time.time() * 1000),
+                embedding=(
+                    compacted_embedding.tolist()
+                    if compacted_embedding is not None
+                    else None
+                ),
             )
 
             # Store the folded event
@@ -681,15 +709,60 @@ class ThimacMemory:
             self.subsistence[-2:] if len(self.subsistence) >= 2 else self.subsistence
         )
 
-        # Merge, deduplicate, and sort by original timestamp (implied by insertion order)
-        seen_ids = set()
-        new_sub = []
+        # Ensure deduplicated list of survivors
+        seen = set()
+        survivors = []
         for s in persistent + activated + grounding + latest:
-            if s.thought_id not in seen_ids:
-                new_sub.append(s)
-                seen_ids.add(s.thought_id)
+            if s.thought_id not in seen:
+                survivors.append(s)
+                seen.add(s.thought_id)
 
-        self.subsistence = new_sub[-15:]
+        # Squashing dropped nodes (ArXiv 2602.16284 Latent History Block)
+        pruned_nodes = [s for s in self.subsistence if s.thought_id not in seen]
+        if pruned_nodes:
+            nodes_to_compact = []
+            for e in pruned_nodes:
+                d = e.to_dict()
+                d["vec"] = e.embedding
+                nodes_to_compact.append(d)
+
+            from .topology import compute_attention_matched_embedding
+
+            compacted_embedding = compute_attention_matched_embedding(
+                nodes_to_compact, dim=3072
+            )
+
+            latent_block_id = f"latent-block-{int(time.time())}"
+            latent_block_event = ThimacEvent(
+                thought_id=latent_block_id,
+                operation=ThimacOperation.PROCESS,
+                level=ThimacLevel.SUBSISTENCE,
+                status="success",
+                operation_reason="Topological Stress Compaction",
+                summary=f"Squashed {len(pruned_nodes)} memory nodes.",
+                semantic_gist=f"[LATENT BLOCK] Compacting attention mass of {len(pruned_nodes)} abandoned states.",
+                rtm_depth=0,
+                session_id=(
+                    self.subsistence[-1].session_id if self.subsistence else "SYS"
+                ),
+                root_session_id=(
+                    self.subsistence[-1].root_session_id if self.subsistence else "SYS"
+                ),
+                timestamp=int(time.time() * 1000),
+                embedding=(
+                    compacted_embedding.tolist()
+                    if compacted_embedding is not None
+                    else None
+                ),
+            )
+            logger.info(
+                "Squashed %d pruned nodes into Latent Block Cache %s",
+                len(pruned_nodes),
+                latent_block_id,
+            )
+            survivors.append(latent_block_event)
+
+        self.subsistence = sorted(survivors, key=lambda x: x.timestamp or 0)[-15:]
 
         # Sync all_events
         kept_ids = {e.thought_id for e in self.existence + self.subsistence}

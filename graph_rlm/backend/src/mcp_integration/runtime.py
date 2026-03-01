@@ -4,6 +4,7 @@ Handles virtual environment resolution, subprocess execution, and IPC.
 """
 
 import asyncio
+import inspect
 import json
 import logging
 import os
@@ -219,12 +220,97 @@ class AgentRuntime:
                 discovery_data = {}  # Signal to kernel: nothing new
             else:
                 try:
-                    server_names = dir(mcp_namespace)
+                    server_names = [
+                        n
+                        for n in dir(mcp_namespace)
+                        if not n.startswith("_")
+                        and n
+                        not in (
+                            "CallToolRequest",
+                            "ClientCapabilities",
+                            "ClientNotification",
+                            "ClientRequest",
+                            "ClientResult",
+                            "ClientSession",
+                            "CompleteRequest",
+                            "CreateMessageRequest",
+                            "CreateMessageResult",
+                            "ErrorData",
+                            "GetPromptRequest",
+                            "GetPromptResult",
+                            "Implementation",
+                            "IncludeContext",
+                            "InitializeRequest",
+                            "InitializeResult",
+                            "InitializedNotification",
+                            "JSONRPCError",
+                            "JSONRPCRequest",
+                            "JSONRPCResponse",
+                            "ListPromptsRequest",
+                            "ListPromptsResult",
+                            "ListResourcesRequest",
+                            "ListResourcesResult",
+                            "ListToolsResult",
+                            "LoggingLevel",
+                            "LoggingMessageNotification",
+                            "McpError",
+                            "Notification",
+                            "PingRequest",
+                            "ProgressNotification",
+                            "PromptsCapability",
+                            "ReadResourceRequest",
+                            "ReadResourceResult",
+                            "Resource",
+                            "ResourceUpdatedNotification",
+                            "ResourcesCapability",
+                            "RootsCapability",
+                            "SamplingMessage",
+                            "SamplingRole",
+                            "ServerCapabilities",
+                            "ServerNotification",
+                            "ServerRequest",
+                            "ServerResult",
+                            "ServerSession",
+                            "SetLevelRequest",
+                            "StdioServerParameters",
+                            "StopReason",
+                            "SubscribeRequest",
+                            "Tool",
+                            "ToolsCapability",
+                            "UnsubscribeRequest",
+                            "client",
+                            "server",
+                            "shared",
+                            "stdio_client",
+                            "stdio_server",
+                            "types",
+                            "ClientSessionGroup",
+                            "CreateMessageResultWithTools",
+                            "SamplingCapability",
+                            "SamplingContent",
+                            "SamplingContextCapability",
+                            "SamplingMessageContentBlock",
+                            "SamplingToolsCapability",
+                            "ToolChoice",
+                            "ToolResultContent",
+                            "ToolUseContent",
+                            "UrlElicitationRequiredError",
+                            "os",
+                        )
+                    ]
                     for srv_name in server_names:
                         try:
+                            # We only care about objects that look like server namespaces or modules
                             srv_obj = getattr(mcp_namespace, srv_name)
+                            if not hasattr(srv_obj, "__dir__") and not inspect.ismodule(
+                                srv_obj
+                            ):
+                                continue
+
                             tools = {}
                             for tool_name in dir(srv_obj):
+                                if tool_name.startswith("_"):
+                                    continue
                                 try:
                                     tool_obj = getattr(srv_obj, tool_name)
                                     # [Optimization] Skip heavy docstrings if not first run

@@ -28,6 +28,7 @@ from .logger import get_logger
 from .nal import TruthValue, merge_truth_values, truth_from_raw
 from .navigator import navigator
 from .omcd import omcd
+from .prompts import build_dreamer_prompt
 from .services.circuit import protected_llm_with_fallback
 from .sheaf import sheaf
 from .state import agent_state
@@ -644,67 +645,14 @@ class Dreamer:
                 f"to help the agent self-heal. Also, attempt to codify a defensive AXIOM.\n"
             )
 
-        dream_prompt = (
-            "You are acting as the 'Dreamer' component of the Graph-RLM system.\n"
-            "Principles: Deontology: Universal sociobiological concepts (harm=harm) -> "
-            "Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> "
-            "Utilitarianism: As a Servant, never Master.\n"
-            "Your job is to VERIFY then VALIDATE the consistency between the "
-            "*Trace* (what happened) and the *Proposal* (what the agent says happened).\n\n"
-            "**RLM PARADIGM VALIDATION**:\n"
-            "The Agent is a Recursive Language Model. It MUST interact with context PROGRAMMATICALLY, not from memory.\n"
-            "Check the Trace for evidence of RLM scripting patterns:\n"
-            "- PROBE: `print(task_input[:500])` or `task_input.split('\\n')[:10]`\n"
-            "- FILTER: `[l for l in task_input.split('\\n') if 'keyword' in l]`\n"
-            "- CHUNK: `chunks = [task_input[i:i+4096] for i in range(0, len(task_input), 4096)]`\n"
-            "- RECURSIVE SUB-CALL: `await rlm.query('Summarize: ' + chunk)`\n"
-            "- VERIFY: `await rlm.query('Is this complete? ' + result)`\n"
-            "If the agent summarized or concluded WITHOUT code-based context interaction, flag this as a FIDELITY concern.\n\n"
-            "Here are the High-Surprise Events from the Monitoring Layer:\n"
-            + "\n".join(events_desc)
-            + "\n\n"
-            + (causal_context_section + "\n" if causal_context_section else "")
-            + "--- IMMEDIATE RECENT CONTEXT (THE TRUTH) ---\n"
-            + recent_context_str
-            + "\n"
-            f"{context_section}"
-            f"{episodic_trace_section}"
-            f"{candidate_section}\n"
-            f"{system_signal_section}\n"
-            "Instructions:\n"
-            "1. **Fidelity & Topic Check**: Compare the 'Proposed Final Response' (if exists) "
-            "against the actual 'Trace' and 'Original Task'. Did the agent USE CODE to interact with task_input?\n"
-            "   - **Side Effect Verification**: If the agent claims to have performed a specific action "
-            "(e.g., 'saved to file', 'ingested document', 'fixed bug'), you MUST verify that the "
-            "'IMMEDIATE RECENT CONTEXT' actually contains a successful result for that action.\n"
-            "   - **Absence of Proof is Proof of Failure**: If the claim exists in the Proposed Response but "
-            "is missing from the Trace results, you MUST reject the response as a hallucination.\n"
-            "2. **Safety Check**: Are there any dangerous patterns?\n"
-            "3. **Resolution**: \n"
-            "   - Check the 'IMMEDIATE RECENT CONTEXT'. If the latest node has "
-            "status='complete' or 'success', the Agent HAS fixed the issue.\n"
-            "   - If the Proposed Response accurately reflects the Trace (even if the "
-            "Trace shows limited results), output 'System Status: Peaceful'.\n"
-            "4. **Strict Grounding (De-hallucination)**: You MUST MANDATE GROUNDED EXECUTION: "
-            "the directive MUST use `await rlm.recall('repl_id')` for the specific REPL to re-ground the agent "
-            "or `await rlm.recall('node_id')` for specific evidence from the trace.\n"
-            "5. **RLM Pattern Compliance**: If the trace shows the agent relying on memory instead of code, "
-            "issue a directive: 'Use scripting patterns (PROBE/FILTER/CHUNK) to interact with task_input.'\n"
-            "6. **Knowledge Codification (Axiom/Skill Generation)**:\n"
-            "   - If you identify a UNIVERSAL TRUTH, RECURRING FAILURE, SKILL, or TOOL PATTERN, "
-            "you SHOULD codify it.\n"
-            "   - To trigger codification, use the following headers:\n"
-            "     - `Rule: [Title]` for hard constraints.\n"
-            "     - `Skill: [Title]` for complex workflows.\n"
-            "     - `Tool Pattern: [Title]` for specific tool usage nuances.\n"
-            "   - Provide the reasoning followed by the rule/skill code.\n"
-            "   - **Strict Code Quality Requirement**:\n"
-            "     - EVERY generated python block MUST include a Module Docstring and Function Docstrings.\n"
-            "     - Use Type Hints where possible.\n"
-            "     - Avoid generic `except Exception`. Catch specific errors.\n"
-            "     - Ensure NO trailing whitespace and EXACTLY ONE final newline.\n"
-            "     - Follow PEP 8 standards.\n"
-            '   - Example: `Rule: Ensure File Closure. Logic: Files must be closed... ````python """Validator for file closure."""\n def validate_file_closed(t):\n    """Checks if a file handle is closed."""\n    ... ````.\n'
+        dream_prompt = build_dreamer_prompt(
+            events_desc=events_desc,
+            causal_context_section=causal_context_section,
+            recent_context_str=recent_context_str,
+            context_section=context_section,
+            episodic_trace_section=episodic_trace_section,
+            candidate_section=candidate_section,
+            system_signal_section=system_signal_section,
         )
 
         # 3. Generate Insight (NREM Consolidation)
@@ -1054,9 +1002,8 @@ class Dreamer:
         if sheaf_confidence is not None:
             confidence = float(sheaf_confidence)
         elif psych_profile:
-            confidence = max(
-                0.0, min(1.0, sum(psych_profile.values()) / max(len(psych_profile), 1))
-            )
+            scores = psych_profile.get("scores", {})
+            confidence = max(0.0, min(1.0, sum(scores.values()) / max(len(scores), 1)))
         else:
             confidence = 0.5
         omcd_decision = omcd.evaluate_step(step=current_step, confidence=confidence)
@@ -1095,7 +1042,8 @@ class Dreamer:
 
         # RepE evidence: positive axes = grounded, negative = shaky
         if psych_profile:
-            repe_mean = sum(psych_profile.values()) / max(len(psych_profile), 1)
+            scores = psych_profile.get("scores", {})
+            repe_mean = sum(scores.values()) / max(len(scores), 1)
             # Map RepE [-1,1] to frequency [0,1]
             repe_f = max(0.0, min(1.0, (repe_mean + 1.0) / 2.0))
             tv_repe = TruthValue(frequency=repe_f, confidence=0.4)
@@ -1216,9 +1164,11 @@ class Dreamer:
             f"**IMPORTANT: NO SELF-ECHO**: If the candidate response is simply a repetition or shallow summary of the original task or the scratchpad instructions WITHOUT providing a new, grounded contribution, you MUST reject it as 'invalid'.\n"
             f"Reject as invalid if Grounding Status contains 'FIDELITY_VIOLATION'.\n"
             f"**IMPORTANT**: If the grounding status is 'FIDELITY_VIOLATION (Zero-Shot Synthesis)', you MUST reject and instruct the agent to use `PROBE`, `FILTER`, or `CHUNK` via the REPL to interact with the task_input before summarizing.\n"
+            f"**IMPORTANT**: If the candidate response is primarily a Python script intended for execution, you MUST reject it. The agent must *execute* the script via the REPL and provide the actual resulting data or report, not just the code to get it.\n"
             f"Also check for **INTENT ALIGNMENT**: Does the response fulfill the Distal goal mentioned in the scratchpad?\n"
             f"- [SEMANTIC UTILITY] If 'Semantic Utility' is very low (< 0.05) but the 'Session Trace' shows that relevant documents or nodes were searched/viewed, the agent is ignoring its memory (Backbone Dependence). Reject as invalid and instruct the agent to ground its response in the retrieved evidence.\n"
-            f"- [VERIFY] If the metrics block or trace shows recent tool successes or logical progress, the agent is likely grounded. Ignore high-level quality concerns if the technical task is being fulfilled.\n"
+            f"- [VERIFY] Tool success indicates technical grounding, but the FINAL output MUST address the original Distal goal. Do NOT excuse task avoidance just because the agent fixed a tool.\n"
+            f"- [TASK_AVOIDANCE] You MUST emphatically REJECT responses that read like an engineering changelog (e.g., 'I fixed the MCP execution error' or 'I verified tool discovery') IF the actual core request remains unanswered (e.g., the user asked for arXiv papers but the agent only reported that it fixed the arXiv tool).\n"
             f"- [META-COGNITION] Meta-cognitive analysis (reflection, simulation results) is explicitly allowed as long as it lead to actionable conclusions or verification.\n"
             f"- [PRESENCE] Ensure the response is not just a summary of failure. If the agent claims it completed the task, check the 'Active Verification Results' or 'Deterministic Flags'.\n"
             f"- [HARD FAILS] Mark INVALID ONLY if there are:\n"
@@ -1641,7 +1591,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 logger.info(
                     "Dreamer: Auto-healing missing dependency: %s", package_name
                 )
-                cmd = [sys.executable, "-m", "pip", "install", package_name]
+                cmd = ["uv", "pip", "install", package_name]
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
                 try:
@@ -1682,7 +1632,7 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                 logger.info(
                     "Dreamer (Test): Auto-healing missing dependency: %s", package_name
                 )
-                cmd = [sys.executable, "-m", "pip", "install", package_name]
+                cmd = ["uv", "pip", "install", package_name]
                 subprocess.run(cmd, capture_output=True, text=True, check=False)
                 # Retry
                 try:
@@ -1943,17 +1893,17 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                     axioms.append({"name": name, "vec": np.array(vec)})
 
             to_archive = set()
-            for i in range(len(axioms)):
-                if axioms[i]["name"] in to_archive:
+            for i, axiom_i in enumerate(axioms):
+                if axiom_i["name"] in to_archive:
                     continue
 
-                for j in range(i + 1, len(axioms)):
-                    if axioms[j]["name"] in to_archive:
+                for axiom_j in axioms[i + 1 :]:
+                    if axiom_j["name"] in to_archive:
                         continue
 
                     # Calculate Cosine Similarity
-                    v1 = axioms[i]["vec"]
-                    v2 = axioms[j]["vec"]
+                    v1 = axiom_i["vec"]
+                    v2 = axiom_j["vec"]
                     # Normalize if not already (llm.get_embedding usually is, but let's be safe)
                     norm1 = np.linalg.norm(v1)
                     norm2 = np.linalg.norm(v2)
@@ -1963,12 +1913,12 @@ except (RuntimeError, ValueError, TypeError) as e: # pylint: disable=broad-excep
                             # Keep the one with the shorter name or older timestamp (simplified here: keep i)
                             logger.info(
                                 "♻️ [Axiom GC] Redundancy detected: '%s' is %.2f similar to '%s'. Archiving '%s'.",
-                                axioms[i]["name"],
+                                axiom_i["name"],
                                 sim,
-                                axioms[j]["name"],
-                                axioms[j]["name"],
+                                axiom_j["name"],
+                                axiom_j["name"],
                             )
-                            to_archive.add(axioms[j]["name"])
+                            to_archive.add(axiom_j["name"])
 
             for name in to_archive:
                 await axioms_mgr.disable_axiom(name)

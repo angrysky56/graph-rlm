@@ -399,7 +399,7 @@ class CircuitBreaker:
 llm_circuit = CircuitBreaker(
     name="llm_service",
     config=CircuitBreakerConfig(
-        failure_threshold=3,
+        failure_threshold=10,
         timeout_seconds=60.0,
         success_threshold=2,
     ),

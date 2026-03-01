@@ -251,12 +251,11 @@ class ActivationEngine:
             sorted by activation (descending).
         """
         scored = []
-        for chunk_id in self._chunks:
+        for chunk_id, record in self._chunks.items():
             activation = self.compute_activation(
                 chunk_id, context_embedding, current_time, add_noise
             )
             if activation > self.threshold:
-                record = self._chunks[chunk_id]
                 scored.append(
                     {
                         "chunk_id": chunk_id,

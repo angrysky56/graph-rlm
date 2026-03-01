@@ -28,6 +28,7 @@ class ExecutionState:
     stop_requested: bool = False
     synthesis_triggered: bool = False
     current_thought_id: Optional[str] = None
+    round_id: Optional[str] = None
     depth: int = 0
     turn_id: int = 1
     recursion_stack: List[str] = field(default_factory=list)
@@ -55,6 +56,7 @@ class ExecutionState:
     last_sheaf_rationale: Optional[str] = None
     last_omcd_qstop: float = 0.0
     last_omcd_rationale: Optional[str] = None
+    last_h0_rank: int = 1
 
     # --- Cerebellum: Error Pattern Tracking ---
     # Accumulates error types across steps for recurring pattern detection
@@ -78,72 +80,67 @@ def broadcast_trace(msg: str):
     """Monitor callback to push trace logs to the active event loop."""
     try:
         q = execution_events.get()
-        if q:
-            # Simple approach: Strip ANSI for cleaner UI text
-            clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
+        if not q:
+            return
 
-            # --- Signal vs. Noise Filter ---
-            # 1. Block List (Internal Implementation Details or high-signal redundant messages)
-            # These are messages that the Agent or Dreamer already emit via explicit emit_event calls.
-            # We block them here so they only go to TERMINAL_RAW and don't duplicate in CHAT_RESPONSE.
-            block_list = [
-                "[LLM]",
-                "[DB]",
-                "[REPL]",
-                "[SHEAF]",
-                "[TRACE]",
-                "[AGENT]",
-                "[DREAMER]",
-                "[SKILL]",
-                "[META]",
-                "[REFLEXION]",
-                "[NAVIGATOR]",
-            ]
-            if any(tag in clean_msg for tag in block_list):
-                q.put_nowait(
-                    {"type": "trace", "content": clean_msg, "ui_target": "TERMINAL_RAW"}
-                )
-                return
+        # @BoundaryStress: Guard against null or non-string messages
+        if msg is None:
+            return
+        if not isinstance(msg, str):
+            msg = str(msg)
 
-            # 2. Structured Logic Components
-            # These map to specific UI "boxes" for better UX
-            ui_target = "TERMINAL_RAW"
-            ui_component = "text"
+        # Strip ANSI for cleaner UI text
+        clean_msg = re.sub(r"\x1b\[[0-9;]*m", "", msg)
 
-            if "[META]" in clean_msg:
-                ui_target = "CHAT_RESPONSE"
-                ui_component = "meta_box"
-            elif "[REFLEXION]" in clean_msg:
-                ui_target = "CHAT_RESPONSE"
-                ui_component = "reflexion_box"
-            elif "[SKILL]" in clean_msg:
-                ui_target = "CHAT_RESPONSE"
-                ui_component = "skill_box"
-            elif "[DREAMER]" in clean_msg:
-                ui_target = "CHAT_RESPONSE"
-                ui_component = "dreamer_box"
-            elif "[AGENT]" in clean_msg:
-                # Agent messages must be high-signal to be shown
-                if any(
-                    x in clean_msg
-                    for x in ["Plan:", "Action:", "Decision:", "Final Answer"]
-                ):
-                    ui_target = "CHAT_RESPONSE"
-                    ui_component = "text"
-            elif "RLM_FINAL_OUTPUT" in clean_msg:
-                ui_target = "CHAT_RESPONSE"
-                ui_component = "final_result"
+        # --- Signal Routing ---
+        ui_target = "TERMINAL_RAW"
+        ui_component = "text"
 
-            q.put_nowait(
-                {
-                    "type": "trace",
-                    "content": clean_msg,
-                    "ui_target": ui_target,
-                    "ui_component": ui_component,
-                }
-            )
-    except LookupError:
-        pass
+        # Declarative routing map for predictable tag resolution
+        routing_map = {
+            "[META]": "meta_box",
+            "[REFLEXION]": "reflexion_box",
+            "[SHEAF]": "sheaf_box",
+            "[NAVIGATOR]": "navigator_box",
+            "[SKILL]": "skill_box",
+            "[DREAMER]": "dreamer_box",
+            "RLM_FINAL_OUTPUT": "final_result",
+        }
+
+        # Apply routing map
+        for tag, comp in routing_map.items():
+            if tag in clean_msg:
+                ui_target = "CHAT_RESPONSE"
+                ui_component = comp
+                break
+
+        # Contextual logic for AGENT output
+        if ui_target == "TERMINAL_RAW" and "[AGENT]" in clean_msg:
+            # Agent messages must be high-signal to be shown
+            if any(
+                x in clean_msg
+                for x in ["Plan:", "Action:", "Decision:", "Final Answer"]
+            ):
+                ui_target = "CHAT_RESPONSE"
+                ui_component = "text"
+
+        payload = {"type": "trace", "content": clean_msg, "ui_target": ui_target}
+
+        # Only inject the exact UI Component if required by the client mapping
+        if ui_target == "CHAT_RESPONSE":
+            payload["ui_component"] = ui_component
+        elif ui_target == "TERMINAL_RAW":
+            internal_tags = ["[LLM]", "[DB]", "[REPL]", "[TRACE]"]
+            if not any(tag in clean_msg for tag in internal_tags):
+                payload["ui_component"] = ui_component
+
+        import asyncio
+
+        # @BoundaryStress: Fast queue puts can hit limits (QueueFull) - swallow drop rather than crash agent
+        try:
+            q.put_nowait(payload)
+        except (queue.Full, asyncio.QueueFull):
+            pass
+
     except Exception as e:  # pylint: disable=broad-except # noqa: BLE001
-        # Fallback log to avoid recursion loop if logging fails
         sys.stderr.write(f"Failed to broadcast trace: {e}\n")

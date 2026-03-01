@@ -1,5 +1,6 @@
 import React, { useRef, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
+import { motion } from "framer-motion";
 import {
   User,
   Bot,
@@ -7,8 +8,8 @@ import {
   CheckCircle,
   Terminal,
   Trash2,
+  Shield,
 } from "lucide-react";
-import { api } from "../../api";
 
 interface ChatEntry {
   id?: string;
@@ -22,11 +23,13 @@ interface ChatEntry {
     | "success"
     | "error"
     | "report"
-    | "monitor";
+    | "monitor"
+    | "system";
   isStreaming?: boolean;
-  role?: string; // Sometimes used for explicit role
+  role?: string;
   repl_id?: string;
   metrics?: any;
+  subsystem?: string;
 }
 
 interface ChatHistoryProps {
@@ -41,7 +44,6 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const displayEntries = entries.filter((e) => {
-    // Essential Filters
     const isSubstantive =
       e.style === "report" ||
       e.style === "success" ||
@@ -51,9 +53,15 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
     const isStandardOutput = e.type === "output" && !e.style;
     const isMainError = e.type === "error" && e.style !== "trace";
     const isMonitor = e.style === "monitor";
+    const isSystem = e.style === "system";
 
     return (
-      isUser || isSubstantive || isMainError || isStandardOutput || isMonitor
+      isUser ||
+      isSubstantive ||
+      isMainError ||
+      isStandardOutput ||
+      isMonitor ||
+      isSystem
     );
   });
 
@@ -79,10 +87,82 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
         const isCode = entry.style === "code";
         const isSuccess = entry.style === "success";
         const isStandardOutput = entry.type === "output" && !entry.style;
+        const isSystemEvent = entry.style === "system";
+
+        // --- System Event Card (compact, collapsible) ---
+        if (isSystemEvent) {
+          const sub = (entry.subsystem || "SYSTEM").toUpperCase();
+          const badgeColors: Record<string, string> = {
+            SHEAF: "text-cyan-400 border-cyan-800/50 bg-cyan-950/30",
+            SHEAF_BOX: "text-cyan-400 border-cyan-800/50 bg-cyan-950/30",
+            REFLEXION: "text-amber-400 border-amber-800/50 bg-amber-950/30",
+            REFLEXION_BOX: "text-amber-400 border-amber-800/50 bg-amber-950/30",
+            DREAMER: "text-emerald-400 border-emerald-800/50 bg-emerald-950/30",
+            DREAMER_BOX:
+              "text-emerald-400 border-emerald-800/50 bg-emerald-950/30",
+            NAVIGATOR: "text-violet-400 border-violet-800/50 bg-violet-950/30",
+            NAVIGATOR_BOX:
+              "text-violet-400 border-violet-800/50 bg-violet-950/30",
+            META: "text-pink-400 border-pink-800/50 bg-pink-950/30",
+            META_BOX: "text-pink-400 border-pink-800/50 bg-pink-950/30",
+            SKILL: "text-blue-400 border-blue-800/50 bg-blue-950/30",
+            SKILL_BOX: "text-blue-400 border-blue-800/50 bg-blue-950/30",
+          };
+          const colorClass =
+            badgeColors[sub] ||
+            "text-slate-400 border-slate-700/50 bg-slate-900/40 backdrop-blur-sm";
+
+          return (
+            <motion.details
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              key={i}
+              className="w-full max-w-4xl mx-auto group"
+            >
+              <summary
+                className={`flex items-center gap-2 cursor-pointer select-none rounded-xl px-4 py-2.5 border ${colorClass} transition-all hover:brightness-125 shadow-lg shadow-black/20`}
+              >
+                <Shield size={12} className="shrink-0 opacity-70" />
+                <span className="text-[10px] font-black uppercase tracking-[0.15em] shrink-0">
+                  {sub.replace("_BOX", "")}
+                </span>
+                <span className="text-[11px] opacity-80 truncate">
+                  {entry.content.replace(/\*\*/g, "").substring(0, 120)}
+                </span>
+                <span className="ml-auto text-[9px] opacity-40 font-mono shrink-0">
+                  {new Date(entry.timestamp).toLocaleTimeString()}
+                </span>
+              </summary>
+              <div
+                className={`mt-1 ml-6 px-4 py-3 rounded-lg border ${colorClass} text-[12px] leading-relaxed`}
+              >
+                <ReactMarkdown
+                  components={{
+                    code({ children, ...props }: any) {
+                      return (
+                        <code
+                          className="bg-black/30 px-1 py-0.5 rounded font-mono text-[11px]"
+                          {...props}
+                        >
+                          {children}
+                        </code>
+                      );
+                    },
+                  }}
+                >
+                  {entry.content}
+                </ReactMarkdown>
+              </div>
+            </motion.details>
+          );
+        }
 
         return (
-          // Added min-w-0 to prevent flex item expansion causing overflow
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 15 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: "easeOut" }}
             key={i}
             className={`flex gap-4 ${isUser ? "flex-row-reverse" : ""} w-full max-w-4xl mx-auto min-w-0`}
           >
@@ -116,16 +196,16 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
               className={`flex-1 min-w-0 max-w-full ${isUser ? "text-right" : ""}`}
             >
               <div
-                className={`inline-block text-left rounded-2xl px-5 py-3 text-[13px] leading-relaxed shadow-sm max-w-full ${
+                className={`inline-block text-left rounded-2xl px-5 py-3.5 text-[14px] leading-relaxed shadow-lg backdrop-blur-sm max-w-full font-medium tracking-wide ${
                   isUser
-                    ? "bg-indigo-600 text-white rounded-tr-sm"
+                    ? "bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-tr-sm border border-indigo-400/30 shadow-indigo-500/20"
                     : isError
-                      ? "bg-red-950/20 border border-red-900/30 text-red-200 rounded-tl-sm w-full"
+                      ? "bg-red-950/40 border border-red-500/30 text-red-200 rounded-tl-sm w-full shadow-red-900/20"
                       : isStandardOutput
-                        ? "bg-slate-800/40 border border-slate-700/50 text-slate-300 rounded-tl-sm w-full"
+                        ? "bg-slate-800/60 border border-slate-700/50 text-slate-200 rounded-tl-sm w-full"
                         : entry.style === "monitor"
-                          ? "bg-blue-950/20 border border-blue-900/30 text-blue-200 rounded-tl-sm w-full font-mono text-[12px]"
-                          : "bg-slate-800/40 border border-slate-700/50 text-slate-300 rounded-tl-sm w-full"
+                          ? "bg-blue-950/40 border border-blue-500/30 text-blue-200 rounded-tl-sm w-full font-mono text-[12px] shadow-blue-900/20"
+                          : "bg-slate-800/60 border border-slate-700/50 text-slate-200 rounded-tl-sm w-full"
                 }`}
               >
                 {entry.style === "monitor" ? (
@@ -227,7 +307,7 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         );
       })}
       <div ref={bottomRef} />

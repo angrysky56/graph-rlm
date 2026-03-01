@@ -48,6 +48,7 @@ class ScratchpadBuilder:
         current_repl_id: Optional[str] = None,
         execution_state: Optional[Any] = None,
         memory_trajectory: Optional[List[Any]] = None,
+        depth: int = 0,
     ) -> str:
         """
         Build a complete scratchpad for the agent.
@@ -75,6 +76,7 @@ class ScratchpadBuilder:
                 execution_state, "last_omcd_qstop", 0.0
             )  # noqa: F841 (used in mc_lines below)
             outcomes = getattr(execution_state, "step_outcomes", [])
+            h0 = getattr(execution_state, "last_h0_rank", 1) or 1
 
             # Build momentum indicator from last 10 outcomes
             momentum_symbols = {
@@ -91,7 +93,9 @@ class ScratchpadBuilder:
             )
 
             # Health assessment
-            if consec_fail >= 3:
+            if h0 > 1:
+                health = f"⚠️ FRAGMENTED (Group Cohesion H0: {h0})"
+            elif consec_fail >= 3:
                 health = "⚠️ STRUGGLING (3+ consecutive failures)"
             elif sheaf_e > 0.5:
                 health = f"⚠️ DRIFTING (Sheaf Energy: {sheaf_e:.2f})"
@@ -192,7 +196,11 @@ class ScratchpadBuilder:
 
         # === 2. Current Round Progress (The Trace) — APPEND-ONLY ===
         progress = await self._build_current_round_progress(
-            session_id, root_session_id, current_round_id, memory_trajectory
+            session_id,
+            root_session_id,
+            current_round_id,
+            memory_trajectory,
+            depth=depth,
         )
         lines.append("## Execution Trace (Current Round)")
         lines.append(progress)
@@ -269,6 +277,7 @@ class ScratchpadBuilder:
         root_session_id: str,
         current_round_id: str,
         memory_trajectory: Optional[List[Any]] = None,
+        depth: int = 0,
     ) -> str:
         """
         Build progress for ONLY the current round (not archived rounds).
@@ -278,8 +287,7 @@ class ScratchpadBuilder:
             q = """
             MATCH (n:Thought)
             WHERE n.root_session_id = $rsid
-            AND n.session_id = $sid
-            AND n.round_id = $rid
+            AND (n.round_id = $rid OR n.status IN ['fragment', 'system', 'insight'] OR n.utility_score > 0.7)
             RETURN n.id as id,
                    n.prompt as prompt,
                    n.status as status,
@@ -302,7 +310,8 @@ class ScratchpadBuilder:
                    n.semantic_gist as semantic_gist,
                    n.frequency as frequency,
                    n.confidence as confidence,
-                   n.rtm_depth as rtm_depth
+                   n.rtm_depth as rtm_depth,
+                   n.metadata_json as metadata
             ORDER BY n.created_at ASC
             LIMIT 2000
             """
@@ -315,28 +324,73 @@ class ScratchpadBuilder:
             # This is critical because of the Batch Consolidation Flush.
             # Thoughts remain in RAM until ACCEPT/RELEASE.
             if memory_trajectory:
+                # Get depth to detect recursive sub-agents
+                is_recursive = depth > 0
+
                 # Convert memory objects to result dicts for the formatter
                 mem_dicts = []
                 for ev in memory_trajectory:
-                    # Filter for only relevant round/session if trajectory contains more
-                    if (
-                        str(ev.session_id) != session_id
-                        or str(ev.round_id) != current_round_id
-                    ):
+                    # Filter for only relevant round/root_session if trajectory contains more
+                    # Note: ev can be ThimacEvent or dict
+                    is_obj = hasattr(ev, "to_dict")
+                    ev_rsid = (
+                        getattr(ev, "root_session_id", None)
+                        if is_obj
+                        else ev.get("root_session_id")
+                    )
+                    ev_rid = (
+                        getattr(ev, "round_id", None) if is_obj else ev.get("round_id")
+                    )
+
+                    if str(ev_rsid or "unknown") != root_session_id:
                         continue
 
-                    d = ev.to_dict()
-                    # Ensure alignment with DB field names
-                    d["created_at"] = ev.timestamp
-                    d["prompt"] = ev.full_data
-                    d["thimac_op"] = (
-                        ev.operation.value
-                        if hasattr(ev.operation, "value")
-                        else str(ev.operation)
+                    # Loosen round filter for:
+                    # 1. Recursive sub-agents (they need parent context)
+                    # 2. High utility thoughts
+                    # 3. Explicit fragments/system nodes
+                    ev_util = (
+                        getattr(ev, "utility_score", 0.0)
+                        if is_obj
+                        else ev.get("utility_score", 0.0)
                     )
-                    d["thimac_level"] = (
-                        ev.level.value if hasattr(ev.level, "value") else str(ev.level)
+                    ev_status = (
+                        getattr(ev, "status", "") if is_obj else ev.get("status", "")
                     )
+
+                    if str(ev_rid or "unknown") != current_round_id:
+                        if (
+                            not is_recursive
+                            and (ev_util or 0.0) <= 0.7
+                            and (ev_status or "")
+                            not in ["fragment", "system", "insight"]
+                        ):
+                            continue
+
+                    # Standardize to dict for the formatter
+                    if is_obj:
+                        d = ev.to_dict()
+                        # Ensure alignment with DB field names
+                        d["created_at"] = getattr(ev, "timestamp", d.get("created_at"))
+                        d["prompt"] = getattr(ev, "full_data", d.get("prompt"))
+                        op = getattr(ev, "operation", None)
+                        if op:
+                            d["thimac_op"] = (
+                                op.value if hasattr(op, "value") else str(op)
+                            )
+                        lvl = getattr(ev, "level", None)
+                        if lvl:
+                            d["thimac_level"] = (
+                                lvl.value if hasattr(lvl, "value") else str(lvl)
+                            )
+                    else:
+                        d = ev.copy()
+                        # Align with DB field names if keys are missing
+                        if "operation" in d and "thimac_op" not in d:
+                            d["thimac_op"] = d["operation"]
+                        if "level" in d and "thimac_level" not in d:
+                            d["thimac_level"] = d["level"]
+
                     mem_dicts.append(d)
 
                 if not results:
@@ -494,26 +548,20 @@ class ScratchpadBuilder:
             windowed_data.append(row)
             summaries.append(await self._get_structural_step_summary(row))
 
-        # Build Table with Row Collapsing (Deduplication)
+        # Build Topological Structure with Row Collapsing (Deduplication)
         lines = []
-        lines.append(
-            "| Time | REPL | T.S | St | Hash | Gestalt (Ψ,📐,Ω,🧭) | Summary (Action & Outcome) | Recall ID |"
-        )
-        lines.append("|---|---|---|---|---|---|---|---|")
+        lines.append("## Structural Execution Graph (Causal Dependencies)")
 
         skip_until = -1
         for idx, row in enumerate(windowed_data):
             if idx <= skip_until:
                 continue
 
-            # Check for consecutive identical summaries
             current_summary = summaries[idx]
             match_count = 1
             last_idx = idx
 
             for look_idx in range(idx + 1, len(windowed_data)):
-                # ONLY collapse if turn_id is the same AND summary is the same.
-                # Never collapse across different turns, as that confuses the Dreamer.
                 if summaries[look_idx] == current_summary and windowed_data[
                     look_idx
                 ].get("turn_id") == row.get("turn_id"):
@@ -523,60 +571,32 @@ class ScratchpadBuilder:
                     break
 
             if match_count >= 3:
-                # Collapse Rows
                 ts_start = row.get("step_id", "?")
                 ts_end = windowed_data[last_idx].get("step_id", "?")
                 turn = row.get("turn_id", "?")
-
                 lines.append(
-                    f"| --:--:-- | `SYSTEM` | {turn}.{ts_start}-{ts_end} | 🔄 | "
-                    f"**REPETITIVE ACTION**: {current_summary} repeated {match_count} times (No new data) | `N/A` |"
+                    f"    ↳ 🔄 [LOOP DETECTED] ({turn}.{ts_start}-{ts_end}) REPETITIVE ACTION: {current_summary} repeated {match_count} times."
                 )
                 skip_until = last_idx
                 continue
 
-            # Time
             ts_str = "--:--:--"
             if row.get("created_at"):
                 dt = datetime.fromtimestamp(row["created_at"] / 1000)
                 ts_str = dt.strftime("%H:%M:%S")
 
-            # REPL
             repl = (row.get("repl_id") or "       ")[:7]
-
-            # T.S
             turn = row.get("turn_id")
             step = row.get("step_id")
             ts_display = f"{turn}.{step}" if turn is not None else "??"
-
-            # Status
-            st_map = {
-                "success": "✓",
-                "failed": "✗",
-                "rejected": "🛡️",
-                "running": "⏳",
-                "pending": "⋯",
-                "fragment": "🧩",
-                "valid": "✅",
-                "navigator": "🧭",
-                "omcd": "⚖️",
-                "sheaf": "📐",
-                "repe": "Ψ",
-                "reflexion": "🧠",
-                "gist": "📦",
-            }
-            st = st_map.get(row.get("status"), "?")
-
-            # Summary
+            st = row.get("status", "?")
             summary = summaries[idx]
 
-            # --- LOGICAL KNOT AUDIT (Triplets) ---
             if row.get("status") in ["failed", "error"]:
                 triplet = self._extract_failure_triplet(row)
                 if triplet:
-                    summary = f"**{summary}**<br/>`{triplet}`"
+                    summary = f"{summary} | Cause: `{triplet}`"
 
-            # --- OBSERVABILITY RATINGS (Ψ,📐,Ω,🧭) ---
             def safe_float(v):
                 if v is None:
                     return None
@@ -593,36 +613,21 @@ class ScratchpadBuilder:
             omcd = safe_float(row.get("omcd_score"))
             h0_rank = safe_float(row.get("h0_rank"))
 
-            # Format scores safely with condensed labels
             def fmt(v):
                 return f"{v:.2f}" if v is not None else "--"
 
-            shaky_str = fmt(shaky)
-            confluence_str = fmt(confluence)
-            evasion_str = fmt(evasion)
-            freedom_str = fmt(freedom)
-            sheaf_str = fmt(sheaf)
-            omcd_str = fmt(omcd)
-            h0_rank_str = fmt(h0_rank)
+            gestalt = f"Ψ(S:{fmt(shaky)} C:{fmt(confluence)} E:{fmt(evasion)} F:{fmt(freedom)}) ‖ 📐(S:{fmt(sheaf)} H0:{fmt(h0_rank)}) ‖ Ω:{fmt(omcd)}"
 
-            # Gestalt string with RepE axes + Sheaf Consistency + oMCD Stop Probability
-            # S=Shakiness, C=Confluence, E=Evasion, F=Freedom
-            gestalt = f"Ψ(S:{shaky_str} C:{confluence_str} E:{evasion_str} F:{freedom_str}) ‖ 📐(S:{sheaf_str} H0:{h0_rank_str}) ‖ Ω:{omcd_str}"
-
-            # NAL & RTM Metrics (Grounding Strength)
             freq = safe_float(row.get("frequency"))
             conf = safe_float(row.get("confidence"))
             depth = safe_float(row.get("rtm_depth"))
             if freq is not None or conf is not None:
-                nal_str = f"L({fmt(freq)} {fmt(conf)})"
-                rtm_str = f"D:{int(depth) if depth is not None else 0}"
-                gestalt += f" ‖ ⚖️ {nal_str} {rtm_str}"
+                gestalt += f" ‖ ⚖️ L({fmt(freq)} {fmt(conf)}) D:{int(depth) if depth is not None else 0}"
 
             nav_insight = row.get("navigator_insight")
             if nav_insight:
                 gestalt += f" ‖ 🧭 {nav_insight}"
 
-            # --- ALERT DECORATION ---
             alerts = []
             if isinstance(sheaf, (int, float)) and sheaf > 0.7:
                 alerts.append("!! LOOP !!")
@@ -635,18 +640,46 @@ class ScratchpadBuilder:
 
             ratings = gestalt
             if alerts:
-                ratings = f"**{gestalt}**<br/>" + " ".join(alerts)
+                ratings = f"{gestalt} | ALERTS: " + " ".join(alerts)
 
-            # Recall
             tid = row.get("id")
             recall_link = f"`recall('{tid}')`"
-
-            # Code Hash (for introspection)
             chash = (row.get("code_hash") or "       ")[:7]
 
+            st_lower = st.lower()
+            thimac_intent = str(row.get("thimac_intent") or "").lower()
+            node_type = str(row.get("thimac_level") or "").lower()
+
+            # Topological Indentation
+            if "gist" in st_lower or getattr(row, "_is_gist", False):
+                prefix = f"📦 [GIST COMPONENT] [{ts_str}] ->"
+            elif "reflexion" in st_lower or "hydrogen_bond" in node_type:
+                prefix = f"    ↳ 🧠 [HYDROGEN_BOND] [{ts_str}] "
+            elif "motor" in thimac_intent or "tool" in summary.lower():
+                prefix = f"    ↳ ⚙️ [MOTOR/TOOL] [{ts_str}] "
+            else:
+                prefix = f"-> 🟦 [THOUGHT:{st_lower.upper()}] [{ts_str}] "
+
             lines.append(
-                f"| {ts_str} | `{repl}` | {ts_display} | {st} | `{chash}` | {ratings} | {summary} | {recall_link} |"
+                f"{prefix}({ts_display}) `{repl}` Hash:`{chash}`\n"
+                f"      Action: {summary}\n"
+                f"      State:  {ratings}\n"
+                f"      Recall: {recall_link}"
             )
+
+            # Metadata Insights (RepE/Sheaf rationales)
+            meta = row.get("metadata") or {}
+            if isinstance(meta, str):
+                import json
+
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
+
+            insight = meta.get("repe_rationale") or meta.get("sheaf_rationale")
+            if insight:
+                lines.append(f"      Insight: 🧠 *{insight}*")
 
         return "\n".join(lines)
 
@@ -697,7 +730,23 @@ class ScratchpadBuilder:
             else:
                 consistency = 0.5  # Unknown sheaf = neutral
 
-            gain = recency * consistency
+            # Novelty: use spectral_energy (Topological Divergence)
+            energy = None
+            raw_energy = row.get("spectral_energy")
+            if raw_energy is not None:
+                try:
+                    energy = float(raw_energy)
+                except (ValueError, TypeError):
+                    energy = None
+
+            if energy is not None:
+                # Normalize energy (assume 0-10 range typical, but safe-clip)
+                # High energy = High Novelty
+                novelty = 0.5 + 0.5 * min(energy / 5.0, 1.0)
+            else:
+                novelty = 0.5
+
+            gain = recency * consistency * novelty
             gains.append(gain)
 
         # Determine adaptive leaf window:

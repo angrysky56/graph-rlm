@@ -3,12 +3,15 @@ Configuration management for Graph-RLM using Pydantic Settings.
 Handles environment variables and LLM provider configurations.
 """
 
+import logging
 import os
 from pathlib import Path
 from typing import Optional
 
 from pydantic_settings import BaseSettings
 from pydantic_settings import SettingsConfigDict as ConfigDict
+
+logger = logging.getLogger("graph_rlm.config")
 
 
 class Settings(BaseSettings):
@@ -165,7 +168,7 @@ class Settings(BaseSettings):
 
             return True
         except (OSError, IOError, PermissionError, AttributeError) as e:
-            print(f"Error saving to .env: {e}")
+            logger.error("Error saving to .env: %s", e)
             return False
 
     # Resolve .env paths relative to this file's location (src/core/config.py)

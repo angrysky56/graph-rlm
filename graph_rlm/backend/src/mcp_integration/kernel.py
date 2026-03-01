@@ -49,7 +49,6 @@ logger = logging.getLogger("kernel")
 _MCP_DISCOVERY = {}
 
 
-# --- IPC CLIENT (Mock MCP) ---
 class IPCClient:
     """Mock MCP client that proxies tool calls over IPC."""
 
@@ -57,10 +56,26 @@ class IPCClient:
         """Initialize the IPC client."""
 
     def __getattr__(self, name):
+        if name not in _MCP_DISCOVERY:
+            servers = list(_MCP_DISCOVERY.keys())
+            raise AttributeError(
+                f"MCP Server '{name}' not found. Available servers: {servers}"
+            )
         return IPCServerProxy(name)
 
     def __dir__(self):
         return list(_MCP_DISCOVERY.keys())
+
+    def __repr__(self):
+        servers = list(_MCP_DISCOVERY.keys())
+        if not servers:
+            return "<MCP Client (No servers discovered)>"
+        res = ["--- Available MCP Servers ---"]
+        for s in servers:
+            res.append(f"- mcp.{s}")
+        res.append("-----------------------------")
+        res.append("Type mcp.<server_name> to see its tools and descriptions.")
+        return "\n".join(res)
 
 
 class IPCServerProxy:
@@ -71,11 +86,32 @@ class IPCServerProxy:
         self.server_name = server_name
 
     def __getattr__(self, name):
+        server_data = _MCP_DISCOVERY.get(self.server_name, {})
+        if name not in server_data:
+            tools = list(server_data.keys())
+            raise AttributeError(
+                f"Tool '{name}' not found in MCP Server '{self.server_name}'. Available tools: {tools}"
+            )
         return IPCToolProxy(self.server_name, name)
 
     def __dir__(self):
         server_data = _MCP_DISCOVERY.get(self.server_name, {})
         return list(server_data.keys())
+
+    def __repr__(self):
+        server_data = _MCP_DISCOVERY.get(self.server_name, {})
+        tools = list(server_data.keys())
+        if not tools:
+            return f"<MCP Server '{self.server_name}' (No tools discovered yet)>"
+        res = [f"--- MCP Server '{self.server_name}' Tools ---"]
+        for t, td in server_data.items():
+            doc = td.get("doc", "No description provided.")
+            res.append(f"\n* mcp.{self.server_name}.{t}:")
+            for line in doc.strip().split("\n"):
+                res.append(f"    {line}")
+        res.append("\n------------------------------------------")
+        res.append("Execute a tool: mcp.server_name.tool_name(args...)")
+        return "\n".join(res)
 
 
 class IPCToolProxy:
@@ -87,6 +123,10 @@ class IPCToolProxy:
         server_data = _MCP_DISCOVERY.get(server_name, {})
         tool_data = server_data.get(tool_name, {})
         self.__doc__ = tool_data.get("doc", "")
+
+    def __repr__(self):
+        doc = self.__doc__ or "No description provided."
+        return f"<MCP Tool '{self.tool_path}'>\n{doc}"
 
     async def __call__(self, *args, **kwargs):
         req = {"tool": self.tool_path, "args": args, "kwargs": kwargs}
@@ -112,6 +152,14 @@ class IPCToolProxy:
 
 class KBProxy:
     """Proxy for knowledge base paths and directories."""
+
+    _ALIASES: dict = {
+        "kb_dir": "root",
+        "kb_path": "root",
+        "knowledge_base_dir": "root",
+        "base_dir": "root",
+        "base_path": "root",
+    }
 
     def __init__(self, base_path: Optional[str] = None):
         """Initialize knowledge base proxy with project paths."""
@@ -200,6 +248,19 @@ class KBProxy:
             "root_dir",
         ]
 
+    def __getattr__(self, name: str) -> str:
+        """Resolve common attribute aliases; raise helpful error otherwise."""
+        # Avoid infinite recursion for internal lookups
+        if name.startswith("_"):
+            raise AttributeError(name)
+        alias_target = KBProxy._ALIASES.get(name)
+        if alias_target:
+            return getattr(self, alias_target)
+        valid_attrs = [a for a in dir(self) if not a.startswith("_")]
+        raise AttributeError(
+            f"'KBProxy' has no attribute '{name}'. Valid attributes: {valid_attrs}"
+        )
+
 
 class RLMClient:
     """Mock RLM client for proxying agent interface calls."""
@@ -244,7 +305,7 @@ class IPCRLMProxy:
 
 
 # Initialize Global Clients
-mcp = IPCClient()
+mcp_client = IPCClient()
 rlm = RLMClient()
 
 
@@ -302,11 +363,11 @@ async def execute_code(code: str, globals_dict: dict):
             # We use JSON for clean serialization of primitives
             try:
                 # We skip complex objects that aren't JSON serializable
-                if isinstance(result, (bool, int, float, str, list, dict)):
+                if isinstance(result, (bool, int, float, str, list, dict, type(None))):
                     print(f"<<RESULT>>{json.dumps(result)}", flush=True)
                 else:
                     # Fallback to string representation for complex objects
-                    print(f'<<RESULT>>"{str(result)}"', flush=True)
+                    print(f"<<RESULT>>{json.dumps(str(result))}", flush=True)
             except (TypeError, ValueError) as e:
                 # Specific catch for JSON serialization issues
                 logger.warning("Result serialization failed (JSON error): %s", e)
@@ -349,7 +410,8 @@ async def kernel_loop():
 
     user_globals.update(
         {
-            "mcp": mcp,
+            "mcp_client": mcp_client,
+            "mcp": mcp_client,  # Legacy alias - will be shadowed by 'import mcp'
             "rlm": rlm,
             "kb": rlm.kb,
             "print": builtins.print,

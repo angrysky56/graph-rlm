@@ -374,8 +374,20 @@ class Navigator:
         result_terms = get_terms(candidate_result)
         novel_result_terms = result_terms - prompt_terms
 
+        # Jaccard Alignment (standard)
+        context_text = "\n".join(
+            [str(n.get("result") or n.get("prompt") or "") for n in retrieved_nodes]
+        )
+        context_terms = get_terms(context_text)
+        jaccard = len(result_terms.intersection(context_terms)) / max(
+            1, len(result_terms.union(context_terms))
+        )
+
         if not novel_result_terms:
-            return 1.0  # High utility if no new terms needed grounding or all were grounded implicitly
+            # If there are no novel terms, the utility depends purely on alignment
+            # with the retrieved context (to ensure it's not a hallucination or drift).
+            # We return a baseline score instead of 1.0 to avoid bypassing verification.
+            return float(jaccard * 0.5)
 
         # Calculate weighted grounding gain
         total_grounded_weight = 0.0
@@ -396,22 +408,19 @@ class Navigator:
         # Grounding Gain (Normalized by max possible weight if all terms had c=1.0)
         grounding_gain = total_grounded_weight / max(1, len(novel_result_terms))
 
-        # Jaccard Alignment (standard)
-        context_text = "\n".join(
-            [str(n.get("result") or n.get("prompt") or "") for n in retrieved_nodes]
-        )
-        context_terms = get_terms(context_text)
-        jaccard = len(result_terms.intersection(context_terms)) / max(
-            1, len(result_terms.union(context_terms))
-        )
-
+        # Final Utility: (Gain * 0.7) + (Align * 0.3)
         utility = (grounding_gain * 0.7) + (jaccard * 0.3)
 
+        # [Fidelity Fix] Penalize zero-grounding severely if novel terms exist
+        if grounding_gain == 0 and len(novel_result_terms) > 5:
+            utility *= 0.1
+
         logger.info(
-            "Semantic Utility: %.2f (Weighted Gain: %.2f, Align: %.2f)",
+            "Semantic Utility: %.2f (Weighted Gain: %.2f, Align: %.2f, Novel: %d)",
             utility,
             grounding_gain,
             jaccard,
+            len(novel_result_terms),
         )
         return float(utility)
 

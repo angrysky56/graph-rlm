@@ -4,7 +4,7 @@ Provides psychological profiling of agent thoughts using steering axes.
 """
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -239,54 +239,57 @@ class GestaltMonitor:
         self._save_cache()
         self.is_calibrated = True
 
-    def scan_thought(self, vector: List[float]) -> Dict[str, float]:
+    def scan_thought(
+        self, vector: List[float], text: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Projects the thought onto all calibrated axes.
-        Returns a 'Psychological Profile' of the current thought.
+        Returns a 'Psychological Profile' including scores and rationales.
         """
-        if not vector:
-            return {}
+        if not vector or not self.is_calibrated:
+            # Handle lazy calibration if needed
+            if not self.is_calibrated:
+                import asyncio
 
-        # Lazy calibration: trigger on first call if not yet calibrated
-        if not self.is_calibrated:
-            import asyncio
-
-            try:
-                loop = asyncio.get_running_loop()
-                # We're inside an async context — schedule calibration
-                loop.create_task(self.calibrate())
-                logger.info(
-                    "RepE: Calibration scheduled (first scan_thought call). "
-                    "Results will be available on next call."
-                )
-                return {}  # Skip this one call — axes not ready yet
-            except RuntimeError:
-                # No running loop — run synchronously
-                asyncio.run(self.calibrate())
-
-        if not self.is_calibrated:
-            return {}
+                try:
+                    loop = asyncio.get_running_loop()
+                    loop.create_task(self.calibrate())
+                except RuntimeError:
+                    asyncio.run(self.calibrate())
+            return {"scores": {}, "rationale": None}
 
         thought_vec = np.array(vector, dtype=float)
-        # Normalize input thought
         norm = np.linalg.norm(thought_vec)
         if norm > 0:
             thought_vec = thought_vec / norm
 
         scores: Dict[str, float] = {}
         for concept, axis in self.steering_axes.items():
-            # Dot product measures alignment.
-            # Low Negative value (< -0.15) means HIGH NEUROSIS (aligned with bad pole).
             scores[concept] = round(float(np.dot(thought_vec, axis)), 3)
+
+        # Generate rationale based on keyword matching if text is provided
+        rationale = None
+        if text:
+            matches = []
+            text_lower = text.lower()
+            for concept, (neurotic_phrases, _) in self.polarities.items():
+                if scores.get(concept, 0) < -0.1:  # Significant neurosis
+                    for p in neurotic_phrases:
+                        if p.lower() in text_lower:
+                            matches.append(f"{concept}: '{p}'")
+            if matches:
+                rationale = "Psychological triggers detected: " + "; ".join(
+                    list(set(matches))
+                )
 
         trace_action(
             "REPE",
             "PSYCH_PROFILE",
-            result=f"Neurosis Scan: {scores}",
+            result=f"Neurosis Scan: {scores} | Rationale: {rationale}",
             tag="REPE",
         )
 
-        return scores
+        return {"scores": scores, "rationale": rationale}
 
 
 repe = GestaltMonitor()

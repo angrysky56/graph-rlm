@@ -51,10 +51,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = React.memo(
     useEffect(() => {
       if (graphRef.current) {
         const fg = graphRef.current;
-        fg.d3Force("charge").strength(-120);
-        fg.d3Force("link").distance(50);
-        // Optional: Gravity force to keep things centered but spread
-        fg.d3Force("center").strength(0.05);
+        fg.d3Force("charge").strength(-80);
+        fg.d3Force("link").distance(35);
       }
     }, []);
 
@@ -69,7 +67,8 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = React.memo(
     // Link visibility/strength based on type
     const getLinkWidth = useCallback((link: any) => {
       const type = link.type || "UNKNOWN";
-      if (type === "CONTAINS" || type === "DECOMPOSES_INTO") return 1.5;
+      if (type === "DECOMPOSES_INTO") return 2.5; // Thick: primary DAG structure
+      if (type === "CONTAINS") return 1.5;
       return 0.8;
     }, []);
 
@@ -147,19 +146,34 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = React.memo(
           enablePointerInteraction={true}
           enablePanInteraction={true}
           enableZoomInteraction={true}
-          // Links
+          // Links — DAG-aware rendering
           linkColor={getLinkColor}
           linkWidth={getLinkWidth}
-          linkDirectionalArrowLength={4}
+          linkDirectionalArrowLength={(l: any) => {
+            const type = l.type || "UNKNOWN";
+            // Larger arrows for structural DAG edges
+            if (type === "DECOMPOSES_INTO") return 7;
+            if (type === "CONTAINS") return 5;
+            return 4;
+          }}
           linkDirectionalArrowRelPos={1}
-          linkDirectionalParticles={(l: any) => (l.type === "CONTAINS" ? 2 : 0)}
-          linkDirectionalParticleSpeed={0.005}
-          linkDirectionalParticleWidth={1.5}
+          // Flowing particles show causal direction on DAG edges
+          linkDirectionalParticles={(l: any) => {
+            const type = l.type || "UNKNOWN";
+            if (type === "DECOMPOSES_INTO") return 3;
+            if (type === "CONTAINS") return 2;
+            return 0;
+          }}
+          linkDirectionalParticleSpeed={0.004}
+          linkDirectionalParticleWidth={2}
+          linkDirectionalParticleColor={getLinkColor}
           // Custom Layer: only for labels and highlights
           nodeCanvasObject={renderNode}
           nodeCanvasObjectMode="after"
-          // Simulation
+          // Simulation — hierarchical DAG layout
           cooldownTicks={120}
+          dagMode="td"
+          dagLevelDistance={40}
           d3AlphaDecay={0.02}
           d3VelocityDecay={0.3}
         />
