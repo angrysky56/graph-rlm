@@ -88,6 +88,38 @@ export const ChatHistory: React.FC<ChatHistoryProps> = ({
         const isSuccess = entry.style === "success";
         const isStandardOutput = entry.type === "output" && !entry.style;
         const isSystemEvent = entry.style === "system";
+        const isRejected =
+          typeof entry.content === "string" &&
+          (entry.content.includes(
+            "REJECTED: Structural Verification Violation",
+          ) ||
+            entry.content.startsWith("Return Value: REJECTED"));
+
+        // --- NEW: Rejected Output Card (collapsible) ---
+        if (isRejected) {
+          return (
+            <motion.details
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+              key={i}
+              className="w-full max-w-4xl mx-auto group mb-4"
+            >
+              <summary className="flex items-center gap-2 cursor-pointer select-none rounded-xl px-4 py-2.5 border text-orange-400 border-orange-800/50 bg-orange-950/30 transition-all hover:brightness-125 shadow-lg shadow-black/20">
+                <AlertTriangle size={12} className="shrink-0 opacity-70" />
+                <span className="text-[10px] font-black uppercase tracking-[0.15em] shrink-0">
+                  VALIDATION REJECTED
+                </span>
+                <span className="text-[11px] opacity-80 truncate ml-2">
+                  Attempt failed system guardrails. System will self-correct.
+                </span>
+              </summary>
+              <div className="mt-1 ml-6 px-4 py-3 rounded-lg border text-orange-300 border-orange-800/50 bg-orange-950/30 text-[12px] leading-relaxed font-mono whitespace-pre-wrap">
+                {entry.content}
+              </div>
+            </motion.details>
+          );
+        }
 
         // --- System Event Card (compact, collapsible) ---
         if (isSystemEvent) {

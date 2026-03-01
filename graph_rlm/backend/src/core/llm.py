@@ -148,6 +148,9 @@ class LLMService:
         """Format request body based on provider quirks."""
         model = model_override or self.config.get("model")
 
+        # Apply default max_tokens to prevent implicit API limits (e.g. 1024)
+        active_max_tokens = max_tokens or 16000
+
         if self.provider == "ollama":
             request = {
                 "model": model,
@@ -159,8 +162,8 @@ class LLMService:
             }
             if stop:
                 request["stop"] = stop
-            if max_tokens:
-                request["options"]["num_predict"] = max_tokens
+
+            request["options"]["num_predict"] = active_max_tokens
             return request
         else:
             # Standard OpenAI format
@@ -173,8 +176,8 @@ class LLMService:
                 body["temperature"] = temperature
             if stop:
                 body["stop"] = stop
-            if max_tokens:
-                body["max_tokens"] = max_tokens
+
+            body["max_tokens"] = active_max_tokens
             return body
 
     async def generate(

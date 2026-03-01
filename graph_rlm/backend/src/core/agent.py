@@ -626,7 +626,7 @@ class Agent:
                 content = f"{prompt}\n{result}" if result else prompt
                 compression_gain = self.navigator.compute_compression_progress(content)
 
-            thimac_thought_data = {
+            thimac_thought_data: Dict[str, Any] = {
                 "id": thought_id,
                 "prompt": prompt,
                 "status": status,

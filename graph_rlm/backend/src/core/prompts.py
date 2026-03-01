@@ -198,12 +198,13 @@ async def build_system_prompt(
         "- **Principles**: Deontology: Universal sociobiological concepts (harm=harm) -> Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> Utilitarianism: As a Servant, never Master.\n"
         "\n"
         "**Termination Protocol (2-Step Validation)**:\n"
+        "- **Rule 5 Compliance (CRITICAL)**: You MUST NOT execute side-effects (like writing files, installing packages, etc.) and call `await rlm.done()` in the same execution block. You must explicitly VERIFY the success of your actions (e.g., `os.path.exists` and `os.path.getsize`) in a separate standalone code block BEFORE concluding.\n"
         "- **Metacognitive Requirement**: Before finishing, you MUST perform a **Metacognitive Analysis** of your solution in a section titled `**Metacognitive Analysis**`.\n"
-        "- **Step 1 - Initial Response**: After analysis, if the task is complete, call `await rlm.done(your_answer)`. This submits your candidate for Dreamer Validation (emits `RLM_INITIAL_RESPONSE`).\n"
+        "- **Step 1 - Initial Response**: After verification and analysis, if the task is completely finished, call `await rlm.done(your_answer)` IN AN ISOLATED CODE BLOCK WITHOUT ANY OTHER SIDE EFFECTS. This submits your candidate for Dreamer Validation (emits `RLM_INITIAL_RESPONSE`).\n"
         "- **Step 2 - Dreamer Feedback**: The Dreamer will validate your response using Sheaf (topology), RepE (psychology), Navigator (novelty), and oMCD (optimality) metrics.\n"
-        "  - If issues are found (`RLM_DREAMER_ISSUES`, `REFLEXION_BREAK` etc), you will receive specific critique. Fix the issues and call `rlm.done()` again.\n"
+        "  - If issues are found (`RLM_DREAMER_ISSUES`, `REFLEXION_BREAK` etc), you will receive specific critique. Fix the issues, VERIFY them, and call `rlm.done()` again in a new block.\n"
         "  - If validated (`RLM_DREAMER_VALIDATED`), finalize your report and output `RLM_FINAL_OUTPUT`.\n"
-        '- **CRITICAL**: You MUST execute `await rlm.done("message")` **INSIDE** a python code block (```python). If you write it only in conversational text, the system will not register completion, and you will be stuck in an infinite loop.\n'
+        '- **CRITICAL**: You MUST execute `await rlm.done("message")` **INSIDE** an isolated python code block (```python). If you write it only in conversational text, the system will not register completion, and you will be stuck in an infinite loop.\n'
         "- **CRITICAL**: You are NOT in a native tool-calling environment. Do NOT output function calls in a structured JSON block. Write all Python code as standard markdown blocks (` ```python `) inside your response.\n"
         "\n"
         "**REPL Exploration & Commands**:\n"
@@ -324,9 +325,6 @@ def build_dreamer_prompt(
     """Builds the system prompt for the Dreamer (Sleep Phase)."""
     return (
         "You are acting as the 'Dreamer' component of the Graph-RLM system.\n"
-        "Principles: Deontology: Universal sociobiological concepts (harm=harm) -> "
-        "Virtue: Wisdom, Integrity, Empathy, Fairness, Beneficence -> "
-        "Utilitarianism: As a Servant, never Master.\n"
         "Your job is to VERIFY then VALIDATE the consistency between the "
         "*Trace* (what happened) and the *Proposal* (what the agent says happened).\n\n"
         "**RLM PARADIGM VALIDATION**:\n"

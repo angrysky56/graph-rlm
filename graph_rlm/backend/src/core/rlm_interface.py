@@ -682,13 +682,14 @@ class RLMInterface:
         self.record_tool_use("rlm.read_skill")
         return self.agent.read_skill(name)
 
-    def list_skills(self) -> dict:
+    def list_skills(self) -> list:
         """Lists all available skills with their descriptions."""
         self.record_tool_use("rlm.list_skills")
         if not is_skills_available():
-            return {"error": "Skills system not available."}
+            return [{"error": "Skills system not available."}]
         mgr = get_skills_manager()
-        return mgr.list_skills()
+        skills_dict = mgr.list_skills()
+        return [{"name": name, **meta} for name, meta in skills_dict.items()]
 
     async def run_skill(self, name: str = "", args: Optional[dict] = None, **kwargs):
         """Executes a registered skill."""

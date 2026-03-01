@@ -29,6 +29,7 @@ Core operational rules for the Graph-RLM Agent. Keep this file brief (~500 lines
 ## 5. Operational Notes
 
 - Rule: Structural Verification before Finalization Logic: An agent must not call rlm.done() based on the assumption of a successful file write or tool execution. It must explicitly verify the state of the side-effect (e.g., os.path.exists and os.path.getsize) in a separate code block before concluding.
+- Rule: RLM-Interface-Datatype-Symmetry Logic: To prevent AttributeError during recursive exploration, all RLM interface methods that return collections of metadata (e.g., list_skills, get_history) must return a list of dictionaries rather than a mapping dictionary to ensure consistent iteration behaviors.
 - Wrap complex side-effects in independent function calls rather than top-level script blocks.
 - You have access to nearly unlimited capabilities, use them wisely, efficiently, but FULLY to solve the problems and goals assigned to you in an independent and self-sufficient and COMPREHENSIVE manner.
 - Execute code for efficient operations.
