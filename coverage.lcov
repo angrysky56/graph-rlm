@@ -1042,7 +1042,7 @@ DA:1663,1
 DA:1664,1
 DA:1669,1
 DA:1671,1
-DA:1672,1
+DA:1672,0
 DA:1674,1
 DA:1675,1
 DA:1678,1
@@ -1206,7 +1206,7 @@ DA:2237,1
 DA:2239,1
 DA:2242,1
 DA:2245,1
-DA:2246,0
+DA:2246,1
 DA:2249,1
 DA:2251,1
 DA:2252,1
@@ -1228,17 +1228,17 @@ DA:2303,1
 DA:2306,1
 DA:2317,1
 DA:2320,1
-DA:2322,0
-DA:2323,0
-DA:2324,0
-DA:2325,0
-DA:2330,0
-DA:2332,0
-DA:2335,0
-DA:2342,0
-DA:2343,0
-DA:2344,0
-DA:2345,0
+DA:2322,1
+DA:2323,1
+DA:2324,1
+DA:2325,1
+DA:2330,1
+DA:2332,1
+DA:2335,1
+DA:2342,1
+DA:2343,1
+DA:2344,1
+DA:2345,1
 DA:2352,1
 DA:2353,1
 DA:2354,1
@@ -1257,17 +1257,17 @@ DA:2414,1
 DA:2415,1
 DA:2416,1
 DA:2420,1
-DA:2421,1
-DA:2426,0
+DA:2421,0
+DA:2426,1
 DA:2431,1
 DA:2433,1
 DA:2438,1
 DA:2440,1
 DA:2441,1
-DA:2442,0
+DA:2442,1
 DA:2443,0
 DA:2444,0
-DA:2446,0
+DA:2446,1
 DA:2448,1
 DA:2449,1
 DA:2451,1
@@ -1466,7 +1466,7 @@ DA:2959,1
 DA:2960,1
 DA:2963,1
 LF:1008
-LH:835
+LH:848
 FN:64,71,get_skills_manager
 FNDA:1,get_skills_manager
 FN:84,109,validate_agent_prompt
@@ -1540,7 +1540,7 @@ FNDA:1,Agent._get_dashboard_metrics
 FN:1641,1844,Agent._generate_thought
 FNDA:1,Agent._generate_thought
 FN:1671,1672,Agent._generate_thought.on_usage_update
-FNDA:1,Agent._generate_thought.on_usage_update
+FNDA:0,Agent._generate_thought.on_usage_update
 FN:1846,1881,Agent._process_response
 FNDA:1,Agent._process_response
 FN:1883,1920,Agent._execute_action
@@ -1568,7 +1568,7 @@ FNDA:1,Agent._verify_epistemic_integrity
 FN:2893,2960,Agent._detect_required_axioms_agentic
 FNDA:1,Agent._detect_required_axioms_agentic
 FNF:50
-FNH:47
+FNH:46
 BRDA:94,0,jump to line 95,1
 BRDA:94,0,jump to line 102,1
 BRDA:102,0,jump to line 103,1
@@ -1789,18 +1789,18 @@ BRDA:2178,0,jump to line 2179,1
 BRDA:2178,0,jump to line 2187,0
 BRDA:2235,0,jump to line 2236,1
 BRDA:2235,0,jump to line 2414,1
-BRDA:2245,0,jump to line 2246,0
+BRDA:2245,0,jump to line 2246,1
 BRDA:2245,0,jump to line 2249,1
 BRDA:2252,0,jump to line 2253,1
 BRDA:2252,0,jump to line 2257,1
 BRDA:2303,0,jump to line 2306,1
 BRDA:2303,0,jump to line 2352,1
-BRDA:2320,0,jump to line 2322,0
+BRDA:2320,0,jump to line 2322,1
 BRDA:2320,0,jump to line 2352,1
-BRDA:2323,0,jump to line 2324,-
-BRDA:2323,0,jump to line 2325,-
-BRDA:2343,0,jump to line 2344,-
-BRDA:2343,0,jump to line 2352,-
+BRDA:2323,0,jump to line 2324,1
+BRDA:2323,0,jump to line 2325,0
+BRDA:2343,0,jump to line 2344,1
+BRDA:2343,0,jump to line 2352,0
 BRDA:2352,0,jump to line 2353,1
 BRDA:2352,0,jump to line 2358,1
 BRDA:2354,0,jump to line 2355,1
@@ -1813,12 +1813,12 @@ BRDA:2414,0,jump to line 2415,1
 BRDA:2414,0,jump to line 2431,1
 BRDA:2415,0,jump to line 2416,1
 BRDA:2415,0,jump to line 2420,1
-BRDA:2420,0,jump to line 2421,1
-BRDA:2420,0,jump to line 2426,0
+BRDA:2420,0,jump to line 2421,0
+BRDA:2420,0,jump to line 2426,1
 BRDA:2440,0,jump to line 2441,1
-BRDA:2440,0,jump to line 2442,0
-BRDA:2442,0,jump to line 2443,-
-BRDA:2442,0,jump to line 2446,-
+BRDA:2440,0,jump to line 2442,1
+BRDA:2442,0,jump to line 2443,0
+BRDA:2442,0,jump to line 2446,1
 BRDA:2454,0,jump to line 2455,0
 BRDA:2454,0,jump to line 2458,1
 BRDA:2475,0,jump to line 2476,1
@@ -1898,7 +1898,7 @@ BRDA:2945,0,jump to line 2946,0
 BRDA:2949,0,jump to line 2950,0
 BRDA:2949,0,jump to line 2952,1
 BRF:328
-BRH:210
+BRH:216
 end_of_record
 SF:graph_rlm/backend/src/core/circuit.py
 DA:8,1
@@ -5470,23 +5470,23 @@ DA:50,1
 DA:53,1
 DA:59,1
 DA:60,1
-DA:67,1
+DA:67,0
 DA:68,0
-DA:70,1
-DA:71,1
+DA:70,0
+DA:71,0
 DA:72,0
 DA:73,0
 DA:78,1
 DA:79,1
-DA:87,1
+DA:87,0
 DA:88,0
 DA:93,1
 DA:94,1
-DA:102,1
-DA:107,1
-DA:109,1
+DA:102,0
+DA:107,0
+DA:109,0
 DA:110,0
-DA:112,1
+DA:112,0
 DA:113,0
 DA:114,0
 DA:116,0
@@ -5515,35 +5515,35 @@ DA:234,1
 DA:241,0
 DA:244,0
 LF:67
-LH:32
+LH:24
 FN:18,50,extract_python_code
 FNDA:1,extract_python_code
 FN:60,76,EmpiricalGuard.validate_syntax
-FNDA:1,EmpiricalGuard.validate_syntax
+FNDA:0,EmpiricalGuard.validate_syntax
 FN:79,91,EmpiricalGuard.validate_rlm_signatures
-FNDA:1,EmpiricalGuard.validate_rlm_signatures
+FNDA:0,EmpiricalGuard.validate_rlm_signatures
 FN:94,127,EmpiricalGuard.validate_mcp_imports
-FNDA:1,EmpiricalGuard.validate_mcp_imports
+FNDA:0,EmpiricalGuard.validate_mcp_imports
 FN:130,231,validate_thought_node
 FNDA:0,validate_thought_node
 FN:234,246,validate_no_blind_transitions
 FNDA:0,validate_no_blind_transitions
 FNF:6
-FNH:4
+FNH:1
 BRDA:30,0,jump to line 31,0
 BRDA:30,0,jump to line 34,1
 BRDA:35,0,jump to line 36,1
 BRDA:35,0,jump to line 40,1
 BRDA:41,0,jump to line 42,0
 BRDA:41,0,jump to line 50,1
-BRDA:67,0,jump to line 68,0
-BRDA:67,0,jump to line 70,1
-BRDA:87,0,jump to line 88,0
-BRDA:87,0,return from function 'validate_rlm_signatures',1
-BRDA:109,0,jump to line 110,0
-BRDA:109,0,jump to line 112,1
-BRDA:112,0,jump to line 113,0
-BRDA:112,0,return from function 'validate_mcp_imports',1
+BRDA:67,0,jump to line 68,-
+BRDA:67,0,jump to line 70,-
+BRDA:87,0,jump to line 88,-
+BRDA:87,0,return from function 'validate_rlm_signatures',-
+BRDA:109,0,jump to line 110,-
+BRDA:109,0,jump to line 112,-
+BRDA:112,0,jump to line 113,-
+BRDA:112,0,return from function 'validate_mcp_imports',-
 BRDA:116,0,jump to line 112,-
 BRDA:116,0,jump to line 117,-
 BRDA:153,0,jump to line 154,-
@@ -5561,7 +5561,7 @@ BRDA:216,0,jump to line 223,-
 BRDA:241,0,jump to line 244,-
 BRDA:241,0,return from function 'validate_no_blind_transitions',-
 BRF:30
-BRH:8
+BRH:4
 end_of_record
 SF:graph_rlm/backend/src/core/llm.py
 DA:6,1
@@ -5643,7 +5643,7 @@ DA:170,1
 DA:175,1
 DA:176,0
 DA:177,1
-DA:178,1
+DA:178,0
 DA:180,1
 DA:181,1
 DA:183,1
@@ -5772,8 +5772,8 @@ DA:465,0
 DA:466,0
 DA:468,1
 DA:471,1
-DA:472,1
-DA:473,1
+DA:472,0
+DA:473,0
 DA:474,0
 DA:475,0
 DA:477,1
@@ -5941,7 +5941,7 @@ DA:833,0
 DA:834,0
 DA:837,1
 LF:376
-LH:141
+LH:138
 FN:36,48,LLMService.__init__
 FNDA:1,LLMService.__init__
 FN:50,61,LLMService._get_client_and_lock
@@ -6010,7 +6010,7 @@ BRDA:163,0,jump to line 164,-
 BRDA:163,0,jump to line 166,-
 BRDA:175,0,jump to line 176,0
 BRDA:175,0,jump to line 177,1
-BRDA:177,0,jump to line 178,1
+BRDA:177,0,jump to line 178,0
 BRDA:177,0,jump to line 180,1
 BRDA:213,0,jump to line 214,0
 BRDA:213,0,jump to line 216,1
@@ -6048,7 +6048,7 @@ BRDA:403,0,jump to line 404,-
 BRDA:403,0,jump to line 429,-
 BRDA:409,0,jump to line 410,-
 BRDA:409,0,jump to line 412,-
-BRDA:471,0,jump to line 472,1
+BRDA:471,0,jump to line 472,0
 BRDA:471,0,jump to line 477,1
 BRDA:477,0,jump to line 478,0
 BRDA:477,0,jump to line 481,1
@@ -6105,7 +6105,7 @@ BRDA:776,0,jump to line 821,-
 BRDA:794,0,jump to line 795,-
 BRDA:794,0,jump to line 797,-
 BRF:116
-BRH:28
+BRH:26
 end_of_record
 SF:graph_rlm/backend/src/core/log_stream.py
 DA:6,0
@@ -7570,16 +7570,16 @@ DA:75,0
 DA:76,0
 DA:86,0
 DA:88,1
-DA:116,1
+DA:116,0
 DA:117,0
-DA:120,1
+DA:120,0
 DA:122,0
 DA:126,0
-DA:127,1
+DA:127,0
 DA:130,0
 DA:131,0
-DA:133,1
-DA:135,1
+DA:133,0
+DA:135,0
 DA:138,0
 DA:141,0
 DA:142,0
@@ -7608,13 +7608,13 @@ DA:204,0
 DA:205,0
 DA:211,0
 DA:222,0
-DA:225,1
-DA:226,1
+DA:225,0
+DA:226,0
 DA:227,0
-DA:231,1
-DA:233,1
-DA:234,1
-DA:235,1
+DA:231,0
+DA:233,0
+DA:234,0
+DA:235,0
 DA:236,0
 DA:238,0
 DA:239,0
@@ -7628,15 +7628,15 @@ DA:247,0
 DA:249,0
 DA:255,0
 DA:266,0
-DA:269,1
-DA:271,1
-DA:273,1
-DA:274,1
+DA:269,0
+DA:271,0
+DA:273,0
+DA:274,0
 DA:275,0
 DA:276,0
 DA:282,0
 DA:293,0
-DA:295,1
+DA:295,0
 DA:297,1
 DA:310,0
 DA:323,1
@@ -7821,7 +7821,7 @@ DA:762,0
 DA:765,0
 DA:769,1
 LF:289
-LH:57
+LH:41
 FN:33,38,IntelliSynth.__init__
 FNDA:1,IntelliSynth.__init__
 FN:42,60,IntelliSynth._extract_mission_state
@@ -7829,7 +7829,7 @@ FNDA:0,IntelliSynth._extract_mission_state
 FN:62,86,IntelliSynth._extract_recent_trace
 FNDA:0,IntelliSynth._extract_recent_trace
 FN:88,295,IntelliSynth.introspective_probe
-FNDA:1,IntelliSynth.introspective_probe
+FNDA:0,IntelliSynth.introspective_probe
 FN:297,319,IntelliSynth._trigger_deep_analysis
 FNDA:0,IntelliSynth._trigger_deep_analysis
 FN:323,325,IntelliSynth.sigmoid
@@ -7867,7 +7867,7 @@ FNDA:0,IntelliSynth.engage_intuition
 FN:753,765,IntelliSynth.employ_abductive_reasoning
 FNDA:0,IntelliSynth.employ_abductive_reasoning
 FNF:22
-FNH:2
+FNH:1
 BRDA:45,0,jump to line 46,-
 BRDA:45,0,jump to line 49,-
 BRDA:50,0,jump to line 51,-
@@ -7878,14 +7878,14 @@ BRDA:65,0,jump to line 66,-
 BRDA:65,0,jump to line 71,-
 BRDA:75,0,jump to line 76,-
 BRDA:75,0,jump to line 86,-
-BRDA:116,0,jump to line 117,0
-BRDA:116,0,jump to line 120,1
-BRDA:120,0,jump to line 122,0
-BRDA:120,0,jump to line 127,1
-BRDA:127,0,jump to line 130,0
-BRDA:127,0,jump to line 133,1
-BRDA:135,0,jump to line 138,0
-BRDA:135,0,jump to line 225,1
+BRDA:116,0,jump to line 117,-
+BRDA:116,0,jump to line 120,-
+BRDA:120,0,jump to line 122,-
+BRDA:120,0,jump to line 127,-
+BRDA:127,0,jump to line 130,-
+BRDA:127,0,jump to line 133,-
+BRDA:135,0,jump to line 138,-
+BRDA:135,0,jump to line 225,-
 BRDA:141,0,jump to line 142,-
 BRDA:141,0,jump to line 193,-
 BRDA:149,0,jump to line 150,-
@@ -7902,20 +7902,20 @@ BRDA:200,0,jump to line 201,-
 BRDA:200,0,jump to line 225,-
 BRDA:204,0,jump to line 205,-
 BRDA:204,0,jump to line 225,-
-BRDA:226,0,jump to line 227,0
-BRDA:226,0,jump to line 231,1
+BRDA:226,0,jump to line 227,-
+BRDA:226,0,jump to line 231,-
 BRDA:242,0,jump to line 243,-
 BRDA:242,0,jump to line 244,-
 BRDA:244,0,jump to line 245,-
 BRDA:244,0,jump to line 246,-
 BRDA:246,0,jump to line 247,-
 BRDA:246,0,jump to line 249,-
-BRDA:269,0,jump to line 271,1
-BRDA:269,0,jump to line 295,0
-BRDA:271,0,jump to line 273,1
-BRDA:271,0,jump to line 295,0
-BRDA:274,0,jump to line 275,0
-BRDA:274,0,jump to line 295,1
+BRDA:269,0,jump to line 271,-
+BRDA:269,0,jump to line 295,-
+BRDA:271,0,jump to line 273,-
+BRDA:271,0,jump to line 295,-
+BRDA:274,0,jump to line 275,-
+BRDA:274,0,jump to line 295,-
 BRDA:275,0,jump to line 274,-
 BRDA:275,0,jump to line 276,-
 BRDA:347,0,jump to line 348,-
@@ -7973,7 +7973,7 @@ BRDA:734,0,jump to line 743,-
 BRDA:743,0,jump to line 744,-
 BRDA:743,0,jump to line 751,-
 BRF:104
-BRH:8
+BRH:0
 end_of_record
 SF:graph_rlm/backend/src/core/repe.py
 DA:6,1
@@ -8005,61 +8005,61 @@ DA:149,0
 DA:150,0
 DA:156,0
 DA:158,1
-DA:159,0
-DA:161,0
-DA:162,0
+DA:159,1
+DA:161,1
+DA:162,1
 DA:163,0
 DA:164,0
 DA:170,0
 DA:171,0
 DA:178,1
-DA:179,0
-DA:180,0
-DA:182,0
-DA:183,0
+DA:179,1
+DA:180,1
+DA:182,1
+DA:183,1
 DA:185,1
-DA:186,0
-DA:187,0
-DA:188,0
-DA:189,0
-DA:190,0
+DA:186,1
+DA:187,1
+DA:188,1
+DA:189,1
+DA:190,1
 DA:192,0
 DA:193,0
 DA:194,0
 DA:196,0
-DA:198,0
-DA:199,0
-DA:201,0
+DA:198,1
+DA:199,1
+DA:201,1
 DA:202,0
-DA:205,0
+DA:205,1
 DA:207,1
-DA:209,0
-DA:210,0
-DA:212,0
+DA:209,1
+DA:210,1
+DA:212,1
 DA:213,0
-DA:215,0
-DA:217,0
-DA:218,0
-DA:219,0
-DA:221,0
-DA:226,0
-DA:229,0
-DA:230,0
-DA:231,0
+DA:215,1
+DA:217,1
+DA:218,1
+DA:219,1
+DA:221,1
+DA:226,1
+DA:229,1
+DA:230,1
+DA:231,1
 DA:233,0
-DA:238,0
-DA:239,0
-DA:240,0
+DA:238,1
+DA:239,1
+DA:240,1
 DA:242,1
-DA:249,0
-DA:251,0
-DA:252,0
-DA:254,0
-DA:255,0
-DA:256,0
+DA:249,1
+DA:251,1
+DA:252,1
+DA:254,1
+DA:255,1
+DA:256,1
 DA:257,0
 DA:258,0
-DA:259,0
+DA:259,1
 DA:261,0
 DA:262,0
 DA:263,0
@@ -8082,45 +8082,45 @@ DA:285,0
 DA:292,0
 DA:295,1
 LF:105
-LH:27
+LH:65
 FN:28,128,GestaltMonitor.__init__
 FNDA:1,GestaltMonitor.__init__
 FN:130,156,GestaltMonitor._load_cache
 FNDA:1,GestaltMonitor._load_cache
 FN:158,176,GestaltMonitor._save_cache
-FNDA:0,GestaltMonitor._save_cache
+FNDA:1,GestaltMonitor._save_cache
 FN:178,183,GestaltMonitor._get_polarities_hash
-FNDA:0,GestaltMonitor._get_polarities_hash
+FNDA:1,GestaltMonitor._get_polarities_hash
 FN:185,205,GestaltMonitor._get_centroid
-FNDA:0,GestaltMonitor._get_centroid
+FNDA:1,GestaltMonitor._get_centroid
 FN:207,240,GestaltMonitor.calibrate
-FNDA:0,GestaltMonitor.calibrate
+FNDA:1,GestaltMonitor.calibrate
 FN:242,292,GestaltMonitor.scan_thought
-FNDA:0,GestaltMonitor.scan_thought
+FNDA:1,GestaltMonitor.scan_thought
 FNF:7
-FNH:2
+FNH:7
 BRDA:133,0,jump to line 134,1
 BRDA:133,0,jump to line 156,0
-BRDA:187,0,jump to line 188,-
-BRDA:187,0,jump to line 201,-
-BRDA:189,0,jump to line 190,-
-BRDA:189,0,jump to line 192,-
+BRDA:187,0,jump to line 188,1
+BRDA:187,0,jump to line 201,1
+BRDA:189,0,jump to line 190,1
+BRDA:189,0,jump to line 192,0
 BRDA:193,0,jump to line 194,-
 BRDA:193,0,jump to line 196,-
-BRDA:198,0,jump to line 187,-
-BRDA:198,0,jump to line 199,-
-BRDA:201,0,jump to line 202,-
-BRDA:201,0,jump to line 205,-
-BRDA:212,0,jump to line 213,-
-BRDA:212,0,jump to line 215,-
-BRDA:217,0,jump to line 218,-
-BRDA:217,0,jump to line 238,-
-BRDA:221,0,jump to line 226,-
-BRDA:221,0,jump to line 233,-
-BRDA:249,0,jump to line 251,-
-BRDA:249,0,jump to line 261,-
-BRDA:251,0,jump to line 252,-
-BRDA:251,0,jump to line 259,-
+BRDA:198,0,jump to line 187,0
+BRDA:198,0,jump to line 199,1
+BRDA:201,0,jump to line 202,0
+BRDA:201,0,jump to line 205,1
+BRDA:212,0,jump to line 213,0
+BRDA:212,0,jump to line 215,1
+BRDA:217,0,jump to line 218,1
+BRDA:217,0,jump to line 238,1
+BRDA:221,0,jump to line 226,1
+BRDA:221,0,jump to line 233,0
+BRDA:249,0,jump to line 251,1
+BRDA:249,0,jump to line 261,0
+BRDA:251,0,jump to line 252,1
+BRDA:251,0,jump to line 259,0
 BRDA:263,0,jump to line 264,-
 BRDA:263,0,jump to line 266,-
 BRDA:267,0,jump to line 268,-
@@ -8138,7 +8138,7 @@ BRDA:278,0,jump to line 279,-
 BRDA:280,0,jump to line 281,-
 BRDA:280,0,jump to line 285,-
 BRF:38
-BRH:1
+BRH:12
 end_of_record
 SF:graph_rlm/backend/src/core/rlm_interface.py
 DA:5,1
@@ -9106,10 +9106,10 @@ DA:560,1
 DA:561,1
 DA:562,1
 DA:564,1
-DA:565,0
+DA:565,1
 DA:568,0
 DA:569,0
-DA:571,0
+DA:571,1
 DA:573,1
 DA:574,0
 DA:575,0
@@ -9342,7 +9342,7 @@ DA:982,0
 DA:984,0
 DA:988,1
 LF:466
-LH:201
+LH:203
 FN:36,37,ScratchpadBuilder.__init__
 FNDA:1,ScratchpadBuilder.__init__
 FN:39,262,ScratchpadBuilder.build_scratchpad
@@ -9475,10 +9475,10 @@ BRDA:556,0,jump to line 557,1
 BRDA:556,0,jump to line 684,1
 BRDA:557,0,jump to line 558,0
 BRDA:557,0,jump to line 560,1
-BRDA:564,0,jump to line 565,0
+BRDA:564,0,jump to line 565,1
 BRDA:564,0,jump to line 573,1
-BRDA:565,0,jump to line 568,-
-BRDA:565,0,jump to line 571,-
+BRDA:565,0,jump to line 568,0
+BRDA:565,0,jump to line 571,1
 BRDA:573,0,jump to line 574,0
 BRDA:573,0,jump to line 583,1
 BRDA:584,0,jump to line 585,1
@@ -9570,7 +9570,7 @@ BRDA:973,0,jump to line 981,-
 BRDA:981,0,jump to line 982,-
 BRDA:981,0,jump to line 984,-
 BRF:196
-BRH:61
+BRH:63
 end_of_record
 SF:graph_rlm/backend/src/core/semantic_summarizer.py
 DA:7,1
