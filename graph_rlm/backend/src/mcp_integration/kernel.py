@@ -306,6 +306,7 @@ class IPCRLMProxy:
 
 # Initialize Global Clients
 mcp_client = IPCClient()
+mcp = mcp_client
 rlm = RLMClient()
 
 

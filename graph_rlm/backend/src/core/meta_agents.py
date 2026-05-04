@@ -267,7 +267,7 @@ class MetaAgentController:
                         relevant_skills.append(
                             f"- {skill_name} ({func_name}): {desc}"
                         )
-            except (AttributeError, RuntimeError, KeyError, ValueError, httpx.RequestError) as e:
+            except Exception as e:
                 logger.warning("Skill discovery failed during profiling for task: %s... -> %s", task[:50], e, exc_info=True)
 
         mcp_list = ", ".join(mcp_names) if mcp_names else "None (Use rlm commands)"
@@ -310,7 +310,7 @@ INSTRUCTIONS:
                 "role": AgentRole.WORKER,
                 "reasoning": profile_json.reasoning,
             }
-        except (AttributeError, RuntimeError, KeyError, ValueError, httpx.RequestError) as e:
+        except Exception as e:
             logger.error("LLM Profiling failed for task: %s... -> %s. Falling back to heuristics.", task[:50], e, exc_info=True)
 
             # FALLBACK HEURISTICS

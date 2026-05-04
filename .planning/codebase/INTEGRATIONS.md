@@ -176,8 +176,33 @@ MCP_SERVER_CONFIG=mcp_servers.json
 Frontend (React) <--> FastAPI Backend <--> FalkorDB
                                               ^
                                               |
-                                      MCP Servers (Docker)
+                                       MCP Servers (Docker)
 ```
+
+## Monitoring & Observability
+
+### structlog
+
+| Aspect | Details |
+|--------|---------|
+| Library | `structlog>=24.2.0` |
+| Purpose | Structured JSON logging |
+| Output | Console (colored) and File (JSON) |
+| Used by | All backend modules via `logger.py` |
+
+**Key Features:**
+- Contextual logging (correlation IDs, session IDs)
+- JSON formatting for ELK/log aggregation
+- Async-aware logging
+- Thread-local context propagation
+
+### Pydantic AI
+
+| Aspect | Details |
+|--------|---------|
+| Library | `pydantic-ai>=1.59.0` |
+| Purpose | Agentic AI with Pydantic validation |
+| Used by | Advanced agent features and structured generation |
 
 ## Authentication
 

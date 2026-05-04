@@ -242,137 +242,86 @@ Methods should be organized in this order:
 
 ---
 
+#---
+
 ## Error Handling Patterns
 
-### General Principles
+### Structured Exception Hierarchy
 
-1. **Use specific exception types** when possible
-2. **Handle errors at the right level** (don't swallow errors at higher levels)
-3. **Log errors appropriately** (use logger instead of print)
-4. **Return meaningful error states** rather than raising exceptions for control flow
-5. **Use type annotations** to document expected exceptions
-
-### Exception Handling
+The project uses a centralized exception hierarchy defined in `graph_rlm.backend.src.core.exceptions`. All custom exceptions must inherit from `BaseGraphRLMError`.
 
 ```python
-from typing import Optional, Dict, Any
-import logging
+class BaseGraphRLMError(Exception):
+    """Base exception for all Graph-RLM errors."""
+    def __init__(self, message: str, error_code: ErrorCode, http_status_code: int = 500):
+        self.error_code = error_code
+        self.http_status_code = http_status_code
+        super().__init__(message)
+```
+
+**Common Exception Types:**
+- `CoreError`: For fundamental system failures.
+- `GraphError`: For issues interacting with FalkorDB.
+- `SkillExecutionError`: For failures within skills.
+- `ExternalServiceError`: For LLM or API timeout/failures (triggers circuit breakers).
+- `ValidationError`: For input or business rule violations.
+
+### Circuit Breaker Pattern
+
+Critical external calls (LLM, MCP) should be wrapped in a circuit breaker to prevent cascade failures.
+
+```python
+from graph_rlm.backend.src.core.circuit import CircuitBreaker
+
+# Example usage
+circuit = CircuitBreaker(name="llm_service", config=my_config)
+
+async def call_llm(prompt: str):
+    async with circuit:
+        return await llm_service.ainvoke(prompt)
+```
+
+### Logging with Context
+
+Use `structlog` for structured logging. Always include relevant context like `session_id` and `correlation_id`.
+
+```python
+from graph_rlm.backend.src.core.logging import get_logger
 
 logger = get_logger(__name__)
 
-def process_data(data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Process data with proper error handling."""
-    try:
-        # Input validation
-        if not isinstance(data, dict):
-            raise ValueError("Data must be a dictionary")
-        
-        # Processing
-        result = _internal_processing(data)
-        
-        # Validation of output
-        if not result:
-            logger.warning("Processing returned None")
-            return None
-        
-        return result
-        
-    except ValueError as e:
-        # Log and re-raise specific errors
-        logger.error("Input validation failed: %s", e)
-        raise
-    except Exception as e:  # pylint: disable=broad-except
-        # Catch-all for unexpected errors
-        logger.exception("Unexpected error in processing: %s", e)
-        return None
-
-def _internal_processing(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Internal processing logic."""
-    # Implementation
-    return data
+def my_function(session_id: str):
+    log = logger.bind(session_id=session_id)
+    log.info("Processing task", task_type="reasoning")
 ```
 
-### Async Error Handling
+---
+
+## Testing Documentation
+
+### pytest Infrastructure
+
+The project uses **pytest** with **pytest-asyncio**. Reusable mocks are managed via a centralized `MockRegistry`.
+
+#### MockRegistry Usage
+
+Use the `mock_registry` fixture to access pre-configured mocks for common dependencies.
 
 ```python
-async def async_operation(data: Dict[str, Any]) -> Dict[str, Any]:
-    """Handle async operation with proper error handling."""
-    try:
-        result = await _async_processing(data)
-        return result
-    except (ValueError, TypeError) as e:
-        logger.error("Async validation failed: %s", e)
-        raise
-    except asyncio.TimeoutError:
-        logger.error("Operation timed out")
-        raise
-    except Exception as e:  # noqa: BLE001
-        logger.exception("Unexpected async error: %s", e)
-        raise
-```
-
-### Error Logging
-
-```python
-import logging
-
-logger = get_logger(__name__)
-
-# Error logging patterns
-
-# 1. Simple error logging
-try:
-    result = risky_operation()
-except ValueError as e:
-    logger.error("Value error: %s", e)
-
-# 2. Exception logging (with traceback)
-try:
-    result = risky_operation()
-except Exception as e:
-    logger.exception("Unexpected error: %s", e)
-
-# 3. Warning logging (recoverable errors)
-if not result:
-    logger.warning("Operation returned empty result")
-
-# 4. Debug logging (development)
-if DEBUG_MODE:
-    logger.debug("Debug info: %s", data)
-```
-
-### Error Return Patterns
-
-```python
-# Pattern 1: Return None for errors
-def safe_operation() -> Optional[Dict]:
-    """Return None on error."""
-    try:
-        result = do_operation()
-        return result
-    except Exception:
-        return None
-
-# Pattern 2: Return error codes/flags
-def check_valid() -> bool:
-    """Returns False on error."""
-    try:
-        # Validation logic
-        return True
-    except Exception:
-        return False
-
-# Pattern 3: Raise exceptions for critical errors
-def critical_operation() -> Dict:
-    """Raises exception on error."""
-    try:
-        result = do_operation()
-        if not result:
-            raise ValueError("Operation failed")
-        return result
-    except Exception as e:
-        logger.error("Operation failed: %s", e)
-        raise
+@pytest.mark.asyncio
+async def test_agent_query(mock_registry):
+    # Arrange
+    mock_llm = mock_registry.llm
+    mock_llm.ainvoke.return_value = MagicMock(content="Mocked answer")
+    
+    agent = Agent()
+    agent.llm = mock_llm
+    
+    # Act
+    result = await agent.query("Hello")
+    
+    # Assert
+    assert "Mocked answer" in result
 ```
 
 ---
@@ -395,13 +344,7 @@ Detailed description covering:
 - Usage patterns
 - Dependencies
 - Example usage (if complex)
-
-Typical usage:
-    >>> from module_name import ClassName
-    >>> instance = ClassName()
-    >>> result = instance.method()
 """
-
 ```
 
 ### Class Documentation
@@ -410,33 +353,6 @@ Classes must have docstrings with:
 1. **Summary sentence** (what it is)
 2. **Detailed description** (how it works, what it does)
 3. **Attributes** (key instance variables)
-4. **Usage notes** (important behaviors or edge cases)
-
-```python
-class Agent:
-    """
-    The core Agent class for Graph-RLM.
-
-    This agent implements the Recursive Logic Machine (RLM) architecture,
-    providing a persistent REPL and graph-based memory system.
-
-    Key Features:
-    - Persistent state across recursive calls
-    - Graph-based memory using FalkorDB
-    - Axiomatic consistency checking
-    - Dream sleep cycles for wisdom consolidation
-
-    Attributes:
-        db: Graph database client for persistent storage
-        llm: Language model service for reasoning and generation
-        repl_manager: Manager for isolated REPL environments
-
-    Examples:
-        >>> agent = Agent()
-        >>> result = await agent.query("Task description")
-        >>> print(result)
-    """
-```
 
 ### Function Documentation
 
@@ -446,47 +362,6 @@ Functions require:
 3. **Args section** (each parameter with type and description)
 4. **Returns section** (description and type)
 5. **Raises section** (if applicable)
-6. **Examples** (for complex functions)
-
-```python
-def process_request(
-    data: Dict[str, Any],
-    timeout: float = 10.0,
-    retry_attempts: int = 3
-) -> Dict[str, Any]:
-    """
-    Process an incoming request with retry logic.
-
-    This function handles incoming requests with built-in retry
-    capabilities for transient failures. It validates input, processes
-    the request through configured pipelines, and returns structured
-    responses.
-
-    Args:
-        data: Input request data dictionary
-        timeout: Maximum time to wait for processing in seconds
-        retry_attempts: Number of retry attempts on failure
-
-    Returns:
-        Dict containing processing results with keys:
-            - 'status': 'success' or 'error'
-            - 'data': Processed data or error details
-            - 'timestamp': Processing completion time
-
-    Raises:
-        ValueError: If input data is invalid
-        TimeoutError: If operation exceeds timeout limit
-
-    Examples:
-        >>> result = process_request({"key": "value"})
-        >>> assert result['status'] == 'success'
-        
-        >>> result = process_request(None)
-        Traceback (most recent call last):
-            ...
-        ValueError: Input data cannot be None
-    """
-```
 
 ### In-Line Comments
 
@@ -494,20 +369,6 @@ def process_request(
 - Comments should be clear and concise
 - Comment code that's not self-explanatory
 - Prefer comments that explain *why* rather than *what*
-
-```python
-# Good comments
-# Store the result for later use in the analysis pipeline
-# Use absolute path to avoid environment confusion
-# Calculate the deviation from the target metric
-
-# Avoid redundant comments
-# result = data * 2  # Multiply by 2  <- What does this mean?
-
-# Good inline comments
-if result > threshold:  # Check if result exceeds safety threshold
-    logger.warning("Result exceeds safety limit")
-```
 
 ### Docstring Conventions
 
@@ -519,162 +380,7 @@ if result > threshold:  # Check if result exceeds safety threshold
 #### Parameters
 - Format: `param_name (type): description`
 - Include types in parentheses
-- Use `Optional[type]` for nullable parameters
 - List all parameters even if optional
-
-#### Returns
-- Format: `type: description`
-- Describe what the function returns
-- Note any transformation of input data
-
-#### Raises
-- List exceptions that the function can raise
-- Include `TypeError` for incorrect argument types
-- Include `ValueError` for invalid argument values
-
-#### Notes Section
-- Add `Notes:` section for implementation details
-- Document edge cases and corner cases
-- Include performance considerations
-
----
-
-## Testing Documentation
-
-### Test File Structure
-
-```python
-"""
-Test module for [module_under_test].
-
-Tests cover:
-- Basic functionality
-- Edge cases
-- Error conditions
-- Integration with other components
-"""
-
-import asyncio
-import os
-import sys
-import unittest
-from unittest.mock import MagicMock, AsyncMock
-
-# Setup path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-# Mock imports before actual imports
-mock_db = MagicMock()
-sys.modules["falkordb"] = mock_db
-sys.modules["graph_rlm.backend.src.core.db"] = mock_db
-
-# Import classes to test
-from graph_rlm.backend.src.core.agent import Agent
-
-
-class TestClassName(unittest.IsolatedAsyncioTestCase):
-    """
-    Test suite for ClassName.
-    
-    Test cases organized by functionality:
-    - TC1: Happy path
-    - TC2: Error conditions
-    - TC3: Edge cases
-    """
-
-    async def asyncSetUp(self):
-        """Set up test fixtures before each test."""
-        self.instance = ClassName()
-        # Reset mocks
-        
-    async def test_happy_path(self):
-        """Test the happy path behavior."""
-        # Arrange
-        data = {"key": "value"}
-        
-        # Act
-        result = self.instance.method(data)
-        
-        # Assert
-        self.assertEqual(result['status'], 'success')
-    
-    async def test_error_handling(self):
-        """Test error handling behavior."""
-        # Arrange
-        invalid_data = None
-        
-        # Act & Assert
-        with self.assertRaises(ValueError):
-            self.instance.method(invalid_data)
-```
-
----
-
-## Additional Guidelines
-
-### Logging
-
-```python
-import logging
-
-logger = get_logger(__name__)
-
-# Use appropriate log levels
-logger.debug("Debug information")
-logger.info("Important information")
-logger.warning("Warning message")
-logger.error("Error occurred")
-logger.critical("Critical failure")
-
-# Use formatted strings
-logger.info("Processing item %s with value %d", item_id, value)
-
-# Log exceptions with traceback
-try:
-    operation()
-except Exception as e:
-    logger.exception("Operation failed: %s", e)
-```
-
-### Environment Configuration
-
-```python
-from pydantic_settings import BaseSettings, SettingsConfigDict
-
-class Settings(BaseSettings):
-    """Application configuration."""
-    
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False
-    )
-    
-    # Environment variables
-    ENVIRONMENT: str = "development"
-    LOG_LEVEL: str = "INFO"
-    
-    # Feature flags
-    ENABLE_FEATURE_X: bool = False
-    MAX_RECURSION_DEPTH: int = 3
-
-settings = Settings()
-```
-
-### Type Aliases
-
-```python
-from typing import Dict, List, Any, TypeAlias
-
-# Define type aliases for clarity
-MessageDict: TypeAlias = Dict[str, Any]
-ResponseList: TypeAlias = List[Dict[str, Any]]
-OptionalData: TypeAlias = Optional[Dict[str, Any]]
-
-def process_data(data: MessageDict) -> ResponseList:
-    """Process message data."""
-    return []
-```
 
 ---
 
@@ -686,17 +392,10 @@ Before committing code, ensure:
 - [ ] Has comprehensive docstrings (modules, classes, public methods)
 - [ ] Uses type annotations for all parameters and returns
 - [ ] Proper error handling with logging
-- [ ] No hardcoded values (use constants or config)
-- [ ] Async functions are properly awaited
-- [ ] Imports are organized correctly
-- [ ] No print statements (use logging)
-- [ ] No TODO comments without resolution
-- [ ] Follows PEP 8 style guidelines
-- [ ] Code is well-commented where necessary
-- [ ] No commented-out code in production files
-- [ ] Security-sensitive data not hardcoded
 - [ ] All imports are necessary
+- [ ] No TODO comments without resolution
+- [ ] No print statements (use logging)
 
 ---
 
-*Last updated: February 9, 2026*
+*Last updated: 2026-05-04*

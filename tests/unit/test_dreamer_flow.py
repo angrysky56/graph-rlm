@@ -5,9 +5,9 @@ import sys
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from core.agent import Agent
-from core.prompts import build_system_prompt
-from core.state import ExecutionState, agent_state
+from graph_rlm.backend.src.core.agent import Agent
+from graph_rlm.backend.src.core.prompts import build_system_prompt
+from graph_rlm.backend.src.core.state import ExecutionState, agent_state
 
 # This test must be run from graph_rlm/backend/src as:
 # export PYTHONPATH=$PYTHONPATH:.
@@ -17,7 +17,7 @@ from core.state import ExecutionState, agent_state
 class TestDreamerAgentFlow(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         # Prevent actually initializing some things
-        with patch("core.agent.AgentRuntime"):
+        with patch("graph_rlm.backend.src.core.agent.AgentRuntime"):
             self.agent = Agent()
 
         # Mock necessary components
@@ -27,8 +27,8 @@ class TestDreamerAgentFlow(unittest.IsolatedAsyncioTestCase):
         self.agent.active_repls = {}
         self.agent.morph_memory = MagicMock()
 
-    @patch("core.agent.get_axioms_manager")
-    @patch("core.agent.llm")
+    @patch("graph_rlm.backend.src.core.agent.get_axioms_manager")
+    @patch("graph_rlm.backend.src.core.agent.llm")
     async def test_axiom_discovery_pre_flight(self, mock_llm, mock_get_mgr):
         # Setup mocks
         mock_mgr = AsyncMock()
@@ -68,13 +68,13 @@ class TestDreamerAgentFlow(unittest.IsolatedAsyncioTestCase):
         self.assertIn("math-axiom", prompt)
         self.assertIn("Ensures math is correct", prompt)
 
-    @patch("core.agent.Agent._execute_action", new_callable=AsyncMock)
-    @patch("core.agent.Agent._generate_thought", new_callable=AsyncMock)
-    @patch("core.agent.Agent._initialize_step", new_callable=AsyncMock)
-    @patch("core.agent.Agent._initialize_turn", new_callable=AsyncMock)
-    @patch("core.agent.Agent._process_response", new_callable=AsyncMock)
-    @patch("core.agent.Agent._validate_and_finalize", new_callable=AsyncMock)
-    @patch("core.agent.Dreamer", new_callable=MagicMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._execute_action", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._generate_thought", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._initialize_step", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._initialize_turn", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._process_response", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Agent._validate_and_finalize", new_callable=AsyncMock)
+    @patch("graph_rlm.backend.src.core.agent.Dreamer", new_callable=MagicMock)
     async def test_reflexion_trigger_on_failure(self, mock_dreamer_cls, mock_validate, mock_process, mock_init_turn, mock_init_step, mock_gen_thought, mock_exec_action):
         # Setup failed execution
         mock_init_turn.return_value = {

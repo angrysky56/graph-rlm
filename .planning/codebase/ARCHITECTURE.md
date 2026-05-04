@@ -1,6 +1,6 @@
 # Architecture
 
-**Analysis Date:** 2026-02-12
+**Analysis Date:** 2026-05-04
 
 ## Pattern Overview
 
@@ -156,9 +156,22 @@
 
 ## Error Handling
 
-**Strategy:** Multi-layered error handling with recovery and synthesis
+**Strategy:** Multi-layered error handling with recovery and synthesis using a structured exception hierarchy and circuit breaker pattern.
 
-**Patterns:**
+**Structured Exception Hierarchy:**
+- `BaseGraphRLMError`: Base exception with `error_code` and `http_status_code`
+- `CoreError` (CORE_*): System-level failures
+- `GraphError` (GRAPH_*): FalkorDB connection or query issues
+- `SkillExecutionError` (SKILL_*): Failures during skill execution
+- `ExternalServiceError` (EXTERNAL_*): LLM or external API failures (triggering circuit breakers)
+- `ValidationError` (VALIDATION_*): Input or axiom validation failures
+
+**Circuit Breaker (Resilience):**
+- **States**: CLOSED (Normal), OPEN (Failing), HALF_OPEN (Recovering)
+- **Protected Calls**: LLM service calls, MCP server interactions
+- **Configuration**: Failure thresholds, recovery timeouts, and exception-specific triggers
+
+**Safety Patterns:**
 - **Guardrail Errors**: `GuardrailError` raised by axiom validation (Tier 1)
 - **RepE Violations**: Gestalt monitoring triggers halt on psychological pathogens (Tier 2)
 - **Sheaf Violations**: Topological consistency failure triggers recalibration

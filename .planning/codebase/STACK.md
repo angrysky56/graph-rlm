@@ -24,8 +24,10 @@
 | FalkorDB | >= 1.4.0 | Graph + Vector database for memory |
 | LangChain | >= 1.2.7 | LLM orchestration |
 | LangChain Community | >= 0.4.1 | Additional LLM integrations |
+| Pydantic AI | >= 1.59.0 | AI framework with Pydantic validation |
 | Pydantic Settings | >= 2.12.0 | Configuration management |
 | Uvicorn | >= 0.40.0 | ASGI server |
+| structlog | >= 24.2.0 | Structured JSON logging |
 
 ### AI & LLM Integration
 
@@ -56,6 +58,8 @@
 | Library | Version | Purpose |
 |---------|---------|---------|
 | Pydantic | - | Data validation (via pydantic-settings) |
+| httpx | >= 0.28.1 | Async HTTP client |
+| python-dotenv | >= 1.2.1 | Environment variable management |
 | termcolor | >= 2.4.0 | Colored terminal output |
 | nest-asyncio | >= 1.6.0 | Async event loop nesting |
 | psutil | >= 7.2.2 | System monitoring |
@@ -115,6 +119,8 @@
 falkordb>=1.4.0          # Graph + Vector database
 fastapi>=0.128.0        # Web framework
 langchain>=1.2.7        # LLM orchestration
+pydantic-ai>=1.59.0     # AI framework
+structlog>=24.2.0       # Structured logging
 networkx>=3.6.1         # Graph algorithms
 numpy>=2.4.1           # Numerical computing
 openai>=2.15.0          # LLM provider

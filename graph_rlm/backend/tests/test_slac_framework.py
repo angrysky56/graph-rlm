@@ -5,7 +5,7 @@ import sys
 # Add the project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from graph_rlm.backend.skills.slac_framework import main as slac_main
+from graph_rlm.backend.src.slac_framework import main as slac_main
 
 
 async def test_slac_unified():

@@ -1,6 +1,6 @@
 import numpy as np
 
-from graph_rlm.backend.src.core.morphogenesis import MorphologicalMemory
+from graph_rlm.backend.src.core.thimac_memory import MorphologicalMemory
 
 
 def test_morph_memory_init():

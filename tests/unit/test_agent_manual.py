@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 # Adjust path to include backend
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.agent import Agent
+from graph_rlm.backend.src.core.agent import Agent
 
 class TestAgent(unittest.TestCase):
     def setUp(self):

@@ -1,6 +1,6 @@
 # Codebase Structure
 
-**Analysis Date:** 2026-02-12
+**Analysis Date:** 2026-05-04
 
 ## Directory Layout
 
@@ -91,12 +91,16 @@ graph-rlm/
 │   └── *.py                      # Individual skills
 ├── tests/                        # Test suite
 │   ├── __init__.py
+│   ├── conftest.py               # Pytest fixtures (mock_registry, event_loop)
 │   ├── test_*.py                 # Test modules
 │   ├── verify_*.py               # Verification tests
 │   ├── debug_*.py                # Debug utilities
-│   └── tests/                    # Nested test suite
-│       ├── __init__.py
-│       └── test_*.py
+│   ├── mocking/                  # Centralized mocking infrastructure
+│   │   ├── falkordb.py           # FalkorDB mocks
+│   │   ├── llm.py                # LLM service mocks
+│   │   ├── external.py           # External API mocks
+│   │   └── mocks.py              # MockRegistry class
+│   └── unit/                     # Unit tests
 ├── test_skills_env/              # Test skill environment
 ├── CODEAGENCY/                   # Code agency evaluation
 ├── pyproject.toml                # Python project config

@@ -46,10 +46,15 @@ The project uses **pytest-asyncio** for async test support:
 
 ```
 tests/
-├── test_*.py              # Individual test files
-├── verify_*.py           # Verification scripts (main-based)
-├── skills/               # Skill-specific tests (if any)
-└── scripts/              # Test utilities and scripts
+├── conftest.py               # Root fixtures (mock_registry, event_loop)
+├── test_*.py                 # Integration and flow tests
+├── verify_*.py               # Main-based verification scripts
+├── mocking/                  # Centralized mocking infrastructure
+│   ├── falkordb.py           # FalkorDB mocks
+│   ├── llm.py                # LLM service mocks
+│   ├── external.py           # External API mocks
+│   └── mocks.py              # MockRegistry class
+└── unit/                     # Isolated unit tests
 ```
 
 ### File Naming Conventions
@@ -263,24 +268,42 @@ async def test_with_patched_import(self):
         self.assertEqual(result["status"], "valid")
 ```
 
-### Fixture Patterns
+### Centralized Mocking: MockRegistry
 
-Define reusable fixtures in `conftest.py` (if needed):
+The project uses a `MockRegistry` (defined in `tests/mocking/mocks.py`) to manage and reset mocks across all tests. This ensures isolation and prevents side-effect leakage.
+
+#### The mock_registry Fixture
+
+Most tests should use the `mock_registry` fixture provided in `tests/conftest.py`.
 
 ```python
-# conftest.py
-import pytest
-from unittest.mock import MagicMock
-
+# tests/conftest.py
 @pytest.fixture
-def mock_db():
-    """Common mock for database."""
-    return MagicMock()
+def mock_registry():
+    from tests.mocking.mocks import MockRegistry
+    registry = MockRegistry()
+    yield registry
+    registry.reset_all()
+```
 
-@pytest.fixture
-def sample_agent():
-    """Fixture for Agent instance."""
-    return Agent()
+#### Common Mock Access
+
+```python
+@pytest.mark.asyncio
+async def test_with_registry(mock_registry):
+    # Access pre-configured mocks
+    mock_llm = mock_registry.llm
+    mock_db = mock_registry.db
+    mock_mcp = mock_registry.mcp
+    
+    # Configure specific behavior
+    mock_llm.ainvoke.return_value = "Success"
+    
+    # Use in test
+    agent = Agent(llm=mock_llm, db=mock_db)
+    result = await agent.run()
+    
+    assert result == "Success"
 ```
 
 ---
@@ -755,4 +778,4 @@ async def test_parametrized(input, expected):
 
 ---
 
-*Last updated: February 9, 2026*
+*Last updated: 2026-05-04*

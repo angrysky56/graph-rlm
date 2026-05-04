@@ -52,7 +52,7 @@ class TestAgentSandbox:
         # async def _execute_code(self, code: str, thought_id: str, session_id: str, ...)
 
         # We'll try passing just the required args if possible, or mocked ones.
-        output, is_failed = await agent._execute_code(
+        output, is_failed, _summary, _hash = await agent._execute_code(
             code, thought_id="test_thought", session_id="test_session"
         )
 
@@ -113,7 +113,7 @@ class TestAgentSandbox:
         os.environ["HOST_SECRET_KEY"] = "super_secret_value"
 
         code = "import os; print(os.environ.get('HOST_SECRET_KEY'))"
-        output, _ = await agent._execute_code(
+        output, _is_failed, _summary, _hash = await agent._execute_code(
             code, thought_id="test_thought_sec", session_id="test_session_sec"
         )
 
@@ -129,7 +129,7 @@ class TestAgentSandbox:
         RED TEST: Verify the agent is using the 'agent_venv' Python, not the System Python.
         """
         code = "import sys; print(sys.executable)"
-        output, _ = await agent._execute_code(
+        output, _is_failed, _summary, _hash = await agent._execute_code(
             code, thought_id="test_thought_venv", session_id="test_session_venv"
         )
 
@@ -153,7 +153,7 @@ try:
 except Exception as e:
     print(f"IPC FAIL: {e}")
 """
-        output, _ = await agent._execute_code(
+        output, _is_failed, _summary, _hash = await agent._execute_code(
             code, thought_id="test_ipc", session_id="test_session_ipc"
         )
 
@@ -192,7 +192,7 @@ except Exception as e:
         asyncio.create_task(trigger_stop())
 
         start_time = asyncio.get_running_loop().time()
-        output, is_failed = await agent._execute_code(
+        output, is_failed, _summary, _hash = await agent._execute_code(
             code, thought_id="test_stop", session_id="test_session_stop"
         )
         end_time = asyncio.get_running_loop().time()

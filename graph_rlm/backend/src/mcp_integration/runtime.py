@@ -389,8 +389,21 @@ class AgentRuntime:
             return "".join(acc)
 
         # 6. Execute with Deadlock Protection
-        # We start reading BEFORE we finish writing/draining to ensure the
-        # kernel doesn't block on writing back to us while we are still writing to it.
+        stop_event = get_stop_event()
+
+        async def stop_watcher():
+            if not stop_event:
+                return
+            while not stop_event.is_set():
+                await asyncio.sleep(0.1)
+            logger.info("Stop Event Set. Terminating kernel process.")
+            try:
+                process.kill()
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
+
+        watcher_task = asyncio.create_task(stop_watcher())
+
         try:
             # Create read tasks
             stdout_task = asyncio.create_task(
@@ -440,6 +453,8 @@ class AgentRuntime:
         except Exception as e:
             logger.error("Runtime Exception: %s", str(e))
             return "", f"Runtime Error: {e}", None, 1
+        finally:
+            watcher_task.cancel()
 
     async def _handle_ipc_request(
         self, process, req: Dict, mcp_namespace: Optional[Any] = None

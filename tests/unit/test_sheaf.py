@@ -1,7 +1,7 @@
 import unittest
 import networkx as nx
 import numpy as np
-from core.sheaf import SheafMonitor
+from graph_rlm.backend.src.core.sheaf import SheafMonitor
 
 class TestSheaf(unittest.TestCase):
     def setUp(self):

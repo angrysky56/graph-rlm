@@ -62,9 +62,9 @@ class TestSettingsDefaults:
         assert settings.GRAPH_NAME == "rlm_graph"
 
     def test_max_recursion_depth_default(self):
-        """Test MAX_RECURSION_DEPTH defaults to 3."""
+        """Test MAX_RECURSION_DEPTH defaults to 1000."""
         settings = Settings()
-        assert settings.MAX_RECURSION_DEPTH == 3
+        assert settings.MAX_RECURSION_DEPTH == 1000
 
     def test_repl_timeout_default(self):
         """Test REPL_TIMEOUT defaults to 3000."""
@@ -114,11 +114,11 @@ class TestLLMProviderConfigs:
         assert "embedding_model" in config
 
     def test_get_config_for_unknown_provider(self):
-        """Test unknown provider falls back to Ollama config."""
+        """Test unknown provider falls back to openrouter config."""
         settings = Settings()
         config = settings.get_config_for_provider("unknown")
-        # Should return ollama defaults as fallback
-        assert config["base_url"] == "http://localhost:11434"
+        # Should return openrouter defaults as fallback
+        assert config["base_url"] == "https://openrouter.ai/api/v1"
 
     def test_get_llm_config_includes_summary_model(self):
         """Test get_llm_config includes summary model."""
@@ -150,9 +150,13 @@ class TestEnvironmentVariables:
 
     def test_model_config_env_file_setting(self):
         """Test that model_config has env_file configured."""
-        # Verify the ConfigDict includes env_file=".env"
+        # Verify the ConfigDict includes env_file as a list containing .env
         assert hasattr(Settings, "model_config")
-        assert Settings.model_config.get("env_file") == ".env"
+        env_file = Settings.model_config.get("env_file")
+        if isinstance(env_file, list):
+            assert ".env" in env_file
+        else:
+            assert env_file == ".env"
 
     def test_model_config_extra_ignore(self):
         """Test that extra fields are ignored."""
@@ -173,13 +177,20 @@ class TestSaveToEnv:
             os.chdir(tmpdir)
 
             try:
-                settings = Settings()
-                result = settings.save_to_env({"API_PORT": "9000"})
-                assert result is True
+                # Patch model_config to only use the local .env file in the temp directory
+                new_config = Settings.model_config.copy()
+                new_config["env_file"] = [".env"]
+                with mock.patch.object(Settings, "model_config", new_config):
+                    settings = Settings()
+                    # Ensure we start with the value from the file
+                    assert settings.API_PORT == 8080
+                    
+                    result = settings.save_to_env({"API_PORT": "9000"})
+                    assert result is True
 
-                # Reload settings
-                new_settings = Settings()
-                assert new_settings.API_PORT == 9000
+                    # Reload settings should now pick up 9000
+                    new_settings = Settings()
+                    assert new_settings.API_PORT == 9000
             finally:
                 os.chdir(original_cwd)
 
@@ -296,7 +307,7 @@ class TestSettingsModelConfig:
     def test_model_config_has_env_file(self):
         """Test that env_file is configured."""
         assert "env_file" in Settings.model_config
-        assert Settings.model_config["env_file"] == ".env"
+        assert ".env" in Settings.model_config["env_file"]
 
     def test_model_config_extra_ignore(self):
         """Test that extra fields are set to ignore."""

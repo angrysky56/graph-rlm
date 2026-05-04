@@ -187,6 +187,7 @@ class Agent:
         self.global_stop_event = (
             threading.Event()
         )  # Shared event for cross-thread stopping
+        set_stop_event(self.global_stop_event)
 
         # --- STATE INITIALIZATION (Linter safety) ---
         self.last_dream_insight: Optional[str] = None
@@ -316,7 +317,7 @@ class Agent:
             extra={
                 "correlation_id": correlation_id,
                 "circuit": error.circuit_name or "llm",
-                "message": error.message,
+                "error_message": error.message,
             },
         )
 
@@ -2231,7 +2232,6 @@ class Agent:
             recursion_stack=recursion_stack,
             metadata=metadata,
         )
-
         while exec_ctx["step"] < exec_ctx["max_steps"] and not self.stop_requested:
             exec_ctx["step"] += 1
             step = exec_ctx["step"]

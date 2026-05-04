@@ -56,11 +56,6 @@ class TestMCPDiscoveryIPC:
         GREEN TEST: Verify that dir(mcp) and docstrings work inside the agent.
         """
         project_root = Path(__file__).resolve().parent.parent.parent
-        # Ensure we point to the correct root
-        if not (project_root / "backend").exists():
-            # Try adjusting if we are deep
-            project_root = project_root.parent
-
         runtime = AgentRuntime(project_root)
 
         code = """
@@ -84,7 +79,7 @@ except Exception as e:
 """
         context = {"session_id": "test", "thought_id": "test"}
 
-        stdout, stderr, exit_code = await runtime.execute(
+        stdout, stderr, _result, exit_code = await runtime.execute(
             code, context=context, mcp_namespace=mock_mcp_namespace
         )
 
@@ -116,7 +111,7 @@ except Exception as e:
         # Ensure it behaves like a sync function for simplicity or async if needed
         # The runtime handles both.
 
-        stdout, stderr, exit_code = await runtime.execute(
+        stdout, stderr, _result, exit_code = await runtime.execute(
             code, context={}, mcp_namespace=mock_mcp_namespace
         )
 

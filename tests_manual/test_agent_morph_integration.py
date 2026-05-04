@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from graph_rlm.backend.src.core.agent import Agent
-from graph_rlm.backend.src.core.morphogenesis import MorphologicalMemory
+from graph_rlm.backend.src.core.thimac_memory import MorphologicalMemory
 
 
 class TestAgentMorphIntegration(unittest.IsolatedAsyncioTestCase):

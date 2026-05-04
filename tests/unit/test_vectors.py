@@ -3,11 +3,8 @@ import os
 import unittest
 import time
 
-# Adjust path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-
-from core.db import db
-from core.llm import llm
+from graph_rlm.backend.src.core.db import db
+from graph_rlm.backend.src.core.llm import llm
 
 class TestVectors(unittest.TestCase):
     def test_embedding_generation(self):
